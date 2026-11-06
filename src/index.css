@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #0A0A0A;
+    color: #FFFFFF;
+  }
+}
+
+/* Custom scrollbar and aesthetics */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Subtle dark scrollbar */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.subtle-dark-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.subtle-dark-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.subtle-dark-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+.subtle-dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.subtle-dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Dark dot grid background */
+.bg-grid-dots {
+  background-image: radial-gradient(#333 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Ensure native Google Maps controls (pan arrows, pegman, zoom buttons, keyboard shortcuts UI) are removed, while strictly preserving required Google logo, copyright, and Terms attribution */
+.gm-bundled-control,
+.gmnoprint:not(.gm-style-cc) {
+  display: none !important;
+}
+

@@ -1,0 +1,10 @@
+{
+  "name": "Heyroq",
+  "description": "Modern social location-based discovery platform to explore places, hidden gems, and community pins on an interactive map.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

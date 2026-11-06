@@ -1,0 +1,12 @@
+{
+  "projectId": "rainbyte-studio",
+  "appId": "1:856895300361:web:d8bfc48430c7f5241b69d8",
+  "apiKey": "AIzaSyAhuS1uhXPnsoIFt73L3gzcuFLuUvzK36U",
+  "authDomain": "rainbyte-studio.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+  "storageBucket": "rainbyte-studio.firebasestorage.app",
+  "messagingSenderId": "856895300361",
+  "measurementId": "",
+  "oAuthClientId": "856895300361-a93vgke0qc9kbvb8k2vd3ul2ft1cn5lq.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
+}

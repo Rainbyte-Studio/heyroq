@@ -1,0 +1,640 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { LatLngPoint, PinCategory, Pin } from '../../types';
+import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
+import { uploadMultipleImages } from '../../services/storageService';
+import { createPin } from '../../services/pinService';
+import { extractCityAndCountry } from '../../utils/footprintUtils';
+import { LocationAutocompleteInput } from './LocationAutocompleteInput';
+import {
+  X,
+  MapPin,
+  UploadCloud,
+  Image as ImageIcon,
+  Tag,
+  CheckCircle,
+  Eye,
+  AlertCircle,
+  Loader2,
+  Trash2,
+} from 'lucide-react';
+
+export interface CreatePinDraft {
+  title: string;
+  description: string;
+  category: PinCategory;
+  locationName: string;
+  tags: string[];
+  files: File[];
+  previewUrls: string[];
+  customLat: number;
+  customLng: number;
+}
+
+interface CreatePinModalProps {
+  onClose: () => void;
+  selectedLocation: LatLngPoint | null;
+  initialLocationName?: string;
+  onActivateMapPick: (currentDraft?: CreatePinDraft) => void;
+  onPinCreated: (newPinId: string) => void;
+  onLocationSelect?: (loc: LatLngPoint, locationName?: string) => void;
+  isPickingLocation?: boolean;
+  initialDraft?: CreatePinDraft | null;
+}
+
+const CATEGORIES: PinCategory[] = [
+  'Food',
+  'Travel',
+  'Nature',
+  'Events',
+  'Activities',
+  'Hidden Gems',
+  'Photography',
+  'Other',
+];
+
+export const CreatePinModal: React.FC<CreatePinModalProps> = ({
+  onClose,
+  selectedLocation,
+  initialLocationName,
+  onActivateMapPick,
+  onPinCreated,
+  onLocationSelect,
+  isPickingLocation = false,
+  initialDraft = null,
+}) => {
+  const { user, profile } = useAuth();
+
+  const [title, setTitle] = useState(initialDraft?.title || '');
+  const [description, setDescription] = useState(initialDraft?.description || '');
+  const [category, setCategory] = useState<PinCategory>(initialDraft?.category || 'Hidden Gems');
+  const [locationName, setLocationName] = useState(
+    initialDraft?.locationName || initialLocationName || ''
+  );
+  const [tagInput, setTagInput] = useState('');
+  const [tags, setTags] = useState<string[]>(initialDraft?.tags || []);
+  const [files, setFiles] = useState<File[]>(initialDraft?.files || []);
+  const [previewUrls, setPreviewUrls] = useState<string[]>(initialDraft?.previewUrls || []);
+  const [customLat, setCustomLat] = useState<number>(
+    selectedLocation?.lat ?? initialDraft?.customLat ?? 37.7749
+  );
+  const [customLng, setCustomLng] = useState<number>(
+    selectedLocation?.lng ?? initialDraft?.customLng ?? -122.4194
+  );
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync selectedLocation if updated from map click
+  useEffect(() => {
+    if (selectedLocation) {
+      setCustomLat(selectedLocation.lat);
+      setCustomLng(selectedLocation.lng);
+    }
+  }, [selectedLocation]);
+
+  // Sync initialLocationName if updated externally (e.g. reverse geocoding from map click)
+  useEffect(() => {
+    if (initialLocationName) {
+      setLocationName(initialLocationName);
+    }
+  }, [initialLocationName]);
+
+  // Sync initialDraft when updated externally
+  useEffect(() => {
+    if (initialDraft) {
+      if (initialDraft.title !== undefined) setTitle(initialDraft.title);
+      if (initialDraft.description !== undefined) setDescription(initialDraft.description);
+      if (initialDraft.category) setCategory(initialDraft.category);
+      if (initialDraft.tags) setTags(initialDraft.tags);
+      if (initialDraft.files) setFiles(initialDraft.files);
+      if (initialDraft.previewUrls) setPreviewUrls(initialDraft.previewUrls);
+      if (initialDraft.locationName) setLocationName(initialDraft.locationName);
+      if (initialDraft.customLat !== undefined && !selectedLocation) setCustomLat(initialDraft.customLat);
+      if (initialDraft.customLng !== undefined && !selectedLocation) setCustomLng(initialDraft.customLng);
+    }
+  }, [initialDraft]);
+
+  const handleAutocompleteLocationSelect = (loc: {
+    locationName: string;
+    latitude: number;
+    longitude: number;
+  }) => {
+    setLocationName(loc.locationName);
+    setCustomLat(loc.latitude);
+    setCustomLng(loc.longitude);
+    onLocationSelect?.({ lat: loc.latitude, lng: loc.longitude }, loc.locationName);
+  };
+
+  const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
+    if ('key' in e && e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const clean = tagInput.trim().replace(/^#/, '').toLowerCase();
+    if (clean && !tags.includes(clean)) {
+      setTags([...tags, clean]);
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter((t) => t !== tagToRemove));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selected = Array.from(e.target.files) as File[];
+      setFiles((prev) => [...prev, ...selected]);
+
+      const newUrls = selected.map((file) => URL.createObjectURL(file));
+      setPreviewUrls((prev) => [...prev, ...newUrls]);
+    }
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setErrorMsg(null);
+
+    if (!title.trim()) {
+      setErrorMsg('Please provide a title for your pin.');
+      return;
+    }
+
+    if (!description.trim()) {
+      setErrorMsg('Please describe what makes this spot unique.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    console.log('[CreatePinModal] Starting pin publish flow. Files count:', files.length);
+    try {
+      // 1. Upload photos to Firebase Storage
+      let uploadedUrls: string[] = [];
+      if (files.length > 0) {
+        console.log('[CreatePinModal] Step 1: Uploading photos to Firebase Storage...');
+        uploadedUrls = await uploadMultipleImages(files, user.uid);
+        console.log('[CreatePinModal] Step 1 Complete: Photos uploaded successfully:', uploadedUrls);
+      } else {
+        // Sample default image matching category if no photo was uploaded
+        uploadedUrls = [
+          'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1000&auto=format&fit=crop&q=80',
+        ];
+      }
+
+      // Extract structured geographic metadata for normalization
+      const geo = extractCityAndCountry({
+        id: '',
+        userId: user.uid,
+        userName: '',
+        title: title.trim(),
+        description: description.trim(),
+        latitude: customLat,
+        longitude: customLng,
+        locationName: locationName.trim() || undefined,
+        category,
+        tags,
+        imageUrls: uploadedUrls,
+        likeCount: 0,
+        commentCount: 0,
+        createdAt: new Date().toISOString(),
+      });
+
+      // 2. Publish to Firestore
+      console.log('[CreatePinModal] Step 2: Creating pin document in Firestore...');
+      const newPinId = await createPin({
+        userId: user.uid,
+        userName: profile?.displayName || user.email?.split('@')[0] || 'Explorer',
+        userAvatar: profile?.avatarUrl,
+        title: title.trim(),
+        description: description.trim(),
+        latitude: customLat,
+        longitude: customLng,
+        locationName: locationName.trim() || undefined,
+        countryCode: geo.countryCode,
+        countryName: geo.country,
+        city: geo.city,
+        category,
+        tags,
+        imageUrls: uploadedUrls,
+      });
+      console.log('[CreatePinModal] Step 2 Complete: Pin document created with ID:', newPinId);
+
+      onPinCreated(newPinId);
+      onClose();
+    } catch (err: any) {
+      console.error('[CreatePinModal] Failed to publish pin:', err);
+      setErrorMsg(err.message || 'Failed to create pin. Please check your inputs.');
+    } finally {
+      console.log('[CreatePinModal] Resetting isSubmitting in finally block.');
+      setIsSubmitting(false);
+    }
+  };
+
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  const hasUnsavedChanges = Boolean(
+    title.trim() ||
+    description.trim() ||
+    files.length > 0 ||
+    (locationName && locationName.trim())
+  );
+
+  const handleAttemptClose = () => {
+    if (isSubmitting) return;
+    if (hasUnsavedChanges) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  // Keyboard navigation & Escape key dismiss
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isPickingLocation) return;
+      if (e.key === 'Escape') {
+        if (showDiscardConfirm) {
+          setShowDiscardConfirm(false);
+        } else {
+          handleAttemptClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDiscardConfirm, hasUnsavedChanges, isSubmitting, onClose, isPickingLocation]);
+
+  if (isPickingLocation) {
+    return null;
+  }
+
+  return (
+    <div
+      onClick={handleAttemptClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-2xl animate-in fade-in"
+    >
+      <div
+        id="create-pin-modal"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#0E0E0E] rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden shadow-2xl flex flex-col border border-white/20 text-white relative"
+      >
+        {/* Discard Confirmation Overlay */}
+        {showDiscardConfirm && (
+          <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md rounded-[28px] sm:rounded-[32px] p-6 flex flex-col items-center justify-center text-center animate-in fade-in">
+            <div className="w-12 h-12 rounded-full bg-[#FF5F40]/10 border border-[#FF5F40]/30 flex items-center justify-center mb-4 text-[#FF5F40]">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-black uppercase tracking-tight text-white mb-2">Discard Pin Draft?</h3>
+            <p className="text-xs text-white/60 max-w-xs mb-6">
+              You have unsaved details that will be lost if you leave now.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDiscardConfirm(false)}
+                className="px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider text-white bg-white/10 hover:bg-white/20 transition cursor-pointer"
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-500 transition cursor-pointer"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-5 border-b border-white/10 flex items-center justify-between bg-black/40">
+          <div className="min-w-0 pr-2">
+            <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white truncate">Share a Discovery</h2>
+            <p className="text-[11px] sm:text-xs text-white/50 mt-0.5 line-clamp-1">
+              Pin an unforgettable spot or food secret on the Heyroq social map
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsPreviewMode(!isPreviewMode)}
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider text-white bg-white/10 hover:bg-white/20 border border-white/20 transition flex items-center gap-1 cursor-pointer min-h-[36px]"
+            >
+              <Eye className="w-3.5 h-3.5 text-[#FF5F40]" />
+              <span>{isPreviewMode ? 'Edit' : 'Preview'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleAttemptClose}
+              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {errorMsg && (
+          <div className="mx-4 sm:mx-6 mt-4 p-3.5 bg-red-950/80 border border-red-500/40 text-red-300 rounded-2xl text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5 no-scrollbar">
+          {isPreviewMode ? (
+            /* Live Pin Preview */
+            <div className="space-y-4 max-w-md mx-auto py-2">
+              <div className="text-[10px] font-black uppercase tracking-widest text-white/40 text-center">
+                Live Preview
+              </div>
+              <div className="bg-[#141414] rounded-[32px] border border-white/20 shadow-2xl overflow-hidden">
+                <div className="h-48 bg-black relative">
+                  {previewUrls.length > 0 ? (
+                    <img
+                      src={previewUrls[0]}
+                      alt="Preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-white/40 gap-1">
+                      <ImageIcon className="w-8 h-8 opacity-40" />
+                      <span className="text-xs">No photo uploaded yet</span>
+                    </div>
+                  )}
+                  <div className="absolute top-3 left-3">
+                    <CategoryBadge category={category} size="sm" />
+                  </div>
+                </div>
+                <div className="p-5">
+                  <h3 className="font-black text-lg uppercase tracking-tight text-white">{title || 'Pin Title'}</h3>
+                  <p className="text-xs text-white/60 mt-1 line-clamp-2 leading-relaxed">
+                    {description || 'Your description will appear here...'}
+                  </p>
+                  <div className="flex items-center gap-1 mt-3 text-[11px] font-bold text-white/40">
+                    <MapPin className="w-3.5 h-3.5 text-[#FF5F40]" />
+                    <span>
+                      {locationName || `${customLat.toFixed(4)}, ${customLng.toFixed(4)}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Form Fields */
+            <form id="create-pin-form" onSubmit={handleSubmit} className="space-y-5">
+              {/* Step 1: Location selection */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] font-black text-white/60 uppercase tracking-widest flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-[#FF5F40]" />
+                    <span>1. Location Coordinates</span>
+                  </label>
+                  <button
+                    id="click-on-map-to-pick-btn"
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onActivateMapPick({
+                        title,
+                        description,
+                        category,
+                        locationName,
+                        tags,
+                        files,
+                        previewUrls,
+                        customLat,
+                        customLng,
+                      });
+                    }}
+                    className="text-[10px] text-[#FF5F40] hover:underline font-black uppercase tracking-wider cursor-pointer"
+                  >
+                    Click on Map to Pick
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="relative">
+                    <span className="text-[10px] font-bold text-white/40 uppercase">Location / City Name</span>
+                    <div className="mt-1">
+                      <LocationAutocompleteInput
+                        value={locationName}
+                        onChange={setLocationName}
+                        onLocationSelect={handleAutocompleteLocationSelect}
+                        placeholder="e.g. Tromsø, Norway or Montmartre"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-white/40 uppercase">Latitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customLat}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCustomLat(val);
+                        onLocationSelect?.({ lat: val, lng: customLng }, locationName);
+                      }}
+                      className="w-full mt-1 px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-white/40 uppercase">Longitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customLng}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCustomLng(val);
+                        onLocationSelect?.({ lat: customLat, lng: val }, locationName);
+                      }}
+                      className="w-full mt-1 px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2: Upload Photos */}
+              <div>
+                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-2">
+                  2. Photos
+                </label>
+                <div className="border-2 border-dashed border-white/20 hover:border-white/40 rounded-2xl p-5 text-center cursor-pointer transition bg-white/5 relative">
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  />
+                  <UploadCloud className="w-8 h-8 text-[#FF5F40] mx-auto mb-1.5" />
+                  <p className="text-xs font-black uppercase tracking-wider text-white">
+                    Click to browse or drop photos here
+                  </p>
+                  <p className="text-[10px] text-white/40 mt-0.5">
+                    PNG, JPG, WebP up to 10MB each
+                  </p>
+                </div>
+
+                {/* Previews */}
+                {previewUrls.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {previewUrls.map((url, i) => (
+                      <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/20 group">
+                        <img src={url} alt="" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(i)}
+                          className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 3: Title */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-black text-white/60 uppercase tracking-widest">
+                    3. Title
+                  </label>
+                  <span className="text-[10px] font-mono text-white/40">{title.length}/140</span>
+                </div>
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Hidden Rooftop Speakeasy with Skyline Views"
+                  className="w-full px-4 py-2.5 text-base sm:text-sm bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition"
+                  required
+                />
+              </div>
+
+              {/* Step 4: Category */}
+              <div>
+                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-2">
+                  4. Category
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CATEGORIES.map((cat) => (
+                    <CategoryBadge
+                      key={cat}
+                      category={cat}
+                      size="sm"
+                      active={category === cat}
+                      onClick={() => setCategory(cat)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 5: Description */}
+              <div>
+                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
+                  5. Description & Tips
+                </label>
+                <textarea
+                  rows={3}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="What makes this place special? Any secret entrance, best time to visit, or signature dishes?"
+                  className="w-full px-4 py-2.5 text-base sm:text-sm bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition resize-none"
+                  required
+                />
+              </div>
+
+              {/* Step 6: Tags */}
+              <div>
+                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
+                  6. Tags
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag className="w-4 h-4 text-white/40 absolute left-3 top-3.5" />
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={handleAddTag}
+                      placeholder="e.g. sunset, coffee, vegan (press enter)"
+                      className="w-full pl-9 pr-4 py-2 text-base sm:text-xs bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] min-h-[40px]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddTag}
+                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer border border-white/20 min-h-[40px] flex items-center"
+                  >
+                    Add
+                  </button>
+                </div>
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {tags.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-white/10 text-white/90 px-3 py-1 rounded-full border border-white/20"
+                      >
+                        <span>#{t}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(t)}
+                          className="hover:text-[#FF5F40] cursor-pointer ml-0.5"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-white/10 flex items-center justify-end gap-2 sm:gap-3 bg-black/40 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 sm:px-5 py-2 text-xs font-black uppercase tracking-wider text-white/60 hover:text-white cursor-pointer min-h-[40px]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="create-pin-form"
+            disabled={isSubmitting}
+            className="px-5 sm:px-6 py-2.5 bg-[#FF5F40] hover:bg-[#ff7256] text-white rounded-full text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(255,95,64,0.4)] flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer min-h-[40px]"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Publishing Pin...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4" />
+                <span>Publish Pin</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
