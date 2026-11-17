@@ -3,6 +3,7 @@
     {
       "collectionGroup": "pins",
       "queryScope": "COLLECTION",
+      "density": "DENSE",
       "fields": [
         {
           "fieldPath": "category",
@@ -17,6 +18,7 @@
     {
       "collectionGroup": "pins",
       "queryScope": "COLLECTION",
+      "density": "DENSE",
       "fields": [
         {
           "fieldPath": "category",
@@ -27,28 +29,29 @@
           "order": "DESCENDING"
         }
       ]
-    }
-  ],
-  "fieldOverrides": [
+    },
     {
       "collectionGroup": "likes",
-      "fieldPath": "userId",
-      "indexes": [
+      "queryScope": "COLLECTION_GROUP",
+      "density": "DENSE",
+      "fields": [
         {
-          "order": "ASCENDING",
-          "queryScope": "COLLECTION_GROUP"
+          "fieldPath": "userId",
+          "order": "ASCENDING"
         }
       ]
     },
     {
       "collectionGroup": "comments",
-      "fieldPath": "userId",
-      "indexes": [
+      "queryScope": "COLLECTION_GROUP",
+      "density": "DENSE",
+      "fields": [
         {
-          "order": "ASCENDING",
-          "queryScope": "COLLECTION_GROUP"
+          "fieldPath": "userId",
+          "order": "ASCENDING"
         }
       ]
     }
-  ]
+  ],
+  "fieldOverrides": []
 }
