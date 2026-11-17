@@ -121,3 +121,11 @@ describe('Public profile email privacy', () => {
     await assertFails(updateDoc(doc(alice(), 'users/alice'), { email: 'alice@example.test' }));
   });
 });
+
+describe('Admin cannot reintroduce public emails', () => {
+  it('rejects admin adding email to an existing profile', async () => {
+    await seedAlice();
+    const adminDb = env.authenticatedContext('admin', { admin: true }).firestore();
+    await assertFails(updateDoc(doc(adminDb, 'users/alice'), { email: 'alice@example.test' }));
+  });
+});
