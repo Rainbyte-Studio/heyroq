@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import {
@@ -903,7 +904,9 @@ export const onPinDeleted = onDocumentDeleted(
 
       if (pinData?.imageUrls && Array.isArray(pinData.imageUrls)) {
         for (const url of pinData.imageUrls) {
-          const storagePath = extractStoragePathFromUrl(url, 'pin-images/');
+          const storagePath = pinData?.userId
+            ? extractStoragePathFromUrl(url, `pins/${pinData.userId}/`)
+            : null;
           if (storagePath) {
             try {
               await storage.bucket().file(storagePath).delete();
@@ -1040,8 +1043,20 @@ export const deleteUserAccount = onCall(
         console.warn(`Error deleting avatar files for user ${userId}:`, stErr);
       }
 
+      // Remove the user's remaining pin images, including uploads not attached to a pin.
+      // A missing bucket or transient Storage error must not silently be reported as success.
+      await storage.bucket().deleteFiles({ prefix: `pins/${userId}/` });
+
       const userRef = db.collection('users').doc(userId);
       await db.recursiveDelete(userRef);
+
+      // Revoke access last, after the primary data cleanup has succeeded.
+      // This operation is idempotent for a retried deletion request.
+      try {
+        await getAuth().deleteUser(userId);
+      } catch (authErr: any) {
+        if (authErr?.code !== 'auth/user-not-found') throw authErr;
+      }
 
       return { success: true, message: `Account and associated data deleted for user ${userId}` };
     } catch (err: any) {
