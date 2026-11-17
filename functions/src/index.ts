@@ -1030,6 +1030,26 @@ export const deleteUserAccount = onCall(
         }
       }
 
+      // Remove both sides of each follow relationship. The user's own
+      // subcollections are the authoritative source for the mirror document IDs.
+      const departingUserRef = db.collection('users').doc(userId);
+      for (const relationship of ['following', 'followers'] as const) {
+        while (true) {
+          const relationships = await departingUserRef.collection(relationship).limit(200).get();
+          if (relationships.empty) break;
+          const batch = db.batch();
+          for (const entry of relationships.docs) {
+            const otherUserId = entry.id;
+            const counterpart = relationship === 'following'
+              ? db.collection('users').doc(otherUserId).collection('followers').doc(userId)
+              : db.collection('users').doc(otherUserId).collection('following').doc(userId);
+            batch.delete(counterpart);
+            batch.delete(entry.ref);
+          }
+          await batch.commit();
+        }
+      }
+
       const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
       for (const pinDoc of userPinsSnapshot.docs) {
         await pinDoc.ref.delete();
