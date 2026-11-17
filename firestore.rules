@@ -129,7 +129,9 @@ service cloud.firestore {
 
       // Only the authenticated owner may update their own profile (or admin)
       // Users can NEVER modify another user's profile, nor modify protected fields
-      allow update: if isValidUserUpdate(userId) || isAdmin();
+      allow update: if (isValidUserUpdate(userId) || isAdmin()) &&
+                    !request.resource.data.diff(resource.data).addedKeys().hasAny(['email']) &&
+                    !request.resource.data.diff(resource.data).changedKeys().hasAny(['email']);
 
       // Only owner or admin may delete profile
       allow delete: if isOwner(userId) || isAdmin();
