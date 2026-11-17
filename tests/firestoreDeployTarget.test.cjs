@@ -9,3 +9,16 @@ test('Firebase deploy configuration targets the exact Heyroq named database', ()
   assert.equal(config.firestore.rules, 'firestore.rules');
   assert.equal(config.firestore.indexes, 'firestore.indexes.json');
 });
+
+test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () => {
+  const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../firestore.indexes.json'), 'utf8'));
+  assert.deepEqual(config.fieldOverrides || [], []);
+  assert.equal(config.indexes.length, 4);
+  for (const index of config.indexes) assert.equal(index.density, 'DENSE');
+  for (const collectionGroup of ['likes', 'comments']) {
+    assert.ok(config.indexes.some((index) => index.collectionGroup === collectionGroup &&
+      index.queryScope === 'COLLECTION_GROUP' && index.fields.length === 1 &&
+      index.fields[0].fieldPath === 'userId' && index.fields[0].order === 'ASCENDING'));
+  }
+});
+
