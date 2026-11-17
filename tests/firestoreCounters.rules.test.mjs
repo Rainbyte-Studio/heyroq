@@ -27,6 +27,9 @@ const pin = (overrides = {}) => ({
 });
 const alice = () => env.authenticatedContext('alice').firestore();
 const bob = () => env.authenticatedContext('bob').firestore();
+const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
+  await setDoc(doc(context.firestore(), 'users/alice'), profile());
+});
 
 describe('Firestore create-time server counter protection', () => {
   it('allows legitimate profile creation with zero counters', async () => {
@@ -45,21 +48,26 @@ describe('Firestore create-time server counter protection', () => {
     await assertFails(setDoc(doc(bob(), 'users/alice'), profile()));
   });
   it('allows legitimate pin creation with zero counters', async () => {
+    await seedAlice();
     await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), pin()));
   });
   it('allows pin creation with counters omitted', async () => {
+    await seedAlice();
     const { likeCount, commentCount, ...withoutCounters } = pin();
     await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), withoutCounters));
   });
   for (const field of ['likeCount', 'commentCount']) {
     it(`rejects forged pin ${field}`, async () => {
+      await seedAlice();
       await assertFails(setDoc(doc(alice(), 'pins/spot1'), pin({ [field]: 100000 })));
     });
   }
   it('rejects pin creation by a different user', async () => {
+    await seedAlice();
     await assertFails(setDoc(doc(bob(), 'pins/spot1'), pin()));
   });
   it('rejects client update of existing pin counters', async () => {
+    await seedAlice();
     await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), pin()));
     await assertFails(updateDoc(doc(alice(), 'pins/spot1'), { likeCount: 100000 }));
   });
