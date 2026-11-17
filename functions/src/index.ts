@@ -317,8 +317,32 @@ export async function updateUserProgressionServer(userId: string) {
     }
   }
 
+  // Award discovery XP once per physical location, even after a pin is deleted.
+  // Quantize to roughly 100m cells to prevent trivial coordinate jitter farming.
+  // Existing ledger entries without a fingerprint are preserved unchanged.
+  const earnedLocationKeys = new Set<string>();
+  existingEventsSnap.forEach((doc) => {
+    if (doc.data()?.action === 'PIN_CREATED' && typeof doc.data()?.locationKey === 'string') {
+      earnedLocationKeys.add(doc.data().locationKey);
+    }
+  });
+  const locationKeyForPin = (pin: any): string | null => {
+    const lat = Number(pin.latitude);
+    const lng = Number(pin.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return `${Math.round(lat * 1000)}:${Math.round(lng * 1000)}`;
+  };
+
   // Spots creation (+50 XP each)
-  validPins.forEach((pin) => {
+  // Stable ordering makes duplicate-location decisions deterministic.
+  [...validPins].sort((a, b) =>
+    String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+    String(a.id).localeCompare(String(b.id))
+  ).forEach((pin) => {
+    const locationKey = locationKeyForPin(pin);
+    if (!locationKey || earnedLocationKeys.has(locationKey)) return;
+    earnedLocationKeys.add(locationKey);
     const eventId = getPinCreatedEventId(pin.id);
     if (!existingEventIds.has(eventId)) {
       pendingXpEvents.push({
@@ -328,6 +352,7 @@ export async function updateUserProgressionServer(userId: string) {
           userId,
           action: 'PIN_CREATED',
           referenceId: pin.id,
+          locationKey,
           xpEarned: PROGRESSION_CONSTANTS.BASE_DISCOVERY_XP,
           description: `Discovered: ${pin.title || 'Spot'}`,
           createdAt: pin.createdAt || new Date().toISOString(),
