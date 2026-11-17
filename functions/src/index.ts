@@ -1016,6 +1016,20 @@ export const deleteUserAccount = onCall(
     console.log(`Starting account deletion for user: ${userId}`);
 
     try {
+      // Remove the account's reactions and comments on other users' pins before
+      // revoking its Auth identity. Only documents whose userId matches are deleted.
+      // This intentionally preserves likes/comments authored by other users.
+      for (const collectionName of ['likes', 'comments'] as const) {
+        while (true) {
+          const authored = await db.collectionGroup(collectionName)
+            .where('userId', '==', userId).limit(200).get();
+          if (authored.empty) break;
+          const batch = db.batch();
+          authored.docs.forEach((entry) => batch.delete(entry.ref));
+          await batch.commit();
+        }
+      }
+
       const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
       for (const pinDoc of userPinsSnapshot.docs) {
         await pinDoc.ref.delete();
