@@ -1016,6 +1016,13 @@ export const deleteUserAccount = onCall(
     console.log(`Starting account deletion for user: ${userId}`);
 
     try {
+      // Persist a server-owned deletion lock before any destructive operation.
+      // Firestore rules deny new client content and profile recreation while it exists.
+      await db.collection('accountDeletionLocks').doc(userId).set({
+        status: 'deleting',
+        startedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
       // Remove the account's reactions and comments on other users' pins before
       // revoking its Auth identity. Only documents whose userId matches are deleted.
       // This intentionally preserves likes/comments authored by other users.
