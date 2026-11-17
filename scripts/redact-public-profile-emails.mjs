@@ -5,14 +5,24 @@
  * Use --apply only after reviewing the dry-run count.
  */
 import { initializeApp } from 'firebase-admin/app';
+
+const EXPECTED_PROJECT_ID = 'rainbyte-studio';
+const EXPECTED_DATABASE_ID = 'ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 const databaseId = process.env.FIRESTORE_DATABASE_ID;
-if (!databaseId || databaseId === '(default)') {
-  throw new Error('Set FIRESTORE_DATABASE_ID to the explicit named Heyroq database.');
+if (databaseId !== EXPECTED_DATABASE_ID) {
+  throw new Error('Refusing migration: FIRESTORE_DATABASE_ID must match the exact Heyroq named database.');
+}
+const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID;
+if (projectId !== EXPECTED_PROJECT_ID) {
+  throw new Error('Refusing migration: explicitly set GOOGLE_CLOUD_PROJECT=rainbyte-studio.');
+}
+if (process.argv.includes('--apply') && !process.argv.includes('--confirm-project=rainbyte-studio')) {
+  throw new Error('Applying changes requires --confirm-project=rainbyte-studio.');
 }
 const apply = process.argv.includes('--apply');
-initializeApp();
+initializeApp({ projectId: EXPECTED_PROJECT_ID });
 const db = getFirestore(databaseId);
 let cursor;
 let scanned = 0;
