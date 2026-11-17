@@ -2,205 +2,500 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile document",
+      "description": "Public user profile document. Authentication email belongs to Firebase Authentication and must not be stored in publicly readable user profiles.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string", "maxLength": 128 },
-        "username": { "type": "string", "maxLength": 50 },
-        "displayName": { "type": "string", "maxLength": 100 },
-        "email": { "type": "string", "maxLength": 200 },
-        "photoURL": { "type": "string", "maxLength": 2000 },
-        "avatarUrl": { "type": "string", "maxLength": 2000 },
-        "bio": { "type": "string", "maxLength": 500 },
-        "createdAt": { "type": "string" },
-        "updatedAt": { "type": "string" },
-        "followersCount": { "type": "number" },
-        "followingCount": { "type": "number" },
-        "pinsCount": { "type": "number" },
-        "role": { "type": "string", "enum": ["user", "admin"] }
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "username": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "followersCount": {
+          "type": "number"
+        },
+        "followingCount": {
+          "type": "number"
+        },
+        "pinsCount": {
+          "type": "number"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "admin"
+          ]
+        }
       },
-      "required": ["uid", "username", "displayName", "email", "createdAt", "updatedAt"]
+      "required": [
+        "uid",
+        "username",
+        "displayName",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "Pin": {
       "title": "Pin",
       "description": "Location-based pin discovery post",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "userName": { "type": "string", "maxLength": 100 },
-        "userAvatar": { "type": "string", "maxLength": 2000 },
-        "title": { "type": "string", "maxLength": 140 },
-        "description": { "type": "string", "maxLength": 2000 },
-        "latitude": { "type": "number" },
-        "longitude": { "type": "number" },
-        "geohash": { "type": "string", "maxLength": 20 },
-        "locationName": { "type": "string", "maxLength": 200 },
-        "category": { "type": "string", "maxLength": 50 },
-        "tags": { "type": "array" },
-        "imageUrls": { "type": "array" },
-        "likeCount": { "type": "number" },
-        "commentCount": { "type": "number" },
-        "createdAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "userAvatar": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        },
+        "geohash": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "locationName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "tags": {
+          "type": "array"
+        },
+        "imageUrls": {
+          "type": "array"
+        },
+        "likeCount": {
+          "type": "number"
+        },
+        "commentCount": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
       },
-      "required": ["userId", "title", "description", "latitude", "longitude", "category", "createdAt"]
+      "required": [
+        "userId",
+        "title",
+        "description",
+        "latitude",
+        "longitude",
+        "category",
+        "createdAt"
+      ]
     },
     "Comment": {
       "title": "Comment",
       "description": "Comment on a pin",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "userName": { "type": "string", "maxLength": 100 },
-        "userAvatar": { "type": "string", "maxLength": 2000 },
-        "text": { "type": "string", "maxLength": 1000 },
-        "createdAt": { "type": "string" }
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "userAvatar": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["userId", "text", "createdAt"]
+      "required": [
+        "userId",
+        "text",
+        "createdAt"
+      ]
     },
     "Like": {
       "title": "Like",
       "description": "Record of user liking a pin",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "createdAt": { "type": "string" }
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["userId", "createdAt"]
+      "required": [
+        "userId",
+        "createdAt"
+      ]
     },
     "Follow": {
       "title": "Follow",
       "description": "User follow relationship",
       "type": "object",
       "properties": {
-        "followerId": { "type": "string", "maxLength": 128 },
-        "followingId": { "type": "string", "maxLength": 128 },
-        "createdAt": { "type": "string" }
+        "followerId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "followingId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["followerId", "followingId", "createdAt"]
+      "required": [
+        "followerId",
+        "followingId",
+        "createdAt"
+      ]
     },
     "Report": {
       "title": "Report",
       "description": "Moderation report for pins or comments",
       "type": "object",
       "properties": {
-        "reporterId": { "type": "string", "maxLength": 128 },
-        "targetType": { "type": "string", "enum": ["pin", "comment", "user"] },
-        "targetId": { "type": "string", "maxLength": 128 },
-        "pinId": { "type": "string", "maxLength": 128 },
-        "reason": { "type": "string", "maxLength": 200 },
-        "details": { "type": "string", "maxLength": 1000 },
-        "status": { "type": "string", "enum": ["pending", "resolved", "dismissed"] },
-        "createdAt": { "type": "string" }
+        "reporterId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "targetType": {
+          "type": "string",
+          "enum": [
+            "pin",
+            "comment",
+            "user"
+          ]
+        },
+        "targetId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "pinId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "resolved",
+            "dismissed"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["reporterId", "targetType", "targetId", "reason", "createdAt", "status"]
+      "required": [
+        "reporterId",
+        "targetType",
+        "targetId",
+        "reason",
+        "createdAt",
+        "status"
+      ]
     },
     "UserProgressionSummary": {
       "title": "UserProgressionSummary",
       "description": "User explorer progression and level summary",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "xp": { "type": "number" },
-        "level": { "type": "number" },
-        "title": { "type": "string", "maxLength": 100 },
-        "nextLevelXp": { "type": "number" },
-        "currentLevelBaseXp": { "type": "number" },
-        "progressPercent": { "type": "number" },
-        "totalSpotsCount": { "type": "number" },
-        "citiesCount": { "type": "number" },
-        "countriesCount": { "type": "number" },
-        "likesReceivedCount": { "type": "number" },
-        "followersCount": { "type": "number" },
-        "unlockedAchievementsCount": { "type": "number" },
-        "totalAchievementsCount": { "type": "number" },
-        "updatedAt": { "type": "string" }
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "xp": {
+          "type": "number"
+        },
+        "level": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "nextLevelXp": {
+          "type": "number"
+        },
+        "currentLevelBaseXp": {
+          "type": "number"
+        },
+        "progressPercent": {
+          "type": "number"
+        },
+        "totalSpotsCount": {
+          "type": "number"
+        },
+        "citiesCount": {
+          "type": "number"
+        },
+        "countriesCount": {
+          "type": "number"
+        },
+        "likesReceivedCount": {
+          "type": "number"
+        },
+        "followersCount": {
+          "type": "number"
+        },
+        "unlockedAchievementsCount": {
+          "type": "number"
+        },
+        "totalAchievementsCount": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
       },
-      "required": ["userId", "xp", "level", "title", "updatedAt"]
+      "required": [
+        "userId",
+        "xp",
+        "level",
+        "title",
+        "updatedAt"
+      ]
     },
     "UserAchievement": {
       "title": "UserAchievement",
       "description": "Individual achievement state for a user",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "maxLength": 100 },
-        "title": { "type": "string", "maxLength": 100 },
-        "description": { "type": "string", "maxLength": 500 },
-        "category": { "type": "string", "enum": ["Exploration", "Geography", "Discovery", "Community", "Special"] },
-        "iconName": { "type": "string", "maxLength": 50 },
-        "tier": { "type": "string", "enum": ["bronze", "silver", "gold", "platinum"] },
-        "xpReward": { "type": "number" },
-        "progress": { "type": "number" },
-        "target": { "type": "number" },
-        "isUnlocked": { "type": "boolean" },
-        "unlockedAt": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "id": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Exploration",
+            "Geography",
+            "Discovery",
+            "Community",
+            "Special"
+          ]
+        },
+        "iconName": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "bronze",
+            "silver",
+            "gold",
+            "platinum"
+          ]
+        },
+        "xpReward": {
+          "type": "number"
+        },
+        "progress": {
+          "type": "number"
+        },
+        "target": {
+          "type": "number"
+        },
+        "isUnlocked": {
+          "type": "boolean"
+        },
+        "unlockedAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
       },
-      "required": ["id", "title", "category", "target", "isUnlocked", "updatedAt"]
+      "required": [
+        "id",
+        "title",
+        "category",
+        "target",
+        "isUnlocked",
+        "updatedAt"
+      ]
     },
     "XpEvent": {
       "title": "XpEvent",
       "description": "Idempotent ledger event for XP awarded",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "maxLength": 128 },
-        "userId": { "type": "string", "maxLength": 128 },
-        "action": { "type": "string", "maxLength": 100 },
-        "referenceId": { "type": "string", "maxLength": 128 },
-        "xpEarned": { "type": "number" },
-        "description": { "type": "string", "maxLength": 200 },
-        "createdAt": { "type": "string" }
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "referenceId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "xpEarned": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string"
+        }
       },
-      "required": ["userId", "action", "xpEarned", "createdAt"]
+      "required": [
+        "userId",
+        "action",
+        "xpEarned",
+        "createdAt"
+      ]
     },
     "TestConnection": {
       "title": "TestConnection",
       "description": "Health check connection test document",
       "type": "object",
       "properties": {
-        "status": { "type": "string" }
+        "status": {
+          "type": "string"
+        }
       }
     }
   },
   "firestore": {
     "/users/{userId}": {
-      "schema": { "$ref": "#/entities/User" },
+      "schema": {
+        "$ref": "#/entities/User"
+      },
       "description": "User profile document"
     },
     "/users/{userId}/progression/{docId}": {
-      "schema": { "$ref": "#/entities/UserProgressionSummary" },
+      "schema": {
+        "$ref": "#/entities/UserProgressionSummary"
+      },
       "description": "User progression summary document (docId='summary')"
     },
     "/users/{userId}/achievements/{achievementId}": {
-      "schema": { "$ref": "#/entities/UserAchievement" },
+      "schema": {
+        "$ref": "#/entities/UserAchievement"
+      },
       "description": "User achievements"
     },
     "/users/{userId}/xpEvents/{eventId}": {
-      "schema": { "$ref": "#/entities/XpEvent" },
+      "schema": {
+        "$ref": "#/entities/XpEvent"
+      },
       "description": "User XP reward event ledger"
     },
     "/pins/{pinId}": {
-      "schema": { "$ref": "#/entities/Pin" },
+      "schema": {
+        "$ref": "#/entities/Pin"
+      },
       "description": "Location pins"
     },
     "/pins/{pinId}/comments/{commentId}": {
-      "schema": { "$ref": "#/entities/Comment" },
+      "schema": {
+        "$ref": "#/entities/Comment"
+      },
       "description": "Comments under a pin"
     },
     "/pins/{pinId}/likes/{userId}": {
-      "schema": { "$ref": "#/entities/Like" },
+      "schema": {
+        "$ref": "#/entities/Like"
+      },
       "description": "Likes on a pin"
     },
     "/users/{userId}/followers/{followerId}": {
-      "schema": { "$ref": "#/entities/Follow" },
+      "schema": {
+        "$ref": "#/entities/Follow"
+      },
       "description": "Followers of a user"
     },
     "/reports/{reportId}": {
-      "schema": { "$ref": "#/entities/Report" },
+      "schema": {
+        "$ref": "#/entities/Report"
+      },
       "description": "Moderation reports"
     },
     "/test/{docId}": {
-      "schema": { "$ref": "#/entities/TestConnection" },
+      "schema": {
+        "$ref": "#/entities/TestConnection"
+      },
       "description": "Health check and connection verification endpoint"
     }
   }
