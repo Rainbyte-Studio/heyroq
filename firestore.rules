@@ -20,6 +20,13 @@ service cloud.firestore {
              request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
+    // Stop authenticated clients from creating new data while account deletion runs.
+    function isActiveUser(userId) {
+      return !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId)) &&
+             exists(/databases/$(database)/documents/users/$(userId)) &&
+             get(/databases/$(database)/documents/users/$(userId)).data.get('deletionStatus', '') != 'deleting';
+    }
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -43,6 +50,7 @@ service cloud.firestore {
         (!('role' in data) || data.role == 'user' || isAdmin()) &&
         !('admin' in data) &&
         !('isAdmin' in data) &&
+        !('deletionStatus' in data) &&
         !('permissions' in data) &&
         (!('followersCount' in data) || data.followersCount == 0) &&
         (!('followingCount' in data) || data.followingCount == 0) &&
@@ -53,10 +61,10 @@ service cloud.firestore {
     // User profile update validation: strictly prevent modifying protected fields and server counters
     function isValidUserUpdate(userId) {
       return (
-        isOwner(userId) &&
+        isOwner(userId) && isActiveUser(userId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'uid', 'role', 'admin', 'isAdmin', 'permissions', 'createdAt',
-          'followersCount', 'followingCount', 'pinsCount'
+          'followersCount', 'followingCount', 'pinsCount', 'deletionStatus'
         ]) &&
         (!('username' in request.resource.data) || (request.resource.data.username is string && request.resource.data.username.size() >= 2 && request.resource.data.username.size() <= 50)) &&
         (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() >= 1 && request.resource.data.displayName.size() <= 100)) &&
@@ -100,6 +108,11 @@ service cloud.firestore {
       );
     }
 
+    // Server-owned tombstones prevent recreation during and after deletion.
+    match /accountDeletionLocks/{userId} {
+      allow read, write: if false;
+    }
+
     // ---------------------------------------------------------
     // 1. Users Collection: users/{userId}
     // ---------------------------------------------------------
@@ -108,7 +121,9 @@ service cloud.firestore {
       allow read: if true;
 
       // Only authenticated owner may create their own profile matching auth UID
-      allow create: if isOwner(userId) && isValidUserCreate(request.resource.data, userId);
+      allow create: if isOwner(userId) &&
+                       !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId)) &&
+                       isValidUserCreate(request.resource.data, userId);
 
       // Only the authenticated owner may update their own profile (or admin)
       // Users can NEVER modify another user's profile, nor modify protected fields
@@ -121,7 +136,7 @@ service cloud.firestore {
       match /followers/{followerId} {
         allow read: if true;
         // Follower UID must match request.auth.uid, anonymous rejected, prevent self-follow
-        allow create, update: if isNonAnonymous() &&
+        allow create, update: if isNonAnonymous() && isActiveUser(followerId) && isActiveUser(userId) &&
                                  request.auth.uid == followerId &&
                                  request.auth.uid != userId &&
                                  request.resource.data.followerId == request.auth.uid &&
@@ -134,7 +149,7 @@ service cloud.firestore {
       match /following/{targetUserId} {
         allow read: if true;
         // Only user can add to their own following list, anonymous rejected, cannot follow self
-        allow create, update: if isOwner(userId) &&
+        allow create, update: if isOwner(userId) && isActiveUser(userId) && isActiveUser(targetUserId) &&
                                  isNonAnonymous() &&
                                  request.auth.uid != targetUserId &&
                                  request.resource.data.targetUserId == targetUserId &&
@@ -173,7 +188,7 @@ service cloud.firestore {
       allow read: if true;
 
       // Only authenticated users may create pins; owner UID must equal request.auth.uid
-      allow create: if isSignedIn() &&
+      allow create: if isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        (!('likeCount' in request.resource.data) || request.resource.data.likeCount == 0) &&
@@ -183,7 +198,7 @@ service cloud.firestore {
       // Owner UID, createdAt, likeCount, and commentCount cannot be modified by client
       allow update: if isSignedIn() && (
         (
-          isOwner(resource.data.userId) &&
+          isOwner(resource.data.userId) && isActiveUser(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.createdAt == resource.data.createdAt &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId', 'createdAt', 'likeCount', 'commentCount']) &&
@@ -201,7 +216,7 @@ service cloud.firestore {
       match /likes/{userId} {
         allow read: if true;
         // Only authenticated non-anonymous users may like; document ID must equal request.auth.uid
-        allow create, update: if isNonAnonymous() &&
+        allow create, update: if isNonAnonymous() && isActiveUser(userId) &&
                                  request.auth.uid == userId &&
                                  (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid);
         // Only the user who liked can unlike (delete)
@@ -214,13 +229,13 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         // Authenticated non-anonymous users can create comments; author UID must equal request.auth.uid
-        allow create: if isNonAnonymous() &&
+        allow create: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
                          request.resource.data.userId == request.auth.uid &&
                          (!('pinId' in request.resource.data) || request.resource.data.pinId == pinId) &&
                          isValidComment(request.resource.data);
 
         // Only comment author can edit comment; author UID and createdAt cannot be changed
-        allow update: if isNonAnonymous() &&
+        allow update: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
                          isOwner(resource.data.userId) &&
                          request.resource.data.userId == resource.data.userId &&
                          request.resource.data.createdAt == resource.data.createdAt &&
@@ -237,7 +252,7 @@ service cloud.firestore {
     // Moderation Reports Collection: reports/{reportId}
     // ---------------------------------------------------------
     match /reports/{reportId} {
-      allow create: if isSignedIn() &&
+      allow create: if isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.reporterId == request.auth.uid &&
                        isValidReport(request.resource.data);
       allow read, update, delete: if isAdmin();

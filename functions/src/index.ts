@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import {
@@ -794,13 +795,6 @@ export const onUserFollowerCreated = onDocumentCreated(
             followersCount: prev + 1,
             updatedAt: FieldValue.serverTimestamp(),
           });
-        } else {
-          transaction.set(targetUserRef, {
-            uid: targetUserId,
-            followersCount: 1,
-            followingCount: 0,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
         }
 
         if (followerDoc.exists) {
@@ -809,13 +803,6 @@ export const onUserFollowerCreated = onDocumentCreated(
             followingCount: prev + 1,
             updatedAt: FieldValue.serverTimestamp(),
           });
-        } else {
-          transaction.set(followerRef, {
-            uid: followerId,
-            followersCount: 0,
-            followingCount: 1,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
         }
       });
 
@@ -903,7 +890,9 @@ export const onPinDeleted = onDocumentDeleted(
 
       if (pinData?.imageUrls && Array.isArray(pinData.imageUrls)) {
         for (const url of pinData.imageUrls) {
-          const storagePath = extractStoragePathFromUrl(url, 'pin-images/');
+          const storagePath = pinData?.userId
+            ? extractStoragePathFromUrl(url, `pins/${pinData.userId}/`)
+            : null;
           if (storagePath) {
             try {
               await storage.bucket().file(storagePath).delete();
@@ -1027,21 +1016,97 @@ export const deleteUserAccount = onCall(
     console.log(`Starting account deletion for user: ${userId}`);
 
     try {
-      const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
-      for (const pinDoc of userPinsSnapshot.docs) {
-        await pinDoc.ref.delete();
+      // Persist a server-owned deletion lock before any destructive operation.
+      // Firestore rules deny new client content and profile recreation while it exists.
+      await db.collection('accountDeletionLocks').doc(userId).set({
+        status: 'deleting',
+        startedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Remove the account's reactions and comments on other users' pins before
+      // revoking its Auth identity. Only documents whose userId matches are deleted.
+      // This intentionally preserves likes/comments authored by other users.
+      for (const collectionName of ['likes', 'comments'] as const) {
+        while (true) {
+          const authored = await db.collectionGroup(collectionName)
+            .where('userId', '==', userId).limit(200).get();
+          if (authored.empty) break;
+          const batch = db.batch();
+          authored.docs.forEach((entry) => batch.delete(entry.ref));
+          await batch.commit();
+        }
       }
 
-      try {
-        await storage.bucket().deleteFiles({
-          prefix: `profile-images/${userId}/`,
-        });
-      } catch (stErr) {
-        console.warn(`Error deleting avatar files for user ${userId}:`, stErr);
+      // Legacy likes may have no userId field. Their document ID is the author's
+      // Firebase UID, so a collection-group userId query cannot discover them.
+      // Scan pin IDs in bounded pages and inspect only the departing user's like.
+      let lastScannedPin: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      while (true) {
+        let pinsPageQuery: FirebaseFirestore.Query = db.collection('pins').orderBy('__name__').limit(200);
+        if (lastScannedPin) pinsPageQuery = pinsPageQuery.startAfter(lastScannedPin);
+        const pinsPage = await pinsPageQuery.get();
+        if (pinsPage.empty) break;
+        const likeRefs = pinsPage.docs.map((pin) => pin.ref.collection('likes').doc(userId));
+        const likeDocs = await db.getAll(...likeRefs);
+        const batch = db.batch();
+        let deleteCount = 0;
+        for (const like of likeDocs) {
+          if (like.exists && (!like.data()?.userId || like.data()?.userId === userId)) {
+            batch.delete(like.ref);
+            deleteCount++;
+          }
+        }
+        if (deleteCount) await batch.commit();
+        lastScannedPin = pinsPage.docs[pinsPage.docs.length - 1];
       }
+
+      // Remove both sides of each follow relationship. The user's own
+      // subcollections are the authoritative source for the mirror document IDs.
+      const departingUserRef = db.collection('users').doc(userId);
+      for (const relationship of ['following', 'followers'] as const) {
+        while (true) {
+          const relationships = await departingUserRef.collection(relationship).limit(200).get();
+          if (relationships.empty) break;
+          const batch = db.batch();
+          for (const entry of relationships.docs) {
+            const otherUserId = entry.id;
+            const counterpart = relationship === 'following'
+              ? db.collection('users').doc(otherUserId).collection('followers').doc(userId)
+              : db.collection('users').doc(otherUserId).collection('following').doc(userId);
+            batch.delete(counterpart);
+            batch.delete(entry.ref);
+          }
+          await batch.commit();
+        }
+      }
+
+      // Recursively remove each pin and its likes/comments; deleting only the
+      // parent document leaves orphaned subcollections in Firestore.
+      const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
+      for (const pinDoc of userPinsSnapshot.docs) {
+        await db.recursiveDelete(pinDoc.ref);
+      }
+
+      // Avatar cleanup must succeed before reporting account deletion complete.
+      // The caller can retry on transient Storage errors.
+      await storage.bucket().deleteFiles({
+        prefix: `profile-images/${userId}/`,
+      });
+
+      // Remove the user's remaining pin images, including uploads not attached to a pin.
+      // A missing bucket or transient Storage error must not silently be reported as success.
+      await storage.bucket().deleteFiles({ prefix: `pins/${userId}/` });
 
       const userRef = db.collection('users').doc(userId);
       await db.recursiveDelete(userRef);
+
+      // Revoke access last, after the primary data cleanup has succeeded.
+      // This operation is idempotent for a retried deletion request.
+      try {
+        await getAuth().deleteUser(userId);
+      } catch (authErr: any) {
+        if (authErr?.code !== 'auth/user-not-found') throw authErr;
+      }
 
       return { success: true, message: `Account and associated data deleted for user ${userId}` };
     } catch (err: any) {
