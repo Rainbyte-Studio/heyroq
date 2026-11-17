@@ -795,13 +795,6 @@ export const onUserFollowerCreated = onDocumentCreated(
             followersCount: prev + 1,
             updatedAt: FieldValue.serverTimestamp(),
           });
-        } else {
-          transaction.set(targetUserRef, {
-            uid: targetUserId,
-            followersCount: 1,
-            followingCount: 0,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
         }
 
         if (followerDoc.exists) {
@@ -810,13 +803,6 @@ export const onUserFollowerCreated = onDocumentCreated(
             followingCount: prev + 1,
             updatedAt: FieldValue.serverTimestamp(),
           });
-        } else {
-          transaction.set(followerRef, {
-            uid: followerId,
-            followersCount: 0,
-            followingCount: 1,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
         }
       });
 
