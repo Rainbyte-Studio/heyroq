@@ -4,6 +4,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
   PROGRESSION_CONSTANTS,
@@ -326,23 +327,11 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
       earnedLocationKeys.add(doc.data().locationKey);
     }
   });
-  const locationKeyForPin = (pin: any): string | null => {
-    const lat = Number(pin.latitude);
-    const lng = Number(pin.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
-        lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-    return `${Math.round(lat * 1000)}:${Math.round(lng * 1000)}`;
-  };
-
-  // Spots creation (+50 XP each)
-  // Stable ordering makes duplicate-location decisions deterministic.
-  [...validPins].sort((a, b) =>
-    String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
-    String(a.id).localeCompare(String(b.id))
-  ).forEach((pin) => {
-    const locationKey = locationKeyForPin(pin);
-    if (!locationKey || earnedLocationKeys.has(locationKey)) return;
-    earnedLocationKeys.add(locationKey);
+  const eligibleIds = new Set(eligibleDiscoveryIds(validPins, earnedLocationKeys));
+  validPins.forEach((pin) => {
+    if (!eligibleIds.has(pin.id)) return;
+    const locationKey = discoveryLocationKey(pin.latitude, pin.longitude);
+    if (!locationKey) return;
     const eventId = getPinCreatedEventId(pin.id);
     if (!existingEventIds.has(eventId)) {
       pendingXpEvents.push({
