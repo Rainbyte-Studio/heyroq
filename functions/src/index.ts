@@ -1035,7 +1035,7 @@ export const deleteUserAccount = onCall(
       // Scan pin IDs in bounded pages and inspect only the departing user's like.
       let lastScannedPin: FirebaseFirestore.QueryDocumentSnapshot | undefined;
       while (true) {
-        let pinsPageQuery = db.collection('pins').orderBy('__name__').limit(200);
+        let pinsPageQuery: FirebaseFirestore.Query = db.collection('pins').orderBy('__name__').limit(200);
         if (lastScannedPin) pinsPageQuery = pinsPageQuery.startAfter(lastScannedPin);
         const pinsPage = await pinsPageQuery.get();
         if (pinsPage.empty) break;
