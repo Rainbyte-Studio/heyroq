@@ -1030,6 +1030,29 @@ export const deleteUserAccount = onCall(
         }
       }
 
+      // Legacy likes may have no userId field. Their document ID is the author's
+      // Firebase UID, so a collection-group userId query cannot discover them.
+      // Scan pin IDs in bounded pages and inspect only the departing user's like.
+      let lastScannedPin: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      while (true) {
+        let pinsPageQuery = db.collection('pins').orderBy('__name__').limit(200);
+        if (lastScannedPin) pinsPageQuery = pinsPageQuery.startAfter(lastScannedPin);
+        const pinsPage = await pinsPageQuery.get();
+        if (pinsPage.empty) break;
+        const likeRefs = pinsPage.docs.map((pin) => pin.ref.collection('likes').doc(userId));
+        const likeDocs = await db.getAll(...likeRefs);
+        const batch = db.batch();
+        let deleteCount = 0;
+        for (const like of likeDocs) {
+          if (like.exists && (!like.data()?.userId || like.data()?.userId === userId)) {
+            batch.delete(like.ref);
+            deleteCount++;
+          }
+        }
+        if (deleteCount) await batch.commit();
+        lastScannedPin = pinsPage.docs[pinsPage.docs.length - 1];
+      }
+
       // Remove both sides of each follow relationship. The user's own
       // subcollections are the authoritative source for the mirror document IDs.
       const departingUserRef = db.collection('users').doc(userId);
