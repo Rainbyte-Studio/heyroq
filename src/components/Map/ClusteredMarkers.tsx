@@ -5,6 +5,7 @@ import { Pin } from '../../types';
 import { CATEGORY_CONFIG } from './CategoryBadge';
 import { normalizeCategory } from '../../utils/categoryUtils';
 import { getLikeMarkerHtml } from '../Pin/LikeButton';
+import { escapeHtml } from '../../utils/html';
 
 interface ClusteredMarkersProps {
   pins: Pin[];
@@ -76,7 +77,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
               : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
           }">
             <span class="w-2 h-2 rounded-full ${catConfig.bg}"></span>
-            <span class="truncate max-w-[130px]">${pin.title}</span>
+            <span class="truncate max-w-[130px]">${escapeHtml(pin.title)}</span>
             ${getLikeMarkerHtml(pin.likeCount || 0)}
           </div>
           <div class="w-2 h-2 ${isSelected ? 'bg-white' : 'bg-black'} transform rotate-45 -mt-1 ${isSelected ? 'block' : 'hidden'}"></div>

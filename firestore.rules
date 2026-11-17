@@ -43,7 +43,21 @@ service cloud.firestore {
         (!('role' in data) || data.role == 'user' || isAdmin()) &&
         !('admin' in data) &&
         !('isAdmin' in data) &&
-        !('permissions' in data)
+        !('permissions' in data) &&
+        // Server-managed counters must start at zero (prevents follower-milestone XP inflation)
+        (!('followersCount' in data) || data.followersCount == 0) &&
+        (!('followingCount' in data) || data.followingCount == 0) &&
+        (!('pinsCount' in data) || data.pinsCount == 0)
+      );
+    }
+
+    // Pin creation: server-managed counters must start at zero and moderation fields are off-limits
+    function isValidNewPinServerFields(data) {
+      return (
+        (!('likeCount' in data) || data.likeCount == 0) &&
+        (!('commentCount' in data) || data.commentCount == 0) &&
+        !('status' in data) &&
+        !('isDeleted' in data)
       );
     }
 
@@ -172,16 +186,18 @@ service cloud.firestore {
       // Only authenticated users may create pins; owner UID must equal request.auth.uid
       allow create: if isSignedIn() &&
                        request.resource.data.userId == request.auth.uid &&
-                       isValidPin(request.resource.data);
+                       isValidPin(request.resource.data) &&
+                       isValidNewPinServerFields(request.resource.data);
 
       // Only the pin owner (or admin) may edit their pin
-      // Owner UID, createdAt, likeCount, and commentCount cannot be modified by client
+      // Owner UID, createdAt, likeCount, commentCount and moderation fields (status, isDeleted)
+      // cannot be modified by the owner, so admin removals cannot be undone by the author
       allow update: if isSignedIn() && (
         (
           isOwner(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.createdAt == resource.data.createdAt &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId', 'createdAt', 'likeCount', 'commentCount']) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId', 'createdAt', 'likeCount', 'commentCount', 'status', 'isDeleted']) &&
           isValidPin(request.resource.data)
         ) ||
         isAdmin()
