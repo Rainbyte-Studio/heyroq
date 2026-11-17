@@ -76,13 +76,15 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
               : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
           }">
             <span class="w-2 h-2 rounded-full ${catConfig.bg}"></span>
-            <span class="truncate max-w-[130px]">${pin.title}</span>
+            <span class="truncate max-w-[130px]" data-pin-title></span>
             ${getLikeMarkerHtml(pin.likeCount || 0)}
           </div>
           <div class="w-2 h-2 ${isSelected ? 'bg-white' : 'bg-black'} transform rotate-45 -mt-1 ${isSelected ? 'block' : 'hidden'}"></div>
         </div>
       `;
       pinContainer.innerHTML = pinContent;
+      // Titles come from Firestore and must never be parsed as HTML.
+      pinContainer.querySelector('[data-pin-title]')!.textContent = pin.title;
 
       let lastClickTime = 0;
       const handleMarkerClick = (e?: Event) => {
