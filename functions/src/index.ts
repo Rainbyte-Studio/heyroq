@@ -1057,13 +1057,11 @@ export const deleteUserAccount = onCall(
         await db.recursiveDelete(pinDoc.ref);
       }
 
-      try {
-        await storage.bucket().deleteFiles({
-          prefix: `profile-images/${userId}/`,
-        });
-      } catch (stErr) {
-        console.warn(`Error deleting avatar files for user ${userId}:`, stErr);
-      }
+      // Avatar cleanup must succeed before reporting account deletion complete.
+      // The caller can retry on transient Storage errors.
+      await storage.bucket().deleteFiles({
+        prefix: `profile-images/${userId}/`,
+      });
 
       // Remove the user's remaining pin images, including uploads not attached to a pin.
       // A missing bucket or transient Storage error must not silently be reported as success.
