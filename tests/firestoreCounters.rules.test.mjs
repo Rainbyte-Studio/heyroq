@@ -76,3 +76,38 @@ describe('Firestore create-time server counter protection', () => {
     await assertFails(updateDoc(doc(alice(), 'users/alice'), { followersCount: 100000 }));
   });
 });
+
+describe('Account deletion lock', () => {
+  const lockAlice = async () => env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'accountDeletionLocks/alice'), { status: 'deleting' });
+  });
+
+  it('blocks new pins after account deletion is locked', async () => {
+    await seedAlice();
+    await lockAlice();
+    await assertFails(setDoc(doc(alice(), 'pins/locked-pin'), pin()));
+  });
+
+  it('blocks profile recreation after account deletion is locked', async () => {
+    await lockAlice();
+    await assertFails(setDoc(doc(alice(), 'users/alice'), profile()));
+  });
+
+  it('blocks forged client deletion locks', async () => {
+    await assertFails(setDoc(doc(alice(), 'accountDeletionLocks/alice'), { status: 'deleting' }));
+  });
+
+  it('blocks likes while the author is locked', async () => {
+    await seedAlice();
+    await lockAlice();
+    await assertFails(setDoc(doc(alice(), 'pins/spot1/likes/alice'), { userId: 'alice' }));
+  });
+
+  it('blocks comments while the author is locked', async () => {
+    await seedAlice();
+    await lockAlice();
+    await assertFails(setDoc(doc(alice(), 'pins/spot1/comments/comment1'), {
+      userId: 'alice', text: 'hello', createdAt: '2026-01-01T00:00:00.000Z',
+    }));
+  });
+});
