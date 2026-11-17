@@ -178,6 +178,11 @@ function resolveCountry(rawCountry: string): { code: string; name: string } {
 export async function updateUserProgressionServer(userId: string) {
   if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
 
+  // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
+  const deletionLockRef = db.collection('accountDeletionLocks').doc(userId);
+  if ((await deletionLockRef.get()).exists) return null;
+  if (!(await db.collection('users').doc(userId).get()).exists) return null;
+
   // 1. Fetch user's active pins (excluding deleted or reported)
   const pinsSnap = await db.collection('pins').where('userId', '==', userId).get();
   const validPins: any[] = [];
@@ -575,28 +580,31 @@ export async function updateUserProgressionServer(userId: string) {
     updatedAt: FieldValue.serverTimestamp(),
   };
 
-  // 8. Write Authoritative State Atomically via Batch
-  const batch = db.batch();
-
-  // Summary
-  batch.set(summaryRef, summary, { merge: true });
-
-  // Update dynamic pinsCount on user profile (reflects active spots for queries)
+  // Read the deletion lock and profile in the same transaction as the writes.
+  // A deletion lock created concurrently forces a transaction retry, preventing
+  // delayed progression triggers from resurrecting the deleted account.
   const userProfileRef = db.collection('users').doc(userId);
-  batch.set(userProfileRef, { pinsCount: activeSpotsCount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  const didWrite = await db.runTransaction(async (transaction) => {
+    const [lockSnap, profileSnap] = await Promise.all([
+      transaction.get(deletionLockRef),
+      transaction.get(userProfileRef),
+    ]);
+    if (lockSnap.exists || !profileSnap.exists) return false;
 
-  // Achievements
-  pendingAchievements.forEach((ach) => {
-    const achRef = achievementsCol.doc(ach.id);
-    batch.set(achRef, ach, { merge: true });
+    transaction.set(summaryRef, summary, { merge: true });
+    transaction.update(userProfileRef, {
+      pinsCount: activeSpotsCount,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    pendingAchievements.forEach((ach) => {
+      transaction.set(achievementsCol.doc(ach.id), ach, { merge: true });
+    });
+    pendingXpEvents.forEach(({ id, event }) => {
+      transaction.set(xpEventsCol.doc(id), event, { merge: true });
+    });
+    return true;
   });
-
-  // Write new XP events idempotently (never overwrite or delete existing ones)
-  pendingXpEvents.forEach(({ id, event }) => {
-    batch.set(xpEventsCol.doc(id), event, { merge: true });
-  });
-
-  await batch.commit();
+  if (!didWrite) return null;
   console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
   return summary;
 }
