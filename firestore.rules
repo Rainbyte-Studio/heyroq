@@ -22,7 +22,8 @@ service cloud.firestore {
 
     // Stop authenticated clients from creating new data while account deletion runs.
     function isActiveUser(userId) {
-      return exists(/databases/$(database)/documents/users/$(userId)) &&
+      return !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId)) &&
+             exists(/databases/$(database)/documents/users/$(userId)) &&
              get(/databases/$(database)/documents/users/$(userId)).data.get('deletionStatus', '') != 'deleting';
     }
 
@@ -107,6 +108,11 @@ service cloud.firestore {
       );
     }
 
+    // Server-owned tombstones prevent recreation during and after deletion.
+    match /accountDeletionLocks/{userId} {
+      allow read, write: if false;
+    }
+
     // ---------------------------------------------------------
     // 1. Users Collection: users/{userId}
     // ---------------------------------------------------------
@@ -115,7 +121,9 @@ service cloud.firestore {
       allow read: if true;
 
       // Only authenticated owner may create their own profile matching auth UID
-      allow create: if isOwner(userId) && isValidUserCreate(request.resource.data, userId);
+      allow create: if isOwner(userId) &&
+                       !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId)) &&
+                       isValidUserCreate(request.resource.data, userId);
 
       // Only the authenticated owner may update their own profile (or admin)
       // Users can NEVER modify another user's profile, nor modify protected fields
