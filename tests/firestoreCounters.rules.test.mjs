@@ -16,7 +16,7 @@ beforeEach(async () => { await env.clearFirestore(); });
 after(async () => { if (env) await env.cleanup(); });
 
 const profile = (overrides = {}) => ({
-  uid: 'alice', username: 'alice', displayName: 'Alice', email: 'alice@example.test',
+  uid: 'alice', username: 'alice', displayName: 'Alice',
   followersCount: 0, followingCount: 0, pinsCount: 0, role: 'user',
   createdAt: '2026-01-01T00:00:00.000Z', ...overrides,
 });
@@ -126,5 +126,23 @@ describe('Canonical comment identity', () => {
       userId: 'alice', userName: 'Alice', userAvatar: '',
       text: 'Test', createdAt: '2026-01-01T00:00:00.000Z',
     }));
+  });
+});
+
+describe('Public profile email privacy', () => {
+  it('rejects email on creation', async () => {
+    await assertFails(setDoc(doc(alice(), 'users/alice'), profile({ email: 'alice@example.test' })));
+  });
+  it('rejects adding email to an existing profile', async () => {
+    await assertSucceeds(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertFails(updateDoc(doc(alice(), 'users/alice'), { email: 'alice@example.test' }));
+  });
+});
+
+describe('Admin cannot reintroduce public emails', () => {
+  it('rejects admin adding email to an existing profile', async () => {
+    await seedAlice();
+    const adminDb = env.authenticatedContext('admin', { admin: true }).firestore();
+    await assertFails(updateDoc(doc(adminDb, 'users/alice'), { email: 'alice@example.test' }));
   });
 });
