@@ -175,7 +175,7 @@ function resolveCountry(rawCountry: string): { code: string; name: string } {
  * - Current Likes Received (`summary.likesReceivedCount`): Live sum of likes on surviving pins.
  * - Current Followers (`summary.followersCount`): Live count of followers.
  */
-export async function updateUserProgressionServer(userId: string) {
+export async function updateUserProgressionServer(userId: string, concurrencyRetry = 0) {
   if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
 
   // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
@@ -609,14 +609,26 @@ export async function updateUserProgressionServer(userId: string) {
   // A deletion lock created concurrently forces a transaction retry, preventing
   // delayed progression triggers from resurrecting the deleted account.
   const userProfileRef = db.collection('users').doc(userId);
-  const didWrite = await db.runTransaction(async (transaction) => {
-    const [lockSnap, profileSnap] = await Promise.all([
-      transaction.get(deletionLockRef),
-      transaction.get(userProfileRef),
-    ]);
-    if (lockSnap.exists || !profileSnap.exists) return false;
+  let didWrite: boolean;
+  try {
+    didWrite = await db.runTransaction(async (transaction) => {
+      const [lockSnap, profileSnap, latestSummarySnap] = await Promise.all([
+        transaction.get(deletionLockRef),
+        transaction.get(userProfileRef),
+        transaction.get(summaryRef),
+      ]);
+      if (lockSnap.exists || !profileSnap.exists) return false;
 
-    transaction.set(summaryRef, summary, { merge: true });
+      // The XP ledger and summary were calculated outside the transaction.
+      // If another trigger committed a progression update in the meantime,
+      // abort and recalculate from the fresh ledger rather than overwrite it.
+      const expectedVersion = summarySnap.updateTime?.toMillis() ?? null;
+      const currentVersion = latestSummarySnap.updateTime?.toMillis() ?? null;
+      if (expectedVersion !== currentVersion) {
+        throw new Error('PROGRESSION_STALE_SNAPSHOT');
+      }
+
+      transaction.set(summaryRef, summary, { merge: true });
     transaction.update(userProfileRef, {
       pinsCount: activeSpotsCount,
       updatedAt: FieldValue.serverTimestamp(),
@@ -627,8 +639,14 @@ export async function updateUserProgressionServer(userId: string) {
     pendingXpEvents.forEach(({ id, event }) => {
       transaction.set(xpEventsCol.doc(id), event, { merge: true });
     });
-    return true;
-  });
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
+      return updateUserProgressionServer(userId, concurrencyRetry + 1);
+    }
+    throw error;
+  }
   if (!didWrite) return null;
   console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
   return summary;
