@@ -22,5 +22,15 @@ jobs:
         run: npm install --prefix functions --no-package-lock
       - name: TypeScript build
         run: npm --prefix functions run build
-      - name: Progression regression tests
-        run: node --test functions/tests/*.test.cjs
+      - name: Progression unit tests
+        run: node --test functions/tests/progressionLocation.test.cjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Firestore emulator concurrency integration test
+        env:
+          GCLOUD_PROJECT: demo-heyroq
+          GOOGLE_CLOUD_PROJECT: demo-heyroq
+          FIRESTORE_DATABASE_ID: ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3
+        run: npx --yes firebase-tools@14 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/progressionEmulator.test.cjs'
