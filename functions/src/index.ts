@@ -1050,9 +1050,11 @@ export const deleteUserAccount = onCall(
         }
       }
 
+      // Recursively remove each pin and its likes/comments; deleting only the
+      // parent document leaves orphaned subcollections in Firestore.
       const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
       for (const pinDoc of userPinsSnapshot.docs) {
-        await pinDoc.ref.delete();
+        await db.recursiveDelete(pinDoc.ref);
       }
 
       try {
