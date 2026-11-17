@@ -1,7 +1,8 @@
 {
   "firestore": {
     "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "indexes": "firestore.indexes.json",
+    "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
   },
   "storage": {
     "rules": "storage.rules"
@@ -36,4 +37,3 @@
     ]
   }
 }
-

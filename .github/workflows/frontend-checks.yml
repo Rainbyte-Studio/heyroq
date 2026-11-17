@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/**'
       - 'firebase-blueprint.json'
+      - 'firebase.json'
       - 'scripts/redact-public-profile-emails.mjs'
       - 'tests/**'
       - 'package.json'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'src/**'
       - 'firebase-blueprint.json'
+      - 'firebase.json'
       - 'scripts/redact-public-profile-emails.mjs'
       - 'tests/**'
       - 'package.json'
@@ -35,3 +37,4 @@ jobs:
       - run: npm test
       - run: node --test tests/publicProfileBlueprint.test.cjs
       - run: node --check scripts/redact-public-profile-emails.mjs
+      - run: node --test tests/firestoreDeployTarget.test.cjs
