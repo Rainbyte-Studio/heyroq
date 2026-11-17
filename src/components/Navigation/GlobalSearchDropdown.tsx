@@ -5,12 +5,11 @@ import {
   Compass,
   Hash,
   Loader2,
-  ExternalLink,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
-import { CategorizedSearchResults, GlobalSearchResultItem } from '../../services/searchService';
+import { CategorizedSearchResults } from '../../services/searchService';
 import { Pin } from '../../types';
+import { UserAvatar } from '../Common/UserAvatar';
 
 interface GlobalSearchDropdownProps {
   isOpen: boolean;
@@ -44,22 +43,24 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
   return (
     <div
       id="global-search-dropdown"
-      className="absolute left-0 right-0 top-full mt-2 w-full max-h-[75vh] overflow-y-auto bg-[#141414] border border-white/15 rounded-2xl shadow-2xl z-50 text-white divide-y divide-white/10 no-scrollbar backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150"
+      className="liquid-glass-popover absolute left-0 right-0 top-full mt-2 w-full max-h-[75vh] overflow-y-auto rounded-2xl z-50 text-[var(--heyroq-text-primary)] divide-y divide-[var(--heyroq-border-subtle)] no-scrollbar animate-in fade-in zoom-in-95 duration-150"
     >
       {/* Search Header / Status Bar */}
-      <div className="px-3.5 py-2.5 bg-black/40 flex items-center justify-between text-[11px] text-white/50">
+      <div className="px-3.5 py-2.5 bg-slate-900/[0.03] dark:bg-black/30 flex items-center justify-between text-[11px] text-[var(--heyroq-text-muted)]">
         <span className="font-semibold flex items-center gap-1.5">
           {hasMinLength ? (
             <>
               <span>Results for</span>
-              <span className="text-white font-bold max-w-[140px] truncate">"{cleanQuery}"</span>
+              <span className="text-[var(--heyroq-text-primary)] font-bold max-w-[140px] truncate">
+                &ldquo;{cleanQuery}&rdquo;
+              </span>
             </>
           ) : (
             <span>Search Heyroq</span>
           )}
         </span>
         {isLoading && (
-          <span className="flex items-center gap-1.5 text-[#FF5F40] font-medium text-[11px]">
+          <span className="flex items-center gap-1.5 text-[var(--heyroq-accent-text)] font-medium text-[11px]">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>Searching...</span>
           </span>
@@ -68,9 +69,11 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
 
       {/* 1-char hint */}
       {!hasMinLength && (
-        <div className="p-5 text-center text-xs text-white/40">
-          <p className="font-semibold text-white/70">Type at least 2 characters</p>
-          <p className="text-[11px] text-white/40 mt-1">
+        <div className="p-5 text-center text-xs text-[var(--heyroq-text-muted)]">
+          <p className="font-semibold text-[var(--heyroq-text-secondary)]">
+            Type at least 2 characters
+          </p>
+          <p className="text-[11px] text-[var(--heyroq-text-muted)] mt-1">
             Search for spots, cities, tags, and explorers
           </p>
         </div>
@@ -78,39 +81,40 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
 
       {/* Loading with no prior results */}
       {hasMinLength && isLoading && !hasAnyResults && (
-        <div className="py-12 text-center text-xs text-white/40 flex flex-col items-center justify-center gap-2.5">
-          <Loader2 className="w-6 h-6 text-[#FF5F40] animate-spin" />
+        <div className="py-12 text-center text-xs text-[var(--heyroq-text-muted)] flex flex-col items-center justify-center gap-2.5">
+          <Loader2 className="w-6 h-6 text-[var(--brand-primary)] animate-spin" />
           <span>Scanning spots, people, cities, and tags...</span>
         </div>
       )}
 
       {/* Completed search with zero results */}
       {hasMinLength && !isLoading && !hasAnyResults && (
-        <div className="py-10 px-4 text-center text-xs text-white/50">
-          <p className="font-bold text-sm text-white/80">No results found</p>
-          <p className="text-[11px] text-white/40 mt-1 max-w-xs mx-auto">
-            We couldn't find any spots, people, cities, or tags matching "{cleanQuery}".
+        <div className="py-10 px-4 text-center text-xs text-[var(--heyroq-text-muted)]">
+          <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">No results found</p>
+          <p className="text-[11px] text-[var(--heyroq-text-muted)] mt-1 max-w-xs mx-auto">
+            We couldn&apos;t find any spots, people, cities, or tags matching &ldquo;{cleanQuery}
+            &rdquo;.
           </p>
-          <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-center gap-2 text-[10px] text-white/40">
+          <div className="mt-4 pt-3 border-t border-[var(--heyroq-border-subtle)] flex flex-wrap items-center justify-center gap-2 text-[11px] text-[var(--heyroq-text-muted)]">
             <span>Suggestions:</span>
             <button
               type="button"
               onClick={() => onSelectTag('coffee')}
-              className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition"
+              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
             >
               #coffee
             </button>
             <button
               type="button"
               onClick={() => onSelectTag('ramen')}
-              className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition"
+              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
             >
               #ramen
             </button>
             <button
               type="button"
               onClick={() => onSelectCity('Zakynthos, Greece', 37.8594, 20.6249)}
-              className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition"
+              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
             >
               Zakynthos
             </button>
@@ -120,16 +124,16 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
 
       {/* Grouped Results Sections */}
       {hasAnyResults && (
-        <div className="divide-y divide-white/5">
+        <div className="divide-y divide-[var(--heyroq-border-subtle)]">
           {/* 1. SPOTS */}
           {results.spots.length > 0 && (
             <div className="p-2">
-              <div className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-[#FF5F40] flex items-center justify-between">
+              <div className="px-2.5 py-1.5 text-[11px] font-semibold text-[var(--heyroq-accent-text)] flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <MapPin className="w-3 h-3" />
+                  <MapPin className="w-3.5 h-3.5" />
                   Spots
                 </span>
-                <span className="text-white/40 font-semibold lowercase">
+                <span className="text-[var(--heyroq-text-muted)] font-medium tabular-nums">
                   {results.spots.length} found
                 </span>
               </div>
@@ -142,22 +146,22 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
                       if (item.pin) onSelectSpot(item.pin);
                       onClose();
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
+                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-slate-900/[0.05] dark:hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 text-[#FF5F40] group-hover:scale-105 transition-transform">
+                      <div className="w-7 h-7 rounded-lg bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/20 flex items-center justify-center shrink-0 text-[var(--brand-primary)] group-hover:scale-105 transition-transform">
                         <MapPin className="w-3.5 h-3.5" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-white truncate group-hover:text-[#FF8C75] transition-colors">
+                        <p className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate group-hover:text-[var(--heyroq-accent-text)] transition-colors">
                           {item.title}
                         </p>
-                        <p className="text-[10px] text-white/50 truncate">
+                        <p className="text-[11px] text-[var(--heyroq-text-muted)] truncate">
                           {item.subtitle}
                         </p>
                       </div>
                     </div>
-                    <ChevronRight className="w-3.5 h-3.5 text-white/30 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0" />
+                    <ChevronRight className="w-3.5 h-3.5 text-[var(--heyroq-text-muted)] group-hover:text-[var(--heyroq-text-primary)] group-hover:translate-x-0.5 transition-all shrink-0" />
                   </button>
                 ))}
               </div>
@@ -167,12 +171,12 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
           {/* 2. PEOPLE */}
           {results.people.length > 0 && (
             <div className="p-2">
-              <div className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center justify-between">
+              <div className="px-2.5 py-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Users className="w-3 h-3" />
+                  <Users className="w-3.5 h-3.5" />
                   People
                 </span>
-                <span className="text-white/40 font-semibold lowercase">
+                <span className="text-[var(--heyroq-text-muted)] font-medium tabular-nums">
                   {results.people.length} found
                 </span>
               </div>
@@ -185,31 +189,26 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
                       if (item.user) onSelectPerson(item.user.id);
                       onClose();
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
+                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-slate-900/[0.05] dark:hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      {item.avatarUrl ? (
-                        <img
-                          src={item.avatarUrl}
-                          alt={item.title}
-                          className="w-7 h-7 rounded-full object-cover border border-white/15 shrink-0"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 text-white/70">
-                          <Users className="w-3.5 h-3.5" />
-                        </div>
-                      )}
+                      <UserAvatar
+                        uid={item.user?.uid || item.user?.id || item.id}
+                        displayName={item.user?.displayName || item.title}
+                        imageUrl={item.avatarUrl}
+                        size="sm"
+                        className="w-7 h-7"
+                      />
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
+                        <p className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
                           {item.title}
                         </p>
-                        <p className="text-[10px] text-white/50 truncate">
+                        <p className="text-[11px] text-[var(--heyroq-text-muted)] truncate">
                           {item.subtitle}
                         </p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/60 group-hover:bg-emerald-500/20 group-hover:text-emerald-300 transition-colors shrink-0">
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900/[0.05] dark:bg-white/5 text-[var(--heyroq-text-secondary)] group-hover:bg-emerald-500/15 group-hover:text-emerald-700 dark:group-hover:text-emerald-300 transition-colors shrink-0">
                       View Profile
                     </span>
                   </button>
@@ -221,12 +220,12 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
           {/* 3. CITIES */}
           {results.cities.length > 0 && (
             <div className="p-2">
-              <div className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-sky-400 flex items-center justify-between">
+              <div className="px-2.5 py-1.5 text-[11px] font-semibold text-sky-600 dark:text-sky-400 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Compass className="w-3 h-3" />
+                  <Compass className="w-3.5 h-3.5" />
                   Cities
                 </span>
-                <span className="text-white/40 font-semibold lowercase">
+                <span className="text-[var(--heyroq-text-muted)] font-medium tabular-nums">
                   {results.cities.length} found
                 </span>
               </div>
@@ -236,27 +235,31 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      if (item.city && typeof item.latitude === 'number' && typeof item.longitude === 'number') {
+                      if (
+                        item.city &&
+                        typeof item.latitude === 'number' &&
+                        typeof item.longitude === 'number'
+                      ) {
                         onSelectCity(item.city, item.latitude, item.longitude);
                       }
                       onClose();
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
+                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-slate-900/[0.05] dark:hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0 text-sky-400 group-hover:scale-105 transition-transform">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0 text-sky-600 dark:text-sky-400 group-hover:scale-105 transition-transform">
                         <Compass className="w-3.5 h-3.5" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-white truncate group-hover:text-sky-300 transition-colors">
+                        <p className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate group-hover:text-sky-600 dark:group-hover:text-sky-300 transition-colors">
                           {item.title}
                         </p>
-                        <p className="text-[10px] text-white/50 truncate">
+                        <p className="text-[11px] text-[var(--heyroq-text-muted)] truncate">
                           {item.subtitle}
                         </p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/60 group-hover:bg-sky-500/20 group-hover:text-sky-300 transition-colors shrink-0">
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900/[0.05] dark:bg-white/5 text-[var(--heyroq-text-secondary)] group-hover:bg-sky-500/15 group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors shrink-0">
                       Jump to City
                     </span>
                   </button>
@@ -268,12 +271,12 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
           {/* 4. TAGS */}
           {results.tags.length > 0 && (
             <div className="p-2">
-              <div className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-amber-400 flex items-center justify-between">
+              <div className="px-2.5 py-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Hash className="w-3 h-3" />
+                  <Hash className="w-3.5 h-3.5" />
                   Tags
                 </span>
-                <span className="text-white/40 font-semibold lowercase">
+                <span className="text-[var(--heyroq-text-muted)] font-medium tabular-nums">
                   {results.tags.length} found
                 </span>
               </div>
@@ -286,22 +289,22 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
                       if (item.tag) onSelectTag(item.tag);
                       onClose();
                     }}
-                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
+                    className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-slate-900/[0.05] dark:hover:bg-white/10 transition flex items-center justify-between gap-3 group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0 text-amber-400 group-hover:scale-105 transition-transform">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0 text-amber-600 dark:text-amber-400 group-hover:scale-105 transition-transform">
                         <Hash className="w-3.5 h-3.5" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-white truncate group-hover:text-amber-300 transition-colors">
+                        <p className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
                           {item.title}
                         </p>
-                        <p className="text-[10px] text-white/50 truncate">
+                        <p className="text-[11px] text-[var(--heyroq-text-muted)] truncate">
                           {item.subtitle}
                         </p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-white/60 group-hover:bg-amber-500/20 group-hover:text-amber-300 transition-colors shrink-0">
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900/[0.05] dark:bg-white/5 text-[var(--heyroq-text-secondary)] group-hover:bg-amber-500/15 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors shrink-0">
                       Filter Tag
                     </span>
                   </button>

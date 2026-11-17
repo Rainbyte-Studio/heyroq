@@ -5,9 +5,10 @@ import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { uploadMultipleImages } from '../../services/storageService';
 import { createPin } from '../../services/pinService';
 import { extractCityAndCountry } from '../../utils/footprintUtils';
+import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
 import { LocationAutocompleteInput } from './LocationAutocompleteInput';
+import { CloseButton } from '../Common/CloseButton';
 import {
-  X,
   MapPin,
   UploadCloud,
   Image as ImageIcon,
@@ -209,7 +210,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       const newPinId = await createPin({
         userId: user.uid,
         userName: profile?.displayName || user.email?.split('@')[0] || 'Explorer',
-        userAvatar: profile?.avatarUrl,
+        userAvatar: resolveCustomAvatarUrl(profile?.avatarUrl, profile?.photoURL) || '',
         title: title.trim(),
         description: description.trim(),
         latitude: customLat,
@@ -276,35 +277,37 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   return (
     <div
       onClick={handleAttemptClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-2xl animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 liquid-glass-backdrop animate-in fade-in"
     >
       <div
         id="create-pin-modal"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden shadow-2xl flex flex-col border border-white/20 text-white relative"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative"
       >
         {/* Discard Confirmation Overlay */}
         {showDiscardConfirm && (
-          <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md rounded-[28px] sm:rounded-[32px] p-6 flex flex-col items-center justify-center text-center animate-in fade-in">
-            <div className="w-12 h-12 rounded-full bg-[#FF5F40]/10 border border-[#FF5F40]/30 flex items-center justify-center mb-4 text-[#FF5F40]">
+          <div className="absolute inset-0 z-50 bg-white/[0.98] dark:bg-[#18191C]/[0.98] rounded-[28px] sm:rounded-[32px] p-6 flex flex-col items-center justify-center text-center animate-in fade-in">
+            <div className="w-12 h-12 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/30 flex items-center justify-center mb-4 text-[var(--brand-primary)]">
               <AlertCircle className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-black uppercase tracking-tight text-white mb-2">Discard Pin Draft?</h3>
-            <p className="text-xs text-white/60 max-w-xs mb-6">
+            <h3 className="font-heading text-lg font-bold tracking-tight text-slate-900 dark:text-white mb-1.5">
+              Discard Pin Draft?
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-white/60 max-w-xs mb-6 leading-relaxed">
               You have unsaved details that will be lost if you leave now.
             </p>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setShowDiscardConfirm(false)}
-                className="px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider text-white bg-white/10 hover:bg-white/20 transition cursor-pointer"
+                className="px-5 py-2.5 rounded-full text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/15 transition cursor-pointer min-h-[40px]"
               >
                 Keep Editing
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-500 transition cursor-pointer"
+                className="px-5 py-2.5 rounded-full text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 transition cursor-pointer min-h-[40px] shadow-sm"
               >
                 Discard
               </button>
@@ -313,10 +316,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         )}
 
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-5 border-b border-white/10 flex items-center justify-between bg-black/40">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-5 border-b border-[var(--heyroq-divider)] flex items-center justify-between bg-slate-900/[0.02] dark:bg-white/[0.02]">
           <div className="min-w-0 pr-2">
-            <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white truncate">Share a Discovery</h2>
-            <p className="text-[11px] sm:text-xs text-white/50 mt-0.5 line-clamp-1">
+            <h2 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white truncate">
+              Share a Discovery
+            </h2>
+            <p className="text-xs text-slate-600 dark:text-white/55 mt-0.5 line-clamp-1">
               Pin an unforgettable spot or food secret on the Heyroq social map
             </p>
           </div>
@@ -324,39 +329,36 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             <button
               type="button"
               onClick={() => setIsPreviewMode(!isPreviewMode)}
-              className="px-2.5 sm:px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider text-white bg-white/10 hover:bg-white/20 border border-white/20 transition flex items-center gap-1 cursor-pointer min-h-[36px]"
+              className="liquid-glass-pill px-3 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-800 dark:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/15 transition flex items-center gap-1.5 cursor-pointer min-h-[38px]"
             >
-              <Eye className="w-3.5 h-3.5 text-[#FF5F40]" />
+              <Eye className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
               <span>{isPreviewMode ? 'Edit' : 'Preview'}</span>
             </button>
-            <button
-              type="button"
+            <CloseButton
               onClick={handleAttemptClose}
-              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer"
-              aria-label="Close modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
+              disabled={isSubmitting}
+              ariaLabel="Close Create Pin"
+            />
           </div>
         </div>
 
         {errorMsg && (
-          <div className="mx-4 sm:mx-6 mt-4 p-3.5 bg-red-950/80 border border-red-500/40 text-red-300 rounded-2xl text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <div className="mx-4 sm:mx-6 mt-4 p-3.5 bg-rose-50 dark:bg-rose-950/75 border border-rose-200 dark:border-rose-500/40 text-rose-800 dark:text-rose-200 rounded-2xl text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5 no-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5 subtle-glass-scrollbar">
           {isPreviewMode ? (
             /* Live Pin Preview */
             <div className="space-y-4 max-w-md mx-auto py-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-white/40 text-center">
+              <div className="text-xs font-bold text-slate-500 dark:text-white/45 text-center">
                 Live Preview
               </div>
-              <div className="bg-[#141414] rounded-[32px] border border-white/20 shadow-2xl overflow-hidden">
-                <div className="h-48 bg-black relative">
+              <div className="liquid-glass-floating rounded-[28px] overflow-hidden">
+                <div className="h-48 bg-slate-200 dark:bg-neutral-900 relative">
                   {previewUrls.length > 0 ? (
                     <img
                       src={previewUrls[0]}
@@ -364,8 +366,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-white/40 gap-1">
-                      <ImageIcon className="w-8 h-8 opacity-40" />
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 dark:text-white/45 gap-1.5">
+                      <ImageIcon className="w-8 h-8 opacity-45" />
                       <span className="text-xs">No photo uploaded yet</span>
                     </div>
                   )}
@@ -374,13 +376,15 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                   </div>
                 </div>
                 <div className="p-5">
-                  <h3 className="font-black text-lg uppercase tracking-tight text-white">{title || 'Pin Title'}</h3>
-                  <p className="text-xs text-white/60 mt-1 line-clamp-2 leading-relaxed">
+                  <h3 className="font-heading font-bold text-lg tracking-tight text-slate-900 dark:text-white">
+                    {title || 'Pin Title'}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-white/65 mt-1 line-clamp-2 leading-relaxed">
                     {description || 'Your description will appear here...'}
                   </p>
-                  <div className="flex items-center gap-1 mt-3 text-[11px] font-bold text-white/40">
-                    <MapPin className="w-3.5 h-3.5 text-[#FF5F40]" />
-                    <span>
+                  <div className="flex items-center gap-1 mt-3 text-xs font-medium text-slate-500 dark:text-white/45 tabular-nums">
+                    <MapPin className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                    <span className={locationName ? '' : 'font-mono'}>
                       {locationName || `${customLat.toFixed(4)}, ${customLng.toFixed(4)}`}
                     </span>
                   </div>
@@ -391,11 +395,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             /* Form Fields */
             <form id="create-pin-form" onSubmit={handleSubmit} className="space-y-5">
               {/* Step 1: Location selection */}
-              <div className="p-4 bg-black/40 rounded-2xl border border-white/10">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[10px] font-black text-white/60 uppercase tracking-widest flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-[#FF5F40]" />
-                    <span>1. Location Coordinates</span>
+              <div className="p-4 liquid-glass-card rounded-2xl">
+                <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
+                  <label className="text-xs font-bold text-slate-700 dark:text-white/75 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                    <span>01. Location Coordinates</span>
                   </label>
                   <button
                     id="click-on-map-to-pick-btn"
@@ -415,15 +419,17 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         customLng,
                       });
                     }}
-                    className="text-[10px] text-[#FF5F40] hover:underline font-black uppercase tracking-wider cursor-pointer"
+                    className="text-xs text-[var(--heyroq-accent-text)] hover:underline font-semibold cursor-pointer"
                   >
                     Click on Map to Pick
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                   <div className="relative">
-                    <span className="text-[10px] font-bold text-white/40 uppercase">Location / City Name</span>
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
+                      Location / City Name
+                    </span>
                     <div className="mt-1">
                       <LocationAutocompleteInput
                         value={locationName}
@@ -434,7 +440,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                     </div>
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold text-white/40 uppercase">Latitude</span>
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
+                      Latitude
+                    </span>
                     <input
                       type="number"
                       step="any"
@@ -444,11 +452,13 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         setCustomLat(val);
                         onLocationSelect?.({ lat: val, lng: customLng }, locationName);
                       }}
-                      className="w-full mt-1 px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-mono tabular-nums"
                     />
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold text-white/40 uppercase">Longitude</span>
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
+                      Longitude
+                    </span>
                     <input
                       type="number"
                       step="any"
@@ -458,7 +468,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         setCustomLng(val);
                         onLocationSelect?.({ lat: customLat, lng: val }, locationName);
                       }}
-                      className="w-full mt-1 px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-mono tabular-nums"
                     />
                   </div>
                 </div>
@@ -466,10 +476,10 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
               {/* Step 2: Upload Photos */}
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-2">
-                  2. Photos
+                <label className="block text-xs font-bold text-slate-700 dark:text-white/75 mb-2">
+                  02. Photos
                 </label>
-                <div className="border-2 border-dashed border-white/20 hover:border-white/40 rounded-2xl p-5 text-center cursor-pointer transition bg-white/5 relative">
+                <div className="border-2 border-dashed border-slate-300 dark:border-white/20 hover:border-[var(--brand-primary)]/60 dark:hover:border-white/40 rounded-2xl p-5 text-center cursor-pointer transition bg-slate-900/[0.02] dark:bg-white/[0.03] relative">
                   <input
                     type="file"
                     multiple
@@ -477,11 +487,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                     onChange={handleFileChange}
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                   />
-                  <UploadCloud className="w-8 h-8 text-[#FF5F40] mx-auto mb-1.5" />
-                  <p className="text-xs font-black uppercase tracking-wider text-white">
+                  <UploadCloud className="w-8 h-8 text-[var(--brand-primary)] mx-auto mb-1.5" />
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">
                     Click to browse or drop photos here
                   </p>
-                  <p className="text-[10px] text-white/40 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-white/45 mt-0.5">
                     PNG, JPG, WebP up to 10MB each
                   </p>
                 </div>
@@ -490,12 +500,16 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                 {previewUrls.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-3">
                     {previewUrls.map((url, i) => (
-                      <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/20 group">
+                      <div
+                        key={i}
+                        className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-900/10 dark:border-white/20 group"
+                      >
                         <img src={url} alt="" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => handleRemoveImage(i)}
-                          className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                          className="absolute top-1 right-1 p-1.5 bg-black/70 text-white rounded-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition cursor-pointer"
+                          aria-label="Remove uploaded image"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -508,10 +522,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
               {/* Step 3: Title */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] font-black text-white/60 uppercase tracking-widest">
-                    3. Title
+                  <label className="text-xs font-bold text-slate-700 dark:text-white/75">
+                    03. Title
                   </label>
-                  <span className="text-[10px] font-mono text-white/40">{title.length}/140</span>
+                  <span className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
+                    {title.length}/140
+                  </span>
                 </div>
                 <input
                   type="text"
@@ -519,15 +535,15 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g. Hidden Rooftop Speakeasy with Skyline Views"
-                  className="w-full px-4 py-2.5 text-base sm:text-sm bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition"
+                  className="liquid-glass-input w-full px-4 py-2.5 text-base sm:text-sm rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 transition"
                   required
                 />
               </div>
 
               {/* Step 4: Category */}
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-2">
-                  4. Category
+                <label className="block text-xs font-bold text-slate-700 dark:text-white/75 mb-2">
+                  04. Category
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {CATEGORIES.map((cat) => (
@@ -544,56 +560,57 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
               {/* Step 5: Description */}
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
-                  5. Description & Tips
+                <label className="block text-xs font-bold text-slate-700 dark:text-white/75 mb-1">
+                  05. Description &amp; Tips
                 </label>
                 <textarea
                   rows={3}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What makes this place special? Any secret entrance, best time to visit, or signature dishes?"
-                  className="w-full px-4 py-2.5 text-base sm:text-sm bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition resize-none"
+                  className="liquid-glass-input w-full px-4 py-2.5 text-base sm:text-sm rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 transition resize-none"
                   required
                 />
               </div>
 
               {/* Step 6: Tags */}
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
-                  6. Tags
+                <label className="block text-xs font-bold text-slate-700 dark:text-white/75 mb-1">
+                  06. Tags
                 </label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <Tag className="w-4 h-4 text-white/40 absolute left-3 top-3.5" />
+                    <Tag className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3 top-3" />
                     <input
                       type="text"
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
                       onKeyDown={handleAddTag}
                       placeholder="e.g. sunset, coffee, vegan (press enter)"
-                      className="w-full pl-9 pr-4 py-2 text-base sm:text-xs bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] min-h-[40px]"
+                      className="liquid-glass-input w-full pl-9 pr-4 py-2 text-base sm:text-xs rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 min-h-[40px]"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleAddTag}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer border border-white/20 min-h-[40px] flex items-center"
+                    className="liquid-glass-pill px-4 py-2 text-slate-800 dark:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/15 rounded-xl text-xs font-semibold cursor-pointer min-h-[40px] flex items-center"
                   >
                     Add
                   </button>
                 </div>
                 {tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
+                  <div className="flex flex-wrap gap-1.5 mt-2.5">
                     {tags.map((t) => (
                       <span
                         key={t}
-                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-white/10 text-white/90 px-3 py-1 rounded-full border border-white/20"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium liquid-glass-pill text-slate-800 dark:text-white/90 px-3 py-1 rounded-full"
                       >
                         <span>#{t}</span>
                         <button
                           type="button"
                           onClick={() => handleRemoveTag(t)}
-                          className="hover:text-[#FF5F40] cursor-pointer ml-0.5"
+                          className="text-slate-400 dark:text-white/50 hover:text-[var(--brand-primary)] cursor-pointer"
+                          aria-label={`Remove tag ${t}`}
                         >
                           ×
                         </button>
@@ -607,11 +624,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-white/10 flex items-center justify-end gap-2 sm:gap-3 bg-black/40 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-4">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-[var(--heyroq-divider)] flex items-center justify-end gap-2 sm:gap-3 bg-slate-900/[0.02] dark:bg-white/[0.02] pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-4">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 sm:px-5 py-2 text-xs font-black uppercase tracking-wider text-white/60 hover:text-white cursor-pointer min-h-[40px]"
+            className="px-4 sm:px-5 py-2 text-xs font-semibold text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white cursor-pointer min-h-[40px]"
           >
             Cancel
           </button>
@@ -619,7 +636,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             type="submit"
             form="create-pin-form"
             disabled={isSubmitting}
-            className="px-5 sm:px-6 py-2.5 bg-[#FF5F40] hover:bg-[#ff7256] text-white rounded-full text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(255,95,64,0.4)] flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer min-h-[40px]"
+            className="heyroq-btn-primary px-5 sm:px-6 py-2.5 rounded-full text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer min-h-[40px]"
           >
             {isSubmitting ? (
               <>

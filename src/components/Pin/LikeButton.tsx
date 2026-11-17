@@ -9,7 +9,7 @@ export interface LikeIndicatorProps {
 
 /**
  * Unified Heyroq LikeIndicator Component
- * Renders the authoritative like count with the standard Heyroq coral heart icon.
+ * Renders the authoritative like count with the standard Heyroq Solaris Orange heart icon.
  */
 export const LikeIndicator: React.FC<LikeIndicatorProps> = ({
   count,
@@ -21,9 +21,9 @@ export const LikeIndicator: React.FC<LikeIndicatorProps> = ({
   if (variant === 'feed') {
     return (
       <span
-        className={`flex items-center gap-1 font-black text-xs text-[#FF5F40] ${className}`}
+        className={`inline-flex items-center gap-1 font-bold text-xs tabular-nums text-[var(--heyroq-accent-text)] ${className}`}
       >
-        <Heart className="w-3.5 h-3.5 fill-current" />
+        <Heart className="w-3.5 h-3.5 fill-[var(--brand-primary)] text-[var(--brand-primary)]" />
         <span>{safeCount}</span>
       </span>
     );
@@ -32,9 +32,9 @@ export const LikeIndicator: React.FC<LikeIndicatorProps> = ({
   if (variant === 'badge') {
     return (
       <div
-        className={`bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-full text-white text-[10px] font-mono flex items-center gap-1 border border-white/10 ${className}`}
+        className={`bg-black/75 px-2 py-0.5 rounded-full text-white text-[11px] font-semibold tabular-nums flex items-center gap-1 border border-white/15 shadow-sm ${className}`}
       >
-        <Heart className="w-2.5 h-2.5 fill-current text-[#FF5F40]" />
+        <Heart className="w-2.5 h-2.5 fill-[var(--brand-primary)] text-[var(--brand-primary)]" />
         <span>{safeCount}</span>
       </div>
     );
@@ -43,9 +43,9 @@ export const LikeIndicator: React.FC<LikeIndicatorProps> = ({
   // Default 'compact' (e.g. Map markers & preview chips)
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[#FF5F40] font-black text-[11px] leading-none ${className}`}
+      className={`inline-flex items-center gap-1 text-[var(--heyroq-accent-text)] font-bold text-[11px] tabular-nums leading-none ${className}`}
     >
-      <Heart className="w-2.5 h-2.5 fill-current shrink-0" />
+      <Heart className="w-2.5 h-2.5 fill-[var(--brand-primary)] text-[var(--brand-primary)] shrink-0" />
       <span>{safeCount}</span>
     </span>
   );
@@ -64,7 +64,7 @@ export interface LikeButtonProps {
 /**
  * Unified Heyroq LikeButton Component
  * Supports 'pill' (Map Preview Card) and 'detail' (Spot Details modal) variants,
- * keeping the active/inactive coral states, stroke/fill, typography, and spacing consistent.
+ * keeping the active/inactive Solaris Orange states, stroke/fill, typography, and spacing consistent.
  */
 export const LikeButton: React.FC<LikeButtonProps> = ({
   pinId,
@@ -87,11 +87,17 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
           e.stopPropagation();
           onToggle(pinId);
         }}
-        className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-wider transition cursor-pointer disabled:opacity-50 ${
-          isLiked ? 'text-[#FF5F40]' : 'text-white/60 hover:text-white'
+        className={`min-h-[38px] px-2.5 -ml-2.5 rounded-xl flex items-center gap-1.5 text-xs font-bold tracking-wide tabular-nums transition cursor-pointer disabled:opacity-50 ${
+          isLiked
+            ? 'text-[var(--heyroq-accent-text)] bg-[var(--brand-primary)]/10'
+            : 'text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]'
         } ${className}`}
       >
-        <Heart className={`w-4 h-4 transition-transform duration-150 ${isLiked ? 'fill-current scale-110' : ''}`} />
+        <Heart
+          className={`w-4 h-4 transition-transform duration-150 ${
+            isLiked ? 'fill-[var(--brand-primary)] text-[var(--brand-primary)] scale-110' : ''
+          }`}
+        />
         <span>
           {safeCount} {safeCount === 1 ? 'Like' : 'Likes'}
         </span>
@@ -99,7 +105,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
     );
   }
 
-  // 'pill' variant (used in Map Preview Cards & floating cards)
+  // 'pill' variant (used over photography in Map Preview Cards)
   return (
     <button
       type="button"
@@ -109,10 +115,10 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
         e.stopPropagation();
         onToggle(pinId);
       }}
-      className={`px-2.5 py-1 rounded-full backdrop-blur-md transition-all flex items-center gap-1 text-[11px] font-black uppercase tracking-wider cursor-pointer disabled:opacity-50 ${
+      className={`min-h-[30px] px-2.5 py-1 rounded-full transition-all flex items-center gap-1 text-[11px] font-bold tabular-nums tracking-wide cursor-pointer disabled:opacity-50 ${
         isLiked
-          ? 'bg-[#FF5F40] text-white shadow-[0_0_15px_#FF5F40]'
-          : 'bg-black/60 text-white hover:bg-black/80 border border-white/20'
+          ? 'bg-[var(--brand-cta-bg)] text-white border border-white/25 shadow-md'
+          : 'bg-black/75 text-white hover:bg-black/90 border border-white/20'
       } ${className}`}
     >
       <Heart className={`w-3 h-3 ${isLiked ? 'fill-current' : ''}`} />
@@ -123,12 +129,12 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
 
 /**
  * HTML string generator for Google Maps AdvancedMarker elements.
- * Generates an SVG matching Lucide's Heart icon with Heyroq's coral (#FF5F40) fill.
+ * Generates an SVG matching Lucide's Heart icon with Heyroq's Solaris Primary (#E87924) fill.
  */
 export function getLikeMarkerHtml(count: number): string {
   const safeCount = typeof count === 'number' && !isNaN(count) ? count : 0;
   return `
-    <span class="inline-flex items-center gap-1 text-[#FF5F40] font-black text-[11px] leading-none">
+    <span class="inline-flex items-center gap-1 text-[#E87924] font-bold text-[11px] tabular-nums leading-none">
       <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block shrink-0">
         <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
       </svg>

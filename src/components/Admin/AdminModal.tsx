@@ -7,6 +7,7 @@ import {
   deletePin,
   fetchPinById,
 } from '../../services/pinService';
+import { CloseButton } from '../Common/CloseButton';
 import {
   ShieldAlert,
   X,
@@ -16,6 +17,7 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  Info,
 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -28,6 +30,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const loadReports = async () => {
     setLoading(true);
@@ -49,15 +53,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (confirmDeleteReportId) {
+          setConfirmDeleteReportId(null);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [confirmDeleteReportId, onClose]);
 
   const handleResolve = async (reportId: string) => {
     setActionInProgress(reportId);
+    setConfirmDeleteReportId(null);
     try {
       await updateReportStatus(reportId, 'resolved');
       setReports((prev) =>
@@ -72,6 +81,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
 
   const handleDismiss = async (reportId: string) => {
     setActionInProgress(reportId);
+    setConfirmDeleteReportId(null);
     try {
       await updateReportStatus(reportId, 'dismissed');
       setReports((prev) =>
@@ -85,9 +95,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
   };
 
   const handleDeleteContent = async (report: Report) => {
-    if (!window.confirm('Delete this reported content permanently?')) return;
-
     setActionInProgress(report.id);
+    setConfirmDeleteReportId(null);
     try {
       if (report.targetType === 'pin' && report.targetId) {
         await deletePin(report.targetId, 'admin');
@@ -96,8 +105,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
       setReports((prev) =>
         prev.map((r) => (r.id === report.id ? { ...r, status: 'resolved' } : r))
       );
+      setStatusNotice('Reported content deleted and report marked resolved.');
     } catch (err) {
       console.error('Error deleting reported content:', err);
+      setStatusNotice('Could not delete reported content. Please try again.');
     } finally {
       setActionInProgress(null);
     }
@@ -110,26 +121,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
         onSelectPin(pin);
         onClose();
       } else {
-        alert('Pin has already been deleted or removed.');
+        setStatusNotice('Pin has already been deleted or removed.');
       }
     } catch (err) {
       console.error('Error inspecting pin:', err);
+      setStatusNotice('Unable to load reported pin details.');
     }
   };
 
   if (!isAdmin) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-2xl">
-        <div className="bg-[#0E0E0E] rounded-[32px] p-8 text-center max-w-sm border border-white/20 text-white">
-          <AlertTriangle className="w-12 h-12 text-[#FF5F40] mx-auto mb-3" />
-          <h3 className="font-black text-xl uppercase tracking-tight text-white">Access Restricted</h3>
-          <p className="text-xs text-white/50 mt-1">
+      <div className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="liquid-glass-modal rounded-[28px] p-8 text-center max-w-sm text-slate-900 dark:text-white">
+          <AlertTriangle className="w-11 h-11 text-[var(--brand-primary)] mx-auto mb-3" />
+          <h3 className="font-heading font-bold text-xl tracking-tight text-slate-900 dark:text-white">
+            Access Restricted
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-white/55 mt-1.5 leading-relaxed">
             Administrator credentials required to review moderation reports.
           </p>
           <button
             type="button"
             onClick={onClose}
-            className="mt-5 px-6 py-2.5 bg-[#FF5F40] text-white text-xs font-black uppercase tracking-wider rounded-full shadow-lg cursor-pointer"
+            className="heyroq-btn-primary mt-5 px-6 py-2.5 min-h-[42px] text-xs font-semibold rounded-full cursor-pointer heyroq-focus-ring"
           >
             Close
           </button>
@@ -141,22 +155,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-2xl animate-in fade-in"
+      className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
     >
       <div
         id="admin-moderation-modal"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[85vh] overflow-hidden shadow-2xl flex flex-col border border-white/20 text-white"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Moderation Dashboard"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[85vh] overflow-hidden flex flex-col text-slate-900 dark:text-white"
       >
         {/* Header */}
-        <div className="p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-black/40">
+        <div className="p-4 sm:p-6 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
-            <div className="p-2 sm:p-2.5 bg-white/10 text-[#FF5F40] rounded-2xl border border-white/10 shrink-0">
+            <div className="p-2 sm:p-2.5 bg-[var(--brand-primary)]/12 text-[var(--brand-primary)] rounded-2xl border border-[var(--brand-primary)]/25 shrink-0">
               <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white truncate">Moderation Dashboard</h2>
-              <p className="text-[11px] sm:text-xs text-white/50 truncate">
+              <h2 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white truncate">
+                Moderation Dashboard
+              </h2>
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-white/50 truncate">
                 Review flagged pins, reports, and user safety
               </p>
             </div>
@@ -166,33 +185,50 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
               type="button"
               onClick={loadReports}
               disabled={loading}
-              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/50 hover:text-white rounded-full hover:bg-white/10 transition cursor-pointer"
+              className="liquid-glass-pill p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white rounded-full transition-colors cursor-pointer heyroq-focus-ring"
               title="Refresh"
+              aria-label="Refresh reports"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              type="button"
+            <CloseButton
               onClick={onClose}
-              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-white/40 hover:text-white rounded-full transition cursor-pointer"
-              aria-label="Close admin modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
+              ariaLabel="Close Moderation Dashboard"
+            />
           </div>
         </div>
 
+        {/* Inline Status Notice (replaces window.alert for iframe safety) */}
+        {statusNotice && (
+          <div className="mx-4 sm:mx-6 mt-3 px-3.5 py-2.5 rounded-xl bg-slate-900/6 dark:bg-white/10 border border-slate-900/10 dark:border-white/15 flex items-center justify-between gap-3 text-xs text-slate-800 dark:text-white/90">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
+              <span>{statusNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStatusNotice(null)}
+              aria-label="Dismiss notice"
+              className="p-1 rounded-lg hover:bg-slate-900/10 dark:hover:bg-white/15 text-slate-500 dark:text-white/60 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 bg-black/40 no-scrollbar pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 subtle-glass-scrollbar pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
           {loading ? (
-            <div className="py-16 text-center text-white/40 text-xs flex flex-col items-center gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-[#FF5F40]" />
+            <div className="py-16 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center gap-2">
+              <Loader2 className="w-6 h-6 animate-spin text-[var(--brand-primary)]" />
               <span>Loading reports...</span>
             </div>
           ) : reports.length === 0 ? (
-            <div className="py-16 text-center text-white/40 text-xs">
-              <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto mb-2 opacity-80" />
-              <p className="font-black text-white text-base uppercase tracking-tight">All clear!</p>
+            <div className="py-16 text-center text-slate-500 dark:text-white/45 text-xs">
+              <CheckCircle className="w-10 h-10 text-emerald-600 dark:text-emerald-400 mx-auto mb-2" />
+              <p className="font-heading font-bold text-slate-900 dark:text-white text-base tracking-tight">
+                All clear
+              </p>
               <p className="mt-1">No active reports or pending flags at this time.</p>
             </div>
           ) : (
@@ -200,41 +236,50 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
               {reports.map((report) => {
                 const isPending = report.status === 'pending';
                 const isBusy = actionInProgress === report.id;
+                const isConfirmingDelete = confirmDeleteReportId === report.id;
 
                 return (
                   <div
                     key={report.id}
-                    className={`bg-[#141414] rounded-2xl p-3.5 sm:p-4 border transition ${
+                    className={`liquid-glass-card rounded-2xl p-3.5 sm:p-4 transition-colors ${
                       isPending
-                        ? 'border-[#FF5F40]/40 shadow-lg'
-                        : 'border-white/10 opacity-70'
+                        ? 'border-[var(--brand-primary)]/40'
+                        : 'opacity-75'
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap text-xs">
                           <span
-                            className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                            className={`font-semibold capitalize ${
                               isPending
-                                ? 'bg-[#FF5F40]/20 text-[#FF5F40] border border-[#FF5F40]/30'
+                                ? 'text-[var(--heyroq-accent-text)]'
                                 : report.status === 'resolved'
-                                ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-white/10 text-white/60 border border-white/15'
+                                  ? 'text-emerald-700 dark:text-emerald-400'
+                                  : 'text-slate-500 dark:text-white/55'
                             }`}
                           >
                             {report.status}
                           </span>
-                          <span className="text-xs font-bold text-white/60 uppercase">
+                          <span aria-hidden="true" className="text-slate-300 dark:text-white/25">
+                            ·
+                          </span>
+                          <span className="font-medium text-slate-600 dark:text-white/65 capitalize">
                             Type: {report.targetType}
                           </span>
-                          <span className="text-[11px] text-white/40 font-mono">
+                          <span aria-hidden="true" className="text-slate-300 dark:text-white/25">
+                            ·
+                          </span>
+                          <span className="text-[11px] text-slate-500 dark:text-white/45 tabular-nums">
                             {new Date(report.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <h4 className="font-black text-sm text-white uppercase tracking-tight break-words">{report.reason}</h4>
+                        <h4 className="font-heading font-bold text-sm text-slate-900 dark:text-white tracking-tight break-words">
+                          {report.reason}
+                        </h4>
                         {report.details && (
-                          <p className="text-xs text-white/70 mt-1.5 bg-black/40 p-2.5 rounded-xl border border-white/10 break-words">
-                            "{report.details}"
+                          <p className="text-xs text-slate-600 dark:text-white/75 mt-1.5 bg-slate-900/[0.03] dark:bg-black/30 p-2.5 rounded-xl border border-slate-900/8 dark:border-white/10 break-words">
+                            &ldquo;{report.details}&rdquo;
                           </p>
                         )}
                       </div>
@@ -245,8 +290,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
                           <button
                             type="button"
                             onClick={() => handleInspectPin(report.targetId)}
-                            className="p-2 min-h-[36px] text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition text-xs flex items-center gap-1 cursor-pointer"
+                            className="p-2 min-w-[38px] min-h-[38px] text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/6 dark:hover:bg-white/10 rounded-xl transition-colors text-xs flex items-center justify-center cursor-pointer heyroq-focus-ring"
                             title="Inspect Pin"
+                            aria-label="Inspect Pin"
                           >
                             <ExternalLink className="w-4 h-4" />
                           </button>
@@ -254,32 +300,56 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
 
                         {isPending && (
                           <>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleDeleteContent(report)}
-                              className="px-3 py-1.5 min-h-[36px] bg-red-950/80 text-red-400 border border-red-500/30 hover:bg-red-900/80 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1 transition cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Remove</span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleResolve(report.id)}
-                              className="px-3 py-1.5 min-h-[36px] bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-900/80 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1 transition cursor-pointer"
-                            >
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              <span>Resolve</span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleDismiss(report.id)}
-                              className="px-2.5 py-1.5 min-h-[36px] bg-white/10 text-white/70 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer"
-                            >
-                              Dismiss
-                            </button>
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleDeleteContent(report)}
+                                  className="px-3 py-1.5 min-h-[38px] bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Confirm Delete</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => setConfirmDeleteReportId(null)}
+                                  className="px-2.5 py-1.5 min-h-[38px] bg-slate-900/6 dark:bg-white/10 text-slate-700 dark:text-white/75 rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => setConfirmDeleteReportId(report.id)}
+                                  className="px-3 py-1.5 min-h-[38px] bg-red-500/10 dark:bg-red-950/75 text-red-700 dark:text-red-400 border border-red-500/25 dark:border-red-500/35 hover:bg-red-500/20 dark:hover:bg-red-900/80 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Remove</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleResolve(report.id)}
+                                  className="px-3 py-1.5 min-h-[38px] bg-emerald-500/10 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-500/35 hover:bg-emerald-500/20 dark:hover:bg-emerald-900/80 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span>Resolve</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleDismiss(report.id)}
+                                  className="liquid-glass-pill px-3 py-1.5 min-h-[38px] text-slate-700 dark:text-white/75 hover:text-slate-950 dark:hover:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                                >
+                                  Dismiss
+                                </button>
+                              </>
+                            )}
                           </>
                         )}
                       </div>

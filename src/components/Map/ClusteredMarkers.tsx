@@ -5,6 +5,7 @@ import { Pin } from '../../types';
 import { CATEGORY_CONFIG } from './CategoryBadge';
 import { normalizeCategory } from '../../utils/categoryUtils';
 import { getLikeMarkerHtml } from '../Pin/LikeButton';
+import { useTheme } from '../../context/ThemeContext';
 
 interface ClusteredMarkersProps {
   pins: Pin[];
@@ -21,6 +22,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
 }) => {
   const map = useMap();
   const markerLib = useMapsLibrary('marker');
+  const { resolvedTheme } = useTheme();
   const clusterer = useRef<MarkerClusterer | null>(null);
   const markersRef = useRef<Map<string, MapMarker>>(new Map());
 
@@ -29,6 +31,8 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
     if (!map) return;
     if (!clusterer.current) {
       clusterer.current = new MarkerClusterer({ map });
+    } else {
+      clusterer.current.setMap(map);
     }
     return () => {
       if (clusterer.current) {
@@ -38,7 +42,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
     };
   }, [map]);
 
-  // Update markers when pins, map, or markerLib changes
+  // Update markers when pins, map, markerLib, or resolvedTheme changes
   useEffect(() => {
     if (!map || !clusterer.current) return;
 
@@ -57,6 +61,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
     markersRef.current.clear();
 
     const newMarkers: MapMarker[] = [];
+    const isDark = resolvedTheme === 'dark';
 
     pins.forEach((pin) => {
       const isSelected = pin.id === selectedPinId;
@@ -66,20 +71,30 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
       // Create custom DOM element for AdvancedMarker
       const pinContainer = document.createElement('div');
       pinContainer.className =
-        'cursor-pointer transform transition-transform duration-200 hover:scale-110 active:scale-95';
+        'cursor-pointer transform transition-transform duration-150 hover:scale-105 active:scale-95';
+
+      const pillClass = isSelected
+        ? isDark
+          ? 'bg-white text-slate-950 border-white ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(232,121,36,0.38)] scale-105'
+          : 'bg-slate-950 text-white border-slate-950 ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(15,23,42,0.28)] scale-105'
+        : isDark
+          ? 'bg-[#18191C]/95 text-white border-white/18 hover:border-white/40 shadow-[0_6px_18px_rgba(0,0,0,0.52)]'
+          : 'bg-white/95 text-slate-900 border-slate-900/14 hover:border-slate-900/32 shadow-[0_4px_14px_rgba(15,23,42,0.14)]';
+
+      const pointerTipClass = isSelected
+        ? isDark
+          ? 'bg-white'
+          : 'bg-slate-950'
+        : 'hidden';
 
       const pinContent = `
         <div class="relative flex flex-col items-center">
-          <div class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-2xl border ${
-            isSelected
-              ? 'bg-white text-black border-white ring-4 ring-[#FF5F40] shadow-[0_0_20px_#FF5F40] scale-110'
-              : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
-          }">
+          <div class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-tight border ${pillClass}">
             <span class="w-2 h-2 rounded-full ${catConfig.bg}"></span>
-            <span class="truncate max-w-[130px]" data-pin-title></span>
+            <span class="truncate max-w-[140px]" data-pin-title></span>
             ${getLikeMarkerHtml(pin.likeCount || 0)}
           </div>
-          <div class="w-2 h-2 ${isSelected ? 'bg-white' : 'bg-black'} transform rotate-45 -mt-1 ${isSelected ? 'block' : 'hidden'}"></div>
+          <div class="w-2 h-2 ${pointerTipClass} transform rotate-45 -mt-1 ${isSelected ? 'block' : 'hidden'}"></div>
         </div>
       `;
       pinContainer.innerHTML = pinContent;
@@ -135,7 +150,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
         }
       });
     };
-  }, [map, markerLib, pins, selectedPinId, onPinClick]);
+  }, [map, markerLib, pins, selectedPinId, onPinClick, resolvedTheme]);
 
   return null;
 };

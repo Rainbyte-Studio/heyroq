@@ -4,6 +4,7 @@ import {
   Map,
   useMap,
   AdvancedMarker,
+  ColorScheme,
 } from '@vis.gl/react-google-maps';
 import { Pin } from '../../types';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../../services/pinService';
 import { GeographicClusterBadge } from './GeographicClusterBadge';
 import { GeographicClusterDetailCard } from './GeographicClusterDetailCard';
+import { useTheme } from '../../context/ThemeContext';
 import {
   ZoomIn,
   ZoomOut,
@@ -57,7 +59,7 @@ interface FootprintMapProps {
   onOpenPinDetails?: (pin: Pin) => void;
 }
 
-// Map Controller implementing Dynamic Intelligent Zoom, Zoom Tracking, and Target View Navigation
+// Map Controller implementing Dynamic Intelligent Zoom, Zoom Tracking, Camera Preservation across Theme Switches, and Target View Navigation
 const FootprintMapController: React.FC<{
   clusters: GeographicCluster[];
   resetKey: number;
@@ -69,21 +71,32 @@ const FootprintMapController: React.FC<{
   onZoomChange?: (zoom: number) => void;
 }> = ({ clusters, resetKey, targetView, onZoomChange }) => {
   const map = useMap();
+  const prevMapRef = useRef<google.maps.Map | null>(null);
+  const lastCameraRef = useRef<{ center: { lat: number; lng: number }; zoom: number } | null>(null);
 
-  // Track map zoom changes continuously
+  // Track map zoom & camera changes continuously so theme switches preserve camera state
   useEffect(() => {
     if (!map) return;
-    const updateZoom = () => {
+    const syncCamera = () => {
       const z = map.getZoom();
-      if (typeof z === 'number' && onZoomChange) {
-        onZoomChange(z);
+      const c = map.getCenter();
+      if (typeof z === 'number') {
+        onZoomChange?.(z);
+        if (c) {
+          lastCameraRef.current = {
+            center: { lat: c.lat(), lng: c.lng() },
+            zoom: z,
+          };
+        }
       }
     };
-    const zoomListener = map.addListener('zoom_changed', updateZoom);
-    updateZoom();
+    const zoomListener = map.addListener('zoom_changed', syncCamera);
+    const idleListener = map.addListener('idle', syncCamera);
+    syncCamera();
 
     return () => {
       google.maps.event.removeListener(zoomListener);
+      google.maps.event.removeListener(idleListener);
     };
   }, [map, onZoomChange]);
 
@@ -116,7 +129,7 @@ const FootprintMapController: React.FC<{
         return () => {
           google.maps.event.removeListener(idleListener);
         };
-      } catch (err) {
+      } catch {
         map.panTo(targetView.center);
         map.setZoom(targetView.zoom);
       }
@@ -127,7 +140,19 @@ const FootprintMapController: React.FC<{
   }, [map, targetView]);
 
   useEffect(() => {
-    if (!map || clusters.length === 0 || targetView) return;
+    if (!map || clusters.length === 0) return;
+
+    const mapSwapped = prevMapRef.current !== null && prevMapRef.current !== map;
+    prevMapRef.current = map;
+
+    // If map re-instantiated due to Light <-> Dark ColorScheme change, restore exact camera without resetting bounds
+    if (mapSwapped && lastCameraRef.current) {
+      map.setCenter(lastCameraRef.current.center);
+      map.setZoom(lastCameraRef.current.zoom);
+      return;
+    }
+
+    if (targetView) return;
 
     const viewport = calculateDynamicViewport(clusters);
 
@@ -138,7 +163,6 @@ const FootprintMapController: React.FC<{
           { lat: viewport.bounds.north, lng: viewport.bounds.east }
         );
 
-        // Apply sensible padding
         map.fitBounds(googleBounds, {
           top: 36,
           bottom: 36,
@@ -146,7 +170,6 @@ const FootprintMapController: React.FC<{
           right: 36,
         });
 
-        // Clamp the zoom immediately after fitBounds completes to guarantee sensible bounds
         const idleListener = google.maps.event.addListenerOnce(map, 'idle', () => {
           const currentZoom = map.getZoom();
           if (typeof currentZoom === 'number') {
@@ -161,13 +184,11 @@ const FootprintMapController: React.FC<{
         return () => {
           google.maps.event.removeListener(idleListener);
         };
-      } catch (err) {
-        // Fallback to direct center/zoom
+      } catch {
         map.setCenter(viewport.center);
         map.setZoom(viewport.zoom);
       }
     } else {
-      // Single location or point: Directly apply targeted center & zoom
       map.setCenter(viewport.center);
       map.setZoom(viewport.zoom);
     }
@@ -176,67 +197,10 @@ const FootprintMapController: React.FC<{
   return null;
 };
 
-// Minimal Dark Map Style for Heyroq
-const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#121212' }] },
-  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#121212' }] },
-  {
-    featureType: 'administrative',
-    elementType: 'geometry',
-    stylers: [{ color: '#2b2b2b' }],
-  },
-  {
-    featureType: 'administrative.country',
-    elementType: 'labels.text.fill',
-    stylers: [{ color: '#9e9e9e' }],
-  },
-  {
-    featureType: 'administrative.locality',
-    elementType: 'labels.text.fill',
-    stylers: [{ color: '#cccccc' }],
-  },
-  {
-    featureType: 'poi',
-    stylers: [{ visibility: 'off' }],
-  },
-  {
-    featureType: 'road',
-    elementType: 'geometry.fill',
-    stylers: [{ color: '#1c1c1c' }],
-  },
-  {
-    featureType: 'road',
-    elementType: 'labels.text.fill',
-    stylers: [{ color: '#8a8a8a' }],
-  },
-  {
-    featureType: 'road.highway',
-    elementType: 'geometry',
-    stylers: [{ color: '#262626' }],
-  },
-  {
-    featureType: 'transit',
-    stylers: [{ visibility: 'off' }],
-  },
-  {
-    featureType: 'water',
-    elementType: 'geometry',
-    stylers: [{ color: '#0a0a0a' }],
-  },
-  {
-    featureType: 'water',
-    elementType: 'labels.text.fill',
-    stylers: [{ color: '#3d3d3d' }],
-  },
-];
-
 export const FootprintMap: React.FC<FootprintMapProps> = ({
   clusters,
   countries = [],
   allPins = [],
-  totalPins,
   activeCountry,
   activeCity,
   currentUserId,
@@ -247,6 +211,8 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
   onSelectPin,
   onOpenPinDetails,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const apiKey = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
   const [selectedCluster, setSelectedCluster] = useState<GeographicCluster | null>(null);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
@@ -263,10 +229,8 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
-  // Compute base viewport from all clusters
   const viewport = useMemo(() => calculateDynamicViewport(clusters), [clusters]);
 
-  // Filter clusters by activeCountry if specified
   const effectiveClusters = useMemo(() => {
     if (!activeCountry) return clusters;
     const cleanActive = activeCountry.trim().toLowerCase();
@@ -276,17 +240,12 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
     return filtered.length > 0 ? filtered : clusters;
   }, [clusters, activeCountry]);
 
-  // Hierarchical Zoom Thresholds:
-  // Level A (Country View): < 6.5 (unless a country/city is explicitly selected)
-  // Level B (City View): 6.5 to < 11.0
-  // Level C (Spot View): >= 11.0 or when an active city is focused
   const COUNTRY_ZOOM_THRESHOLD = 6.5;
   const SPOT_ZOOM_THRESHOLD = 11.0;
 
   const isSpotZoom = currentZoom >= SPOT_ZOOM_THRESHOLD || Boolean(activeCity);
   const isWideZoom = currentZoom < COUNTRY_ZOOM_THRESHOLD && !activeCountry && !activeCity;
 
-  // Generate display clusters according to zoom level
   const displayClusters: MapDisplayCluster[] = useMemo(() => {
     if (isWideZoom && countries.length > 0) {
       return getCountryDisplayClusters(countries, clusters);
@@ -294,7 +253,6 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
     return getCityDisplayClusters(effectiveClusters);
   }, [isWideZoom, countries, clusters, effectiveClusters]);
 
-  // Filter genuine public pins for Level C spot display
   const filteredPins = useMemo(() => {
     if (!allPins || allPins.length === 0) return [];
     return allPins.filter((pin) => {
@@ -360,7 +318,6 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
     }
   };
 
-  // Adjust fallback canvas when viewport or targetView changes
   useEffect(() => {
     if (targetView) {
       setFallbackZoom(targetView.zoom >= 11 ? 4.2 : targetView.zoom >= 7 ? 2.6 : 1.6);
@@ -387,7 +344,6 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
     }
   }, [viewport, targetView]);
 
-  // Convert lat/lng to percentage on fallback vector canvas
   const latLngToPercent = (lat: number, lng: number) => {
     const x = ((lng + 180) / 360) * 100;
     const y = ((90 - lat) / 180) * 100;
@@ -414,12 +370,10 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
   const handleDisplayClusterClick = (displayCluster: MapDisplayCluster) => {
     setSelectedPin(null);
     if (displayCluster.type === 'country') {
-      // Level A (Country View) -> Zoom into Country
       if (onSelectCountry) {
         onSelectCountry(displayCluster.countryName);
       }
     } else {
-      // Level B (City View) -> Zoom into City Spot View
       if (onSelectCity) {
         onSelectCity(displayCluster.cityName || displayCluster.shortName, displayCluster.countryName);
       } else {
@@ -447,12 +401,20 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
     setSelectedPin(pin);
   };
 
+  const spotPillClass = (isSelected: boolean) =>
+    isSelected
+      ? isDark
+        ? 'bg-white text-slate-950 border-white ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+        : 'bg-slate-900 text-white border-slate-900 ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+      : isDark
+        ? 'bg-[#14161D]/92 text-white border-white/18 hover:border-white/50 backdrop-blur-md shadow-md'
+        : 'bg-white/94 text-slate-900 border-slate-900/14 hover:border-[var(--brand-primary)]/60 backdrop-blur-md shadow-md';
+
   return (
     <div
       id="footprint-interactive-map-container"
-      className="relative w-full h-[320px] sm:h-[380px] rounded-2xl overflow-hidden bg-[#0A0A0A] border border-white/10 shadow-inner group"
+      className="relative w-full h-[320px] sm:h-[380px] rounded-2xl overflow-hidden bg-[#ECEEF2] dark:bg-[#0B0F17] border border-slate-900/10 dark:border-white/12 shadow-inner group"
       onClick={() => {
-        // Deselect if clicking container backdrop
         if (selectedCluster) setSelectedCluster(null);
         if (selectedPin) setSelectedPin(null);
       }}
@@ -461,18 +423,18 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
       {activeCountry && (
         <div
           id="active-footprint-country-pill"
-          className="absolute top-3 left-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/85 backdrop-blur-md border border-white/20 shadow-xl select-none"
+          className="liquid-glass-pill absolute top-3 left-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full select-none"
         >
-          <span className="text-[10px] uppercase font-black tracking-wider text-white/50">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-white/55">
             Showing:
           </span>
-          <span className="text-xs font-black uppercase tracking-tight text-[#FF5F40]">
+          <span className="text-xs font-bold text-[var(--heyroq-accent-text)]">
             {activeCountry}
           </span>
           {activeCity && (
             <>
-              <span className="text-white/30">/</span>
-              <span className="text-xs font-bold text-white/90">{activeCity}</span>
+              <span className="text-slate-400 dark:text-white/30">/</span>
+              <span className="text-xs font-semibold text-slate-900 dark:text-white/90">{activeCity}</span>
             </>
           )}
           {onClearFilter && (
@@ -483,8 +445,9 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                 e.stopPropagation();
                 onClearFilter();
               }}
-              className="ml-1 p-0.5 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition cursor-pointer"
+              className="ml-1 p-1 rounded-full hover:bg-slate-900/10 dark:hover:bg-white/20 text-slate-600 dark:text-white/70 hover:text-slate-950 dark:hover:text-white transition-colors cursor-pointer heyroq-focus-ring"
               title="Show all locations"
+              aria-label="Show all locations"
             >
               <X className="w-3 h-3" />
             </button>
@@ -495,25 +458,27 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
       {/* Dynamic Geographic Level Indicator */}
       <div
         id="footprint-level-indicator"
-        className="absolute top-3 right-14 z-20 hidden xs:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[10px] font-black uppercase tracking-wider text-white/70 shadow-lg select-none"
+        className="liquid-glass-pill absolute top-3 right-14 z-20 hidden xs:flex items-center px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-slate-700 dark:text-white/75 select-none"
       >
-        <span className="w-1.5 h-1.5 rounded-full bg-[#FF5F40] animate-pulse" />
         <span>{isSpotZoom ? 'Spot View' : isWideZoom ? 'Country View' : 'City View'}</span>
       </div>
 
-      {/* 1. Google Maps Vector Mode (When API Key is available) */}
+      {/* 1. Google Maps Vector Mode (Synchronized with Light/Dark resolvedTheme via ColorScheme)
+          Note on Cloud Map ID: `mapId="heyroq_footprint_map_v2"` is required for AdvancedMarker.
+          If a Cloud Console Map Style overrides vector colors for one scheme, verify both Light & Dark
+          styles are associated with this Map ID in Google Cloud Console. */}
       {apiKey ? (
         <APIProvider apiKey={apiKey} libraries={['marker', 'places']}>
           <Map
             id="footprint-google-map"
             mapId="heyroq_footprint_map_v2"
+            colorScheme={isDark ? ColorScheme.DARK : ColorScheme.LIGHT}
+            reuseMaps={true}
+            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             defaultCenter={viewport.center}
             defaultZoom={viewport.zoom}
-            // PREVENT GRAY MAP TILES:
-            // minZoom 2.6 prevents zooming out far enough to expose gray unrendered polar tiles
             minZoom={2.6}
             maxZoom={16}
-            // Strict bounds prevent panning past the world bounds
             restriction={{
               latLngBounds: {
                 north: 84,
@@ -523,14 +488,12 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
               },
               strictBounds: true,
             }}
-            backgroundColor="#0A0A0A"
-            styles={mapType === 'roadmap' ? DARK_MAP_STYLES : undefined}
+            backgroundColor={isDark ? '#0B0F17' : '#ECEEF2'}
             mapTypeId={mapType}
             disableDefaultUI={true}
             gestureHandling="cooperative"
             className="w-full h-full"
           >
-            {/* Intelligent dynamic zoom controller */}
             <FootprintMapController
               clusters={effectiveClusters}
               resetKey={resetKey}
@@ -538,7 +501,6 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
               onZoomChange={setCurrentZoom}
             />
 
-            {/* Hierarchical Markers: Level C (Spot View) vs Level A/B (Country / City Clusters) */}
             {isSpotZoom ? (
               filteredPins.map((pin) => {
                 const isSelected = selectedPin?.id === pin.id;
@@ -557,16 +519,14 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                         e.stopPropagation();
                         handleSpotClick(pin);
                       }}
-                      className="cursor-pointer transform transition-transform duration-200 hover:scale-110 active:scale-95"
+                      className="cursor-pointer transform transition-transform duration-150 hover:scale-105 active:scale-95"
                     >
                       <div
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-2xl border transition-all ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-tight border transition-all ${spotPillClass(
                           isSelected
-                            ? 'bg-white text-black border-white ring-4 ring-[#FF5F40] shadow-[0_0_20px_#FF5F40] scale-110'
-                            : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
-                        }`}
+                        )}`}
                       >
-                        <span className={`w-2 h-2 rounded-full ${catConfig.bg} shadow-[0_0_6px_currentColor]`} />
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${catConfig.bg}`} />
                         <span className="truncate max-w-[110px]">{pin.title}</span>
                         <LikeIndicator count={pin.likeCount || 0} variant="compact" />
                       </div>
@@ -602,11 +562,11 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                 e.stopPropagation();
                 setMapType((prev) => (prev === 'roadmap' ? 'satellite' : 'roadmap'));
               }}
-              className="p-2 bg-black/80 hover:bg-black backdrop-blur-md rounded-xl border border-white/15 text-white/80 hover:text-white transition shadow-lg cursor-pointer"
+              className="liquid-glass-pill p-2 min-w-[38px] min-h-[38px] flex items-center justify-center rounded-xl text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring"
               title="Toggle Map Style"
               aria-label="Toggle Map Style"
             >
-              <Layers className="w-4 h-4 text-[#FF5F40]" />
+              <Layers className="w-4 h-4 text-[var(--brand-primary)]" />
             </button>
             <button
               id="footprint-map-recenter-btn"
@@ -618,11 +578,11 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                 setSelectedCluster(null);
                 setResetKey((prev) => prev + 1);
               }}
-              className="p-2 bg-black/80 hover:bg-black backdrop-blur-md rounded-xl border border-white/15 text-white/80 hover:text-white transition shadow-lg cursor-pointer"
+              className="liquid-glass-pill p-2 min-w-[38px] min-h-[38px] flex items-center justify-center rounded-xl text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring"
               title="Recenter Footprint"
               aria-label="Recenter Footprint"
             >
-              <Crosshair className="w-4 h-4 text-[#FF5F40]" />
+              <Crosshair className="w-4 h-4 text-[var(--brand-primary)]" />
             </button>
           </div>
         </APIProvider>
@@ -630,12 +590,11 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
         /* 2. Interactive Fallback Canvas (When API Key is not configured yet) */
         <div
           id="footprint-vector-canvas"
-          className="relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing"
+          className="relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing bg-[#ECEEF2] dark:bg-[#0B0F17]"
           onMouseDown={handleFallbackMouseDown}
           onMouseMove={handleFallbackMouseMove}
           onMouseUp={handleFallbackMouseUp}
         >
-          {/* Subtle World Map Silhouette */}
           <div
             className="absolute inset-0 transition-transform duration-75 origin-center pointer-events-none"
             style={{
@@ -643,48 +602,23 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
             }}
           >
             {/* Coordinate Grid Lines */}
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:40px_40px] opacity-40" />
+            <div className="absolute inset-0 bg-grid-dots opacity-60" />
 
             {/* Stylized Landmass Paths */}
             <svg
-              className="absolute inset-0 w-full h-full opacity-15"
+              className="absolute inset-0 w-full h-full text-slate-900/10 dark:text-white/15"
               viewBox="0 0 1000 500"
               fill="currentColor"
               preserveAspectRatio="none"
             >
-              {/* North America */}
-              <path
-                d="M120,70 Q180,50 260,70 T320,130 T270,220 T210,190 T140,150 Z"
-                className="text-white"
-              />
-              {/* South America */}
-              <path
-                d="M240,240 Q290,260 300,340 T270,430 T230,370 T220,290 Z"
-                className="text-white"
-              />
-              {/* Europe */}
-              <path
-                d="M470,80 Q520,70 560,100 T530,160 T480,130 Z"
-                className="text-white"
-              />
-              {/* Africa */}
-              <path
-                d="M470,170 Q540,180 570,270 T520,380 T460,320 T440,230 Z"
-                className="text-white"
-              />
-              {/* Asia */}
-              <path
-                d="M580,80 Q740,50 840,110 T880,210 T780,250 T650,170 Z"
-                className="text-white"
-              />
-              {/* Australia */}
-              <path
-                d="M780,310 Q850,300 880,360 T820,420 T760,370 Z"
-                className="text-white"
-              />
+              <path d="M120,70 Q180,50 260,70 T320,130 T270,220 T210,190 T140,150 Z" />
+              <path d="M240,240 Q290,260 300,340 T270,430 T230,370 T220,290 Z" />
+              <path d="M470,80 Q520,70 560,100 T530,160 T480,130 Z" />
+              <path d="M470,170 Q540,180 570,270 T520,380 T460,320 T440,230 Z" />
+              <path d="M580,80 Q740,50 840,110 T880,210 T780,250 T650,170 Z" />
+              <path d="M780,310 Q850,300 880,360 T820,420 T760,370 Z" />
             </svg>
 
-            {/* Hierarchical Fallback Markers: Level C (Spots) vs Level A/B (Clusters) */}
             {isSpotZoom ? (
               filteredPins.map((pin) => {
                 const pos = latLngToPercent(pin.latitude, pin.longitude);
@@ -695,7 +629,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                   <div
                     key={`fallback_spot_${pin.id}`}
                     id={`fallback-spot-marker-${pin.id}`}
-                    className="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer hover:scale-110 transition-transform"
+                    className="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer hover:scale-105 transition-transform"
                     style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -703,13 +637,11 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                     }}
                   >
                     <div
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-2xl border transition-all ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-tight border transition-all ${spotPillClass(
                         isSelected
-                          ? 'bg-white text-black border-white ring-4 ring-[#FF5F40] shadow-[0_0_20px_#FF5F40] scale-110'
-                          : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
-                      }`}
+                      )}`}
                     >
-                      <span className={`w-2 h-2 rounded-full ${catConfig.bg} shadow-[0_0_6px_currentColor]`} />
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${catConfig.bg}`} />
                       <span className="truncate max-w-[110px]">{pin.title}</span>
                       <LikeIndicator count={pin.likeCount || 0} variant="compact" />
                     </div>
@@ -744,7 +676,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
 
           {/* Fallback Controls */}
           <div className="absolute top-3 right-3 z-20 flex flex-col gap-1.5">
-            <div className="flex flex-col bg-black/80 backdrop-blur-md rounded-xl border border-white/15 shadow-xl overflow-hidden">
+            <div className="liquid-glass-pill flex flex-col rounded-xl overflow-hidden">
               <button
                 id="fallback-zoom-in-btn"
                 type="button"
@@ -756,13 +688,13 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                     return next;
                   });
                 }}
-                className="p-2 text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className="p-2 min-w-[38px] min-h-[38px] flex items-center justify-center text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/10 transition-colors cursor-pointer heyroq-focus-ring"
                 title="Zoom In"
                 aria-label="Zoom In"
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
-              <div className="h-px bg-white/10" />
+              <div className="h-px bg-slate-900/10 dark:bg-white/10" />
               <button
                 id="fallback-zoom-out-btn"
                 type="button"
@@ -774,7 +706,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                     return next;
                   });
                 }}
-                className="p-2 text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className="p-2 min-w-[38px] min-h-[38px] flex items-center justify-center text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/10 transition-colors cursor-pointer heyroq-focus-ring"
                 title="Zoom Out"
                 aria-label="Zoom Out"
               >
@@ -794,17 +726,17 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
                 setFallbackZoom(1);
                 setCurrentZoom(4);
               }}
-              className="p-2 bg-black/80 hover:bg-black backdrop-blur-md rounded-xl border border-white/15 text-white/80 hover:text-white transition shadow-lg cursor-pointer"
+              className="liquid-glass-pill p-2 min-w-[38px] min-h-[38px] flex items-center justify-center rounded-xl text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white transition-colors cursor-pointer heyroq-focus-ring"
               title="Reset View"
               aria-label="Reset View"
             >
-              <Crosshair className="w-4 h-4 text-[#FF5F40]" />
+              <Crosshair className="w-4 h-4 text-[var(--brand-primary)]" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Selected Aggregated Area Flyout Card (When clicking a cluster that is not zooming) */}
+      {/* Selected Aggregated Area Flyout Card */}
       {selectedCluster && (
         <GeographicClusterDetailCard
           cluster={selectedCluster}
@@ -817,7 +749,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
       {selectedPin && (
         <div
           id="footprint-spot-preview-card"
-          className="absolute bottom-3 right-3 z-30 max-w-[calc(100%-24px)] sm:max-w-xs animate-in slide-in-from-bottom-3 duration-200"
+          className="absolute bottom-3 right-3 z-30 max-w-[calc(100%-24px)] sm:max-w-xs animate-in slide-in-from-bottom-3 duration-150"
           onClick={(e) => e.stopPropagation()}
         >
           <PinPreviewCard

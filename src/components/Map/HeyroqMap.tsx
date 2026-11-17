@@ -3,11 +3,14 @@ import {
   Map,
   useMap,
   AdvancedMarker,
+  ColorScheme,
 } from '@vis.gl/react-google-maps';
 import { Pin, LatLngBounds, LatLngPoint } from '../../types';
 import { ClusteredMarkers } from './ClusteredMarkers';
 import { CATEGORY_CONFIG } from './CategoryBadge';
 import { LikeIndicator } from '../Pin/LikeButton';
+import { useTheme } from '../../context/ThemeContext';
+import { CloseButton } from '../Common/CloseButton';
 import {
   MapPin,
   Crosshair,
@@ -44,7 +47,10 @@ interface HeyroqMapProps {
   onTogglePinMarkers?: () => void;
 }
 
-// Controller to programmatically change map view, handle container resizing and bounds
+/**
+ * Controller to programmatically synchronize map camera, container resizing, bounds,
+ * and seamless camera preservation across Light/Dark ColorScheme transitions.
+ */
 const MapController: React.FC<{
   center?: LatLngPoint;
   onBoundsChange: (bounds: LatLngBounds) => void;
@@ -63,6 +69,9 @@ const MapController: React.FC<{
   const map = useMap();
   const debounceTimer = useRef<any>(null);
   const isInitialMount = useRef(true);
+  const lastCameraRef = useRef<{ center: LatLngPoint; zoom: number } | null>(null);
+  const prevMapRef = useRef<google.maps.Map | null>(null);
+  const prevCenterPropRef = useRef<LatLngPoint | undefined>(center);
 
   // Synchronize active map instance to parent
   useEffect(() => {
@@ -97,17 +106,42 @@ const MapController: React.FC<{
     }
   }, [map, mapStyle]);
 
-  // Keep center synchronized and ensure sensible initial zoom
+  // Keep center synchronized and preserve camera smoothly if map re-instantiates on theme switch
   useEffect(() => {
-    if (!map || !center) return;
+    if (!map) return;
+
+    const mapChanged = prevMapRef.current !== null && prevMapRef.current !== map;
+    prevMapRef.current = map;
+
     if (isInitialMount.current) {
       isInitialMount.current = false;
-      map.setCenter(center);
+      if (center) {
+        map.setCenter(center);
+      }
       const currentZoom = map.getZoom();
       if (typeof currentZoom !== 'number' || currentZoom < 4) {
         map.setZoom(12);
       }
-    } else {
+      prevCenterPropRef.current = center;
+      return;
+    }
+
+    // If map instance swapped due to Light <-> Dark ColorScheme change, restore user's exact camera
+    if (mapChanged && lastCameraRef.current) {
+      map.setCenter(lastCameraRef.current.center);
+      map.setZoom(lastCameraRef.current.zoom);
+      prevCenterPropRef.current = center;
+      return;
+    }
+
+    // Otherwise pan when external center prop explicitly changed
+    if (
+      center &&
+      (!prevCenterPropRef.current ||
+        prevCenterPropRef.current.lat !== center.lat ||
+        prevCenterPropRef.current.lng !== center.lng)
+    ) {
+      prevCenterPropRef.current = center;
       map.panTo(center);
     }
   }, [map, center]);
@@ -126,14 +160,13 @@ const MapController: React.FC<{
         if (window.google?.maps?.event) {
           google.maps.event.trigger(map, 'resize');
         }
-        // Ensure center is maintained after resize
-        if (center) {
-          map.setCenter(center);
+        const savedCenter = lastCameraRef.current?.center || center;
+        if (savedCenter) {
+          map.setCenter(savedCenter);
         }
-        // If zoom was collapsed due to 0-height init, restore target zoom
         const currentZoom = map.getZoom();
         if (typeof currentZoom !== 'number' || currentZoom < 4) {
-          map.setZoom(12);
+          map.setZoom(lastCameraRef.current?.zoom || 12);
         }
       }, 50);
     };
@@ -151,9 +184,7 @@ const MapController: React.FC<{
       observer.observe(mapDiv.parentElement);
     }
 
-    // Run trigger shortly after mount to ensure initial tile fill once layout finishes
     const initialTimer = setTimeout(triggerResize, 100);
-
     window.addEventListener('resize', triggerResize);
 
     return () => {
@@ -168,6 +199,15 @@ const MapController: React.FC<{
     if (!map) return;
 
     const listener = map.addListener('idle', () => {
+      const c = map.getCenter();
+      const z = map.getZoom();
+      if (c && typeof z === 'number') {
+        lastCameraRef.current = {
+          center: { lat: c.lat(), lng: c.lng() },
+          zoom: z,
+        };
+      }
+
       clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => {
         const bounds = map.getBounds();
@@ -221,6 +261,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
   showPinMarkers = true,
   onTogglePinMarkers,
 }) => {
+  const { resolvedTheme } = useTheme();
   const effectivePins = showPinMarkers ? pins : [];
   const apiKey = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
   const [mapStyle, setMapStyle] = useState<'standard' | 'satellite'>('standard');
@@ -251,7 +292,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     };
   }, [isLayersOpen]);
 
-  // Map type switcher with instantaneous update and zero reload
   const handleSelectMapStyle = (newStyle: 'standard' | 'satellite') => {
     setMapStyle(newStyle);
     if (mapInstance) {
@@ -259,7 +299,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     }
   };
 
-  // Functional Heyroq My Location / Recenter handler
   const handleLocateMe = useCallback(() => {
     if (isLocating) return;
 
@@ -286,7 +325,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             mapInstance.setZoom(14);
           }
         } else {
-          // Fallback interactive map recenter
           setFallbackZoom(1.8);
           setFallbackPan({ x: 0, y: 0 });
         }
@@ -294,7 +332,9 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
       (err) => {
         setIsLocating(false);
         if (err.code === 1 /* PERMISSION_DENIED */) {
-          setLocationNotice('Location permission was denied. Please allow location access in your browser.');
+          setLocationNotice(
+            'Location permission was denied. Please allow location access in your browser.'
+          );
         } else if (err.code === 2 /* POSITION_UNAVAILABLE */) {
           setLocationNotice('Current location is unavailable.');
         } else if (err.code === 3 /* TIMEOUT */) {
@@ -311,7 +351,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     );
   }, [isLocating, mapInstance]);
 
-  // Auto-dismiss user location notices
   useEffect(() => {
     if (!locationNotice) return;
     const timer = setTimeout(() => setLocationNotice(null), 4000);
@@ -367,7 +406,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left - fallbackPan.x;
     const y = e.clientY - rect.top - fallbackPan.y;
-    // Map pixel back to approx lat/lng
     const lat = 90 - (y / (rect.height * fallbackZoom)) * 180;
     const lng = (x / (rect.width * fallbackZoom)) * 360 - 180;
     onSelectCreateLocation({
@@ -376,38 +414,39 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     });
   };
 
-  // Convert lat/lng to percentage on fallback canvas
   const latLngToPercent = (lat: number, lng: number) => {
     const x = ((lng + 180) / 360) * 100;
     const y = ((90 - lat) / 180) * 100;
     return { x, y };
   };
 
-  // Deliberate Heyroq Lower-Right Control Hierarchy:
+  // Deliberate Heyroq Lower-Right Liquid Glass Control Hierarchy:
   // UTILITY CONTROLS: [ My Location ] [ Map Layers ]
-  // ACTIONS:          [ HIDE ]        [ Add Pin (+) ]
+  // ACTIONS:          [ Hide / Show ] [ Spots (if drawer closed) ] [ Mobile Add Pin (+) ]
   const renderHeyroqControls = () => (
     <div
       id="heyroq-bottom-right-controls"
-      className={`absolute right-3.5 sm:right-6 z-20 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all duration-200 ${
+      className={`absolute right-3.5 sm:right-5 z-20 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all duration-200 ${
         isDrawerOpen
           ? 'bottom-6 sm:bottom-7'
-          : 'bottom-[calc(1.875rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
+          : 'bottom-[calc(1.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
       }`}
     >
-      {/* User-friendly Location Feedback Notice (floats above utility row to keep controls coherent) */}
+      {/* Location Feedback Notice */}
       {locationNotice && (
         <div
           role="status"
           aria-live="polite"
-          className="max-w-[240px] sm:max-w-xs bg-black/90 backdrop-blur-xl text-white text-xs font-medium px-3.5 py-2 rounded-xl border border-white/20 shadow-2xl flex items-center gap-2 mb-0.5 animate-in fade-in slide-in-from-bottom-2"
+          className="liquid-glass-floating max-w-[250px] sm:max-w-xs text-[var(--heyroq-text-primary)] text-xs font-medium px-3.5 py-2 rounded-xl flex items-center gap-2 mb-0.5 animate-in fade-in slide-in-from-bottom-2"
         >
-          <Info className="w-4 h-4 text-[#FF5F40] shrink-0" />
-          <span className="leading-snug text-white/90 text-[11px] sm:text-xs">{locationNotice}</span>
+          <Info className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
+          <span className="leading-snug text-[var(--heyroq-text-secondary)] text-[11px] sm:text-xs">
+            {locationNotice}
+          </span>
           <button
             type="button"
             onClick={() => setLocationNotice(null)}
-            className="ml-auto text-white/50 hover:text-white p-0.5 cursor-pointer"
+            className="ml-auto text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] p-0.5 cursor-pointer"
             aria-label="Dismiss notice"
           >
             <X className="w-3 h-3" />
@@ -417,7 +456,6 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
 
       {/* Utility Controls Row: [ My Location ] [ Map Layers ] */}
       <div className="flex items-center gap-2">
-        {/* My Location / Recenter */}
         <button
           id="heyroq-my-location-btn"
           type="button"
@@ -428,9 +466,11 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
           disabled={isLocating}
           aria-label="My location"
           title="My location"
-          className="w-11 h-11 min-w-[44px] min-h-[44px] bg-black/85 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-2xl border border-white/20 text-white hover:bg-black hover:border-white/40 active:scale-95 transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#FF5F40]"
+          className="liquid-glass-floating w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl text-[var(--heyroq-text-primary)] hover:border-[var(--heyroq-border-strong)] active:scale-95 transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 heyroq-focus-ring"
         >
-          <Crosshair className={`w-4 h-4 sm:w-5 sm:h-5 text-[#FF5F40] ${isLocating ? 'animate-spin' : ''}`} />
+          <Crosshair
+            className={`w-[18px] h-[18px] text-[var(--brand-primary)] ${isLocating ? 'animate-spin' : ''}`}
+          />
         </button>
 
         {/* Map Layers Control */}
@@ -446,40 +486,35 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             aria-haspopup="true"
             aria-expanded={isLayersOpen}
             title="Map layers"
-            className={`w-11 h-11 min-w-[44px] min-h-[44px] bg-black/85 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-2xl border transition-all flex items-center justify-center cursor-pointer active:scale-95 focus:outline-none focus:ring-2 focus:ring-[#FF5F40] ${
+            className={`liquid-glass-floating w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl transition-all flex items-center justify-center cursor-pointer active:scale-95 heyroq-focus-ring ${
               isLayersOpen
-                ? 'border-[#FF5F40] ring-2 ring-[#FF5F40]/40 bg-black'
-                : 'border-white/20 hover:border-white/40 hover:bg-black'
+                ? 'border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/30'
+                : 'hover:border-[var(--heyroq-border-strong)]'
             }`}
           >
-            <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-[#FF5F40]" />
+            <Layers className="w-[18px] h-[18px] text-[var(--brand-primary)]" />
           </button>
 
-          {/* Map Style Popover - Expands upwards into clear map area */}
+          {/* Map Style Popover */}
           {isLayersOpen && (
             <div
               id="heyroq-layers-popover"
               role="dialog"
               aria-label="Map Style Selection"
-              className="absolute right-0 bottom-full mb-2 w-56 sm:w-60 bg-black/95 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl p-3 z-30 animate-in fade-in zoom-in-95 duration-150"
+              className="liquid-glass-popover absolute right-0 bottom-full mb-2 w-56 sm:w-60 rounded-2xl p-3 z-30 animate-in fade-in zoom-in-95 duration-150 text-[var(--heyroq-text-primary)]"
             >
-              <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
-                <span className="text-[10px] font-black uppercase tracking-wider text-white/50">Map Style</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsLayersOpen(false);
-                  }}
-                  className="p-1 text-white/40 hover:text-white rounded-lg transition cursor-pointer"
-                  aria-label="Close map layers"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-[var(--heyroq-border-subtle)]">
+                <span className="text-xs font-semibold text-[var(--heyroq-text-muted)]">
+                  Map Style
+                </span>
+                <CloseButton
+                  size="sm"
+                  onClick={() => setIsLayersOpen(false)}
+                  ariaLabel="Close Map Layers"
+                />
               </div>
 
               <div className="space-y-1.5" role="radiogroup" aria-label="Map style selection">
-                {/* Standard Option */}
                 <button
                   type="button"
                   role="radio"
@@ -489,29 +524,40 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
                     handleSelectMapStyle('standard');
                     setIsLayersOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#FF5F40] ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left heyroq-focus-ring ${
                     mapStyle === 'standard'
-                      ? 'bg-white/10 border-[#FF5F40]/60 text-white shadow-[0_0_15px_rgba(255,95,64,0.15)]'
-                      : 'bg-white/5 border-transparent text-white/70 hover:text-white hover:bg-white/10'
+                      ? 'bg-[var(--brand-primary)]/12 border-[var(--brand-primary)]/60 text-[var(--heyroq-text-primary)]'
+                      : 'bg-slate-900/[0.03] dark:bg-white/5 border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.06] dark:hover:bg-white/10'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <MapPin className={`w-4 h-4 ${mapStyle === 'standard' ? 'text-[#FF5F40]' : 'text-white/40'}`} />
+                    <MapPin
+                      className={`w-4 h-4 ${
+                        mapStyle === 'standard'
+                          ? 'text-[var(--brand-primary)]'
+                          : 'text-[var(--heyroq-text-muted)]'
+                      }`}
+                    />
                     <div>
-                      <div className="text-xs font-bold leading-tight">Standard</div>
-                      <div className="text-[10px] text-white/50 font-medium">Street & Vector</div>
+                      <div className="text-xs font-semibold leading-tight">Standard</div>
+                      <div className="text-[11px] text-[var(--heyroq-text-muted)]">
+                        Street & Vector ({resolvedTheme === 'dark' ? 'Dark' : 'Light'})
+                      </div>
                     </div>
                   </div>
                   <div
                     className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      mapStyle === 'standard' ? 'border-[#FF5F40]' : 'border-white/30'
+                      mapStyle === 'standard'
+                        ? 'border-[var(--brand-primary)]'
+                        : 'border-[var(--heyroq-border-strong)]'
                     }`}
                   >
-                    {mapStyle === 'standard' && <div className="w-2 h-2 rounded-full bg-[#FF5F40]" />}
+                    {mapStyle === 'standard' && (
+                      <div className="w-2 h-2 rounded-full bg-[var(--brand-primary)]" />
+                    )}
                   </div>
                 </button>
 
-                {/* Satellite Option */}
                 <button
                   type="button"
                   role="radio"
@@ -521,25 +567,37 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
                     handleSelectMapStyle('satellite');
                     setIsLayersOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#FF5F40] ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left heyroq-focus-ring ${
                     mapStyle === 'satellite'
-                      ? 'bg-white/10 border-[#FF5F40]/60 text-white shadow-[0_0_15px_rgba(255,95,64,0.15)]'
-                      : 'bg-white/5 border-transparent text-white/70 hover:text-white hover:bg-white/10'
+                      ? 'bg-[var(--brand-primary)]/12 border-[var(--brand-primary)]/60 text-[var(--heyroq-text-primary)]'
+                      : 'bg-slate-900/[0.03] dark:bg-white/5 border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.06] dark:hover:bg-white/10'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Globe className={`w-4 h-4 ${mapStyle === 'satellite' ? 'text-[#FF5F40]' : 'text-white/40'}`} />
+                    <Globe
+                      className={`w-4 h-4 ${
+                        mapStyle === 'satellite'
+                          ? 'text-[var(--brand-primary)]'
+                          : 'text-[var(--heyroq-text-muted)]'
+                      }`}
+                    />
                     <div>
-                      <div className="text-xs font-bold leading-tight">Satellite</div>
-                      <div className="text-[10px] text-white/50 font-medium">Hybrid Imagery</div>
+                      <div className="text-xs font-semibold leading-tight">Satellite</div>
+                      <div className="text-[11px] text-[var(--heyroq-text-muted)]">
+                        Hybrid Imagery
+                      </div>
                     </div>
                   </div>
                   <div
                     className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      mapStyle === 'satellite' ? 'border-[#FF5F40]' : 'border-white/30'
+                      mapStyle === 'satellite'
+                        ? 'border-[var(--brand-primary)]'
+                        : 'border-[var(--heyroq-border-strong)]'
                     }`}
                   >
-                    {mapStyle === 'satellite' && <div className="w-2 h-2 rounded-full bg-[#FF5F40]" />}
+                    {mapStyle === 'satellite' && (
+                      <div className="w-2 h-2 rounded-full bg-[var(--brand-primary)]" />
+                    )}
                   </div>
                 </button>
               </div>
@@ -548,9 +606,8 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
         </div>
       </div>
 
-      {/* Actions Row: [ HIDE / SHOW ] [ Spots (if drawer closed) ] [ Add Pin (+) ] */}
+      {/* Actions Row: [ Hide / Show ] [ Spots (if drawer closed) ] [ Mobile Add Pin (+) ] */}
       <div className="flex items-center gap-2">
-        {/* SECONDARY ACTION: HIDE / SHOW Heyroq Pin Markers */}
         {onTogglePinMarkers && (
           <button
             id="toggle-pin-markers-btn"
@@ -561,18 +618,17 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             }}
             aria-label={showPinMarkers ? 'Hide Heyroq pins from map' : 'Show Heyroq pins on map'}
             title={showPinMarkers ? 'Hide Heyroq pins from map' : 'Show Heyroq pins on map'}
-            className="px-3.5 sm:px-4 py-2 sm:py-2.5 bg-black/85 backdrop-blur-xl hover:bg-black hover:border-white/40 text-white rounded-full text-xs font-black uppercase tracking-wider shadow-2xl border border-white/20 flex items-center gap-2 transition cursor-pointer min-h-[44px] active:scale-95 focus:outline-none focus:ring-2 focus:ring-white/40"
+            className="liquid-glass-floating h-11 min-h-[44px] px-3.5 hover:border-[var(--heyroq-border-strong)] text-[var(--heyroq-text-primary)] rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer active:scale-95 heyroq-focus-ring whitespace-nowrap"
           >
             {showPinMarkers ? (
-              <EyeOff className="w-4 h-4 text-[#FF5F40]" />
+              <EyeOff className="w-4 h-4 text-[var(--brand-primary)]" />
             ) : (
-              <Eye className="w-4 h-4 text-[#FF5F40]" />
+              <Eye className="w-4 h-4 text-[var(--brand-primary)]" />
             )}
             <span>{showPinMarkers ? 'Hide' : 'Show'}</span>
           </button>
         )}
 
-        {/* If Nearby Spots drawer is closed, provide button to reopen it */}
         {!isDrawerOpen && onToggleDrawer && (
           <button
             id="toggle-feed-drawer-btn"
@@ -583,14 +639,13 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             }}
             aria-label={`Open spots feed (${displayedPinsCount ?? pins.length})`}
             title={`Open spots feed (${displayedPinsCount ?? pins.length})`}
-            className="px-3.5 sm:px-4 py-2 sm:py-2.5 bg-black/85 backdrop-blur-xl hover:bg-black hover:border-white/40 text-white rounded-full text-xs font-black uppercase tracking-wider shadow-2xl border border-white/20 flex items-center gap-2 transition cursor-pointer min-h-[44px] active:scale-95 focus:outline-none focus:ring-2 focus:ring-white/40"
+            className="liquid-glass-floating h-11 min-h-[44px] px-3.5 hover:border-[var(--heyroq-border-strong)] text-[var(--heyroq-text-primary)] rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer active:scale-95 heyroq-focus-ring tabular-nums whitespace-nowrap"
           >
-            <ListFilter className="w-4 h-4 text-[#FF5F40]" />
+            <ListFilter className="w-4 h-4 text-[var(--brand-primary)]" />
             <span>{`Spots (${displayedPinsCount ?? pins.length})`}</span>
           </button>
         )}
 
-        {/* PRIMARY ACTION: Add Pin (+) */}
         {onDropPin && !isCreating && (
           <button
             id="floating-drop-pin-btn"
@@ -599,14 +654,11 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
               e.stopPropagation();
               onDropPin();
             }}
-            className="w-12 h-12 sm:w-14 sm:h-14 bg-[#FF5F40] rounded-full flex items-center justify-center shadow-[0_0_28px_rgba(255,95,64,0.5)] text-white hover:scale-105 active:scale-95 transition-transform cursor-pointer relative group shrink-0 min-h-[44px] min-w-[44px] focus:outline-none focus:ring-2 focus:ring-[#FF5F40]"
-            title="Drop a Pin"
+            className="heyroq-btn-primary flex md:hidden w-11 h-11 min-h-[44px] min-w-[44px] rounded-xl items-center justify-center active:scale-95 transition-transform cursor-pointer shrink-0 heyroq-focus-ring"
+            title="Drop Pin"
             aria-label="Drop a Pin"
           >
-            <Plus className="w-6 h-6 stroke-[3]" />
-            <div className="absolute -top-10 scale-0 group-hover:scale-100 transition-transform bg-white text-black px-3 py-1 rounded-lg text-[10px] font-black uppercase whitespace-nowrap shadow-xl">
-              Drop Pin
-            </div>
+            <Plus className="w-5 h-5 stroke-[2.5]" />
           </button>
         )}
       </div>
@@ -618,11 +670,11 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     return (
       <div
         id="map-pick-instruction-banner"
-        className="absolute bottom-20 left-4 right-4 sm:right-auto sm:left-6 z-30 bg-black/90 backdrop-blur-xl border border-white/20 text-white px-4 py-2.5 rounded-full shadow-[0_0_30px_rgba(255,95,64,0.4)] flex items-center justify-between sm:justify-start gap-3 animate-in fade-in"
+        className="liquid-glass-floating absolute bottom-20 left-4 right-4 sm:right-auto sm:left-6 z-30 text-[var(--heyroq-text-primary)] px-4 py-2.5 rounded-xl ring-2 ring-[var(--brand-primary)]/40 flex items-center justify-between sm:justify-start gap-3 animate-in fade-in"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <MapPin className="w-4 h-4 text-[#FF5F40] animate-pulse shrink-0" />
-          <span className="font-black uppercase tracking-wider text-xs truncate">
+          <MapPin className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
+          <span className="font-semibold text-xs truncate">
             Click map to select location
           </span>
         </div>
@@ -634,7 +686,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
               e.stopPropagation();
               onCancelCreateLocation();
             }}
-            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-[10px] font-black uppercase tracking-wider transition cursor-pointer border border-white/20 shrink-0"
+            className="px-3 py-1 bg-slate-900/[0.06] dark:bg-white/10 hover:bg-slate-900/[0.12] dark:hover:bg-white/20 text-[var(--heyroq-text-primary)] rounded-lg text-xs font-semibold transition cursor-pointer border border-[var(--heyroq-border-subtle)] shrink-0"
           >
             Cancel
           </button>
@@ -646,6 +698,12 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
   if (apiKey) {
     return (
       <div id="heyroq-google-map-container" className="absolute inset-0 w-full h-full">
+        {/*
+          Google Maps ColorScheme synchronization:
+          `DEMO_MAP_ID` supports runtime Light/Dark switching via `colorScheme` (`ColorScheme.LIGHT` / `ColorScheme.DARK`).
+          Note: If replaced in production with a custom cloud-styled Map ID in Google Cloud Console,
+          cloud styles override `colorScheme` unless Light and Dark map styles are associated with that Map ID.
+        */}
         <Map
           id="heyroq-main-map"
           style={{ width: '100%', height: '100%' }}
@@ -654,7 +712,9 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
           defaultZoom={12}
           minZoom={3}
           maxZoom={18}
-          backgroundColor="#0A0A0A"
+          reuseMaps={true}
+          colorScheme={resolvedTheme === 'dark' ? ColorScheme.DARK : ColorScheme.LIGHT}
+          backgroundColor={resolvedTheme === 'dark' ? '#0A0A0C' : '#ECEEF2'}
           mapId="DEMO_MAP_ID"
           mapTypeId={mapStyle === 'satellite' ? 'hybrid' : 'roadmap'}
           internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
@@ -687,24 +747,22 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             mapStyle={mapStyle}
           />
 
-          {/* Pins clustered */}
           <ClusteredMarkers
             pins={effectivePins}
             selectedPinId={selectedPin?.id}
             onPinClick={handleMarkerClick}
           />
 
-          {/* In Create Mode: selected position marker */}
           {isCreating && createLocation && (
             <AdvancedMarker
               position={{ lat: createLocation.lat, lng: createLocation.lng }}
               title="New Pin Location"
             >
               <div className="flex flex-col items-center animate-bounce">
-                <div className="bg-rose-600 text-white p-2 rounded-full shadow-2xl border-2 border-white">
+                <div className="bg-[var(--brand-cta-bg)] text-white p-2 rounded-full shadow-xl border-2 border-white">
                   <MapPin className="w-6 h-6" />
                 </div>
-                <span className="bg-neutral-900/90 text-white text-[11px] font-medium px-2 py-0.5 rounded-full mt-1">
+                <span className="liquid-glass-floating text-[var(--heyroq-text-primary)] text-[11px] font-semibold px-2.5 py-0.5 rounded-full mt-1">
                   Drop Pin Here
                 </span>
               </div>
@@ -712,10 +770,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
           )}
         </Map>
 
-        {/* Heyroq Map Controls */}
         {renderHeyroqControls()}
-
-        {/* Location Pick Mode Banner */}
         {renderCreateModeBanner()}
       </div>
     );
@@ -725,58 +780,59 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
   return (
     <div
       id="heyroq-fallback-map"
-      className="absolute inset-0 w-full h-full bg-[#0A0A0A] overflow-hidden select-none cursor-grab active:cursor-grabbing"
+      className="absolute inset-0 w-full h-full bg-[var(--heyroq-bg-canvas)] overflow-hidden select-none cursor-grab active:cursor-grabbing"
       onMouseDown={handleFallbackMouseDown}
       onMouseMove={handleFallbackMouseMove}
       onMouseUp={handleFallbackMouseUp}
       onWheel={handleFallbackWheel}
       onClick={handleFallbackClick}
     >
-      {/* Notice Banner */}
-      <div className="absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl bg-black/85 backdrop-blur-xl text-white px-5 py-3 rounded-2xl border border-white/20 shadow-2xl flex items-start gap-3">
-        <Info className="w-5 h-5 text-[#FF5F40] shrink-0 mt-0.5" />
+      <div className="liquid-glass-floating absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl text-[var(--heyroq-text-primary)] px-5 py-3.5 rounded-2xl flex items-start gap-3">
+        <Info className="w-5 h-5 text-[var(--brand-primary)] shrink-0 mt-0.5" />
         <div className="text-xs flex-1">
-          <p className="font-black uppercase tracking-wider text-white">Heyroq Vector Discovery Engine</p>
-          <p className="text-white/60 mt-0.5 leading-relaxed">
-            Discovery pins, social likes, comments, and profile features are 100% active. To render high-resolution Google Maps vector tiles, set <code className="bg-white/10 text-[#FF5F40] px-1.5 py-0.5 rounded font-mono">VITE_GOOGLE_MAPS_API_KEY</code>.
+          <p className="font-heading font-bold tracking-tight text-[var(--heyroq-text-primary)]">
+            Heyroq Vector Discovery Engine
+          </p>
+          <p className="text-[var(--heyroq-text-secondary)] mt-0.5 leading-relaxed">
+            Discovery pins, social likes, comments, and profile features are 100% active. To render
+            high-resolution Google Maps vector tiles, set{' '}
+            <code className="bg-slate-900/8 dark:bg-white/10 text-[var(--heyroq-accent-text)] px-1.5 py-0.5 rounded font-mono">
+              VITE_GOOGLE_MAPS_API_KEY
+            </code>
+            .
           </p>
           <a
             href="https://mapsplatform.google.com/maps-demo-key?utm_campaign=gmp_mcp_codeassist_v1_aistudio"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[#FF5F40] hover:underline mt-1 font-black uppercase text-[10px] tracking-wider"
+            className="inline-flex items-center gap-1 text-[var(--heyroq-accent-text)] hover:underline mt-1.5 font-bold uppercase text-[10px] tracking-wider"
           >
             Get Free Maps Demo Key <ExternalLink className="w-3 h-3" />
           </a>
         </div>
       </div>
 
-      {/* Styled vector discovery canvas */}
       <div
         className="w-full h-full relative transition-transform duration-75 origin-center"
         style={{
           transform: `translate(${fallbackPan.x}px, ${fallbackPan.y}px) scale(${fallbackZoom})`,
         }}
       >
-        {/* Subtle dark dot grid background */}
-        <div className="absolute inset-0 bg-grid-dots opacity-40" />
+        <div className="absolute inset-0 bg-grid-dots opacity-60" />
 
-        {/* Global Continental Silhouettes */}
         <svg
-          className="absolute inset-0 w-full h-full opacity-20 pointer-events-none"
+          className="absolute inset-0 w-full h-full opacity-25 pointer-events-none text-slate-400 dark:text-white/20"
           viewBox="0 0 1000 500"
           fill="currentColor"
         >
-          {/* Stylized world land masses */}
-          <path d="M150,120 Q190,90 280,100 T320,180 T260,250 T180,220 Z" className="text-white/20" />
-          <path d="M250,260 Q280,280 300,360 T270,440 T220,380 T230,300 Z" className="text-white/20" />
-          <path d="M460,90 Q540,80 580,120 T520,190 T470,140 Z" className="text-white/20" />
-          <path d="M470,200 Q550,220 580,300 T530,420 T460,350 T450,250 Z" className="text-white/20" />
-          <path d="M600,100 Q750,70 850,120 T900,220 T780,260 T660,180 Z" className="text-white/20" />
-          <path d="M780,320 Q860,310 880,380 T800,430 T740,370 Z" className="text-white/20" />
+          <path d="M150,120 Q190,90 280,100 T320,180 T260,250 T180,220 Z" />
+          <path d="M250,260 Q280,280 300,360 T270,440 T220,380 T230,300 Z" />
+          <path d="M460,90 Q540,80 580,120 T520,190 T470,140 Z" />
+          <path d="M470,200 Q550,220 580,300 T530,420 T460,350 T450,250 Z" />
+          <path d="M600,100 Q750,70 850,120 T900,220 T780,260 T660,180 Z" />
+          <path d="M780,320 Q860,310 880,380 T800,430 T740,370 Z" />
         </svg>
 
-        {/* Render Pins */}
         {effectivePins.map((pin) => {
           const { x, y } = latLngToPercent(pin.latitude, pin.longitude);
           const isSelected = selectedPin?.id === pin.id;
@@ -791,24 +847,23 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
                 e.stopPropagation();
                 handleMarkerClick(pin);
               }}
-              className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-10 transition-transform duration-200 hover:scale-125"
+              className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-10 transition-transform duration-150 hover:scale-110"
             >
               <div
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-2xl border transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-tight border transition-all ${
                   isSelected
-                    ? 'bg-white text-black border-white ring-4 ring-[#FF5F40] shadow-[0_0_25px_#FF5F40] scale-110'
-                    : 'bg-black/90 text-white border-white/20 hover:border-white backdrop-blur-md'
+                    ? 'bg-slate-950 dark:bg-white text-white dark:text-slate-950 border-transparent ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+                    : 'liquid-glass-floating text-[var(--heyroq-text-primary)]'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${config.bg} shadow-[0_0_6px_currentColor]`} />
-                <span className="truncate max-w-[130px]">{pin.title}</span>
+                <span className={`w-2 h-2 rounded-full ${config.bg}`} />
+                <span className="truncate max-w-[140px]">{pin.title}</span>
                 <LikeIndicator count={pin.likeCount || 0} variant="compact" />
               </div>
             </div>
           );
         })}
 
-        {/* Creation Target Marker */}
         {isCreating && createLocation && (
           <div
             style={{
@@ -817,20 +872,18 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             }}
             className="absolute -translate-x-1/2 -translate-y-full z-30 pointer-events-none animate-bounce"
           >
-            <div className="bg-[#FF5F40] text-white p-2.5 rounded-full shadow-[0_0_30px_#FF5F40] border-2 border-white">
+            <div className="bg-[var(--brand-cta-bg)] text-white p-2.5 rounded-full shadow-xl border-2 border-white">
               <MapPin className="w-6 h-6" />
             </div>
-            <div className="bg-white text-black text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full mt-1 text-center whitespace-nowrap shadow-xl">
+            <div className="liquid-glass-floating text-[var(--heyroq-text-primary)] text-[11px] font-semibold px-2.5 py-0.5 rounded-full mt-1 text-center whitespace-nowrap">
               Drop Location
             </div>
           </div>
         )}
       </div>
 
-      {/* Heyroq Map Controls in Fallback Mode */}
       {renderHeyroqControls()}
 
-      {/* Fallback Zoom Controls */}
       <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2">
         <button
           type="button"
@@ -838,8 +891,9 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             e.stopPropagation();
             setFallbackZoom((z) => Math.min(z + 0.3, 3));
           }}
-          className="p-2.5 bg-black/80 text-white rounded-xl border border-white/20 hover:bg-black shadow-2xl backdrop-blur-md cursor-pointer"
+          className="liquid-glass-floating min-w-[44px] min-h-[44px] p-2.5 text-[var(--heyroq-text-primary)] rounded-xl flex items-center justify-center cursor-pointer heyroq-focus-ring"
           title="Zoom In"
+          aria-label="Zoom In"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
@@ -849,14 +903,14 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
             e.stopPropagation();
             setFallbackZoom((z) => Math.max(z - 0.3, 0.7));
           }}
-          className="p-2.5 bg-black/80 text-white rounded-xl border border-white/20 hover:bg-black shadow-2xl backdrop-blur-md cursor-pointer"
+          className="liquid-glass-floating min-w-[44px] min-h-[44px] p-2.5 text-[var(--heyroq-text-primary)] rounded-xl flex items-center justify-center cursor-pointer heyroq-focus-ring"
           title="Zoom Out"
+          aria-label="Zoom Out"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Location Pick Mode Banner */}
       {renderCreateModeBanner()}
     </div>
   );

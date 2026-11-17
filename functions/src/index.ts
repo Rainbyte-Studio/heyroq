@@ -1053,6 +1053,27 @@ export const deleteUserAccount = onCall(
     }
 
     const userId = request.auth.uid;
+
+    // Strict ownership enforcement: reject any attempt to target another user's UID
+    const requestedTargetUid =
+      request.data && typeof request.data === 'object' && 'userId' in request.data
+        ? (request.data as { userId?: unknown }).userId
+        : undefined;
+    if (typeof requestedTargetUid === 'string' && requestedTargetUid.trim() !== '' && requestedTargetUid !== userId) {
+      throw new HttpsError('permission-denied', 'You can only delete your own authenticated account.');
+    }
+
+    // Require recent authentication (within 5 minutes / 300 seconds) before destructive deletion
+    const authTimeSec = Number(request.auth.token?.auth_time || 0);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const MAX_RECENT_AUTH_AGE_SEC = 300;
+    if (!authTimeSec || nowSec - authTimeSec > MAX_RECENT_AUTH_AGE_SEC) {
+      throw new HttpsError(
+        'failed-precondition',
+        'RECENT_LOGIN_REQUIRED: Please reauthenticate before deleting your account.'
+      );
+    }
+
     console.log(`Starting account deletion for user: ${userId}`);
 
     try {
@@ -1120,6 +1141,43 @@ export const deleteUserAccount = onCall(
         }
       }
 
+      // Scrub private reporterEmail PII on moderation reports submitted by the departing user
+      // and resolve open user-target reports referencing the deleted profile.
+      const submittedReports = await db.collection('reports').where('reporterId', '==', userId).limit(200).get();
+      if (!submittedReports.empty) {
+        const reportBatch = db.batch();
+        submittedReports.docs.forEach((rep) => {
+          reportBatch.update(rep.ref, {
+            reporterEmail: FieldValue.delete(),
+            reporterDeletedAt: FieldValue.serverTimestamp(),
+          });
+        });
+        await reportBatch.commit();
+      }
+
+      const targetedUserReports = await db
+        .collection('reports')
+        .where('targetId', '==', userId)
+        .limit(200)
+        .get();
+      if (!targetedUserReports.empty) {
+        const targetBatch = db.batch();
+        let updatedTargets = 0;
+        targetedUserReports.docs.forEach((rep) => {
+          if (rep.data()?.targetType === 'user' && rep.data()?.status === 'pending') {
+            targetBatch.update(rep.ref, {
+              status: 'resolved',
+              resolvedReason: 'target_account_deleted',
+              resolvedAt: FieldValue.serverTimestamp(),
+            });
+            updatedTargets++;
+          }
+        });
+        if (updatedTargets > 0) {
+          await targetBatch.commit();
+        }
+      }
+
       // Recursively remove each pin and its likes/comments; deleting only the
       // parent document leaves orphaned subcollections in Firestore.
       const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
@@ -1148,8 +1206,19 @@ export const deleteUserAccount = onCall(
         if (authErr?.code !== 'auth/user-not-found') throw authErr;
       }
 
+      await db.collection('accountDeletionLocks').doc(userId).set(
+        {
+          status: 'deleted',
+          completedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
       return { success: true, message: `Account and associated data deleted for user ${userId}` };
     } catch (err: any) {
+      if (err instanceof HttpsError) {
+        throw err;
+      }
       console.error(`Failed to delete account for user ${userId}:`, err);
       throw new HttpsError('internal', err.message || 'Failed to complete account deletion.');
     }

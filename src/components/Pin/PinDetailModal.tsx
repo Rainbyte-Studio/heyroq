@@ -19,11 +19,12 @@ import {
 } from '../../services/pinService';
 import { LikeButton } from './LikeButton';
 import { DeleteConfirmationModal } from '../Common/DeleteConfirmationModal';
+import { UserAvatar } from '../Common/UserAvatar';
+import { CloseButton } from '../Common/CloseButton';
 import {
   Heart,
   MessageCircle,
   MapPin,
-  X,
   User,
   Share2,
   Flag,
@@ -669,14 +670,14 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
     <div
       className={`w-full ${
         isMobile ? '' : 'h-full'
-      } bg-black relative flex flex-col justify-center shrink-0 overflow-hidden group`}
+      } bg-slate-950 relative flex flex-col justify-center shrink-0 overflow-hidden group`}
     >
       <div
         className={`relative w-full ${
           isMobile
             ? 'aspect-[16/10] max-h-[42vh] landscape:max-h-[50vh]'
             : 'aspect-auto max-h-none h-full'
-        } flex items-center justify-center overflow-hidden bg-neutral-950`}
+        } flex items-center justify-center overflow-hidden bg-slate-950`}
       >
         <img
           src={images[activeImageIndex]}
@@ -684,7 +685,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/25 pointer-events-none" />
 
         {images.length > 1 && (
           <>
@@ -693,7 +694,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
               onClick={() =>
                 setActiveImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))
               }
-              className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[36px] md:min-h-[36px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
+              className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
               aria-label="Previous image"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -703,7 +704,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
               onClick={() =>
                 setActiveImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))
               }
-              className="absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[36px] md:min-h-[36px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
+              className="absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
               aria-label="Next image"
             >
               <ChevronRight className="w-5 h-5" />
@@ -722,8 +723,8 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
               onClick={() => setActiveImageIndex(i)}
               className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-xl overflow-hidden border-2 transition cursor-pointer touch-manipulation ${
                 activeImageIndex === i
-                  ? 'border-[#FF5F40] scale-105 shadow-[0_0_10px_#FF5F40]'
-                  : 'border-white/20 opacity-60'
+                  ? 'border-[var(--brand-primary)] scale-105 shadow-md'
+                  : 'border-white/25 opacity-65 hover:opacity-90'
               }`}
               aria-label={`View photo ${i + 1}`}
             >
@@ -736,28 +737,24 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
   );
 
   const renderAuthorBar = (isDesktop: boolean) => (
-    <div className="p-3.5 sm:p-5 border-b border-white/10 flex items-center justify-between bg-black/40 shrink-0">
+    <div className="p-3.5 sm:p-5 border-b border-[var(--heyroq-divider)] flex items-center justify-between bg-slate-900/[0.02] dark:bg-white/[0.02] shrink-0">
       <div
         onClick={() => pin.userId && onOpenProfile(pin.userId)}
         className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0 pr-2 touch-manipulation"
       >
-        {pin.userAvatar ? (
-          <img
-            src={pin.userAvatar}
-            alt={pin.userName}
-            referrerPolicy="no-referrer"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover ring-2 ring-[#FF5F40] shrink-0"
-          />
-        ) : (
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#FF5F40] flex items-center justify-center text-white text-xs sm:text-sm font-black shrink-0">
-            {pin.userName?.slice(0, 2).toUpperCase()}
-          </div>
-        )}
+        <UserAvatar
+          uid={pin.userId}
+          displayName={pin.userName}
+          imageUrl={pin.userAvatar}
+          size="md"
+          className="w-9 h-9 sm:w-10 sm:h-10"
+          ringClassName="ring-2 ring-[var(--brand-primary)]/70"
+        />
         <div className="min-w-0">
-          <p className="font-black text-xs uppercase tracking-wider text-white group-hover:text-[#FF5F40] transition truncate">
+          <p className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-[var(--heyroq-accent-text)] transition truncate">
             @{pin.userName ? pin.userName.replace(/^@/, '') : 'explorer'}
           </p>
-          <div className="flex items-center gap-1 text-[10px] font-bold text-white/40 uppercase tracking-widest truncate">
+          <div className="flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-white/45 truncate">
             <Calendar className="w-3 h-3 shrink-0" />
             <span>{new Date(pin.createdAt).toLocaleDateString()}</span>
           </div>
@@ -770,15 +767,15 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             type="button"
             onClick={handleToggleFollow}
             disabled={isLoadingFollow}
-            className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition flex items-center gap-1 cursor-pointer min-h-[36px] touch-manipulation ${
+            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer min-h-[36px] touch-manipulation ${
               isFollowing
-                ? 'bg-white/10 text-white hover:bg-white/20 border border-white/20'
-                : 'bg-white text-black hover:bg-neutral-200 shadow-lg'
+                ? 'liquid-glass-pill text-slate-800 dark:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/15'
+                : 'heyroq-btn-primary'
             }`}
           >
             {isFollowing ? (
               <>
-                <UserCheck className="w-3.5 h-3.5 text-[#FF5F40]" />
+                <UserCheck className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                 <span>Following</span>
               </>
             ) : (
@@ -791,14 +788,11 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         )}
 
         {isDesktop && (
-          <button
-            type="button"
+          <CloseButton
             onClick={handleModalClose}
-            className="hidden md:flex p-2 min-w-[36px] min-h-[36px] items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer"
-            aria-label="Close spot details"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            ariaLabel="Close Spot Details"
+            className="hidden md:inline-flex"
+          />
         )}
       </div>
     </div>
@@ -810,36 +804,34 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <CategoryBadge category={pin.category} size="sm" />
           {pin.locationName && (
-            <span className="text-[11px] font-bold uppercase tracking-wider text-white/50 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-[#FF5F40] shrink-0" />
+            <span className="text-xs font-semibold text-slate-600 dark:text-white/55 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0" />
               <span className="truncate max-w-[220px] sm:max-w-none">{pin.locationName}</span>
             </span>
           )}
         </div>
-        <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white leading-tight">
+        <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-snug">
           {pin.title}
         </h2>
-        <p className="text-xs sm:text-sm text-white/70 leading-relaxed mt-2 whitespace-pre-line">
+        <p className="text-sm text-slate-600 dark:text-white/75 leading-relaxed mt-2 whitespace-pre-line">
           {pin.description}
         </p>
       </div>
 
-      {/* Tags */}
+      {/* Quiet inline tags metadata */}
       {pin.tags && pin.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 text-xs font-medium text-slate-500 dark:text-white/50">
           {pin.tags.map((tag, idx) => (
-            <span
-              key={idx}
-              className="text-[10px] font-black uppercase tracking-wider bg-white/10 text-white/80 px-2.5 py-1 rounded border border-white/10"
-            >
-              #{tag}
-            </span>
+            <React.Fragment key={idx}>
+              {idx > 0 && <span aria-hidden="true">·</span>}
+              <span>#{tag}</span>
+            </React.Fragment>
           ))}
         </div>
       )}
 
       {/* Action Bar (Like, Comment count, Share, Report, Delete) */}
-      <div className="flex items-center justify-between py-3 border-y border-white/10">
+      <div className="flex items-center justify-between py-2.5 border-y border-[var(--heyroq-divider)]">
         <div className="flex items-center gap-3 sm:gap-4">
           <LikeButton
             pinId={pin.id}
@@ -848,9 +840,11 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             onToggle={handleToggleLike}
             variant="detail"
           />
-          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/50">
-            <MessageCircle className="w-4 h-4 text-white/40" />
-            <span>{displayCommentCount} {displayCommentCount === 1 ? 'Comment' : 'Comments'}</span>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-white/55 tabular-nums">
+            <MessageCircle className="w-4 h-4 text-slate-400 dark:text-white/40" />
+            <span>
+              {displayCommentCount} {displayCommentCount === 1 ? 'Comment' : 'Comments'}
+            </span>
           </div>
         </div>
 
@@ -858,19 +852,21 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
           <button
             type="button"
             onClick={handleShare}
-            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
+            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 dark:text-white/55 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
             title="Share link"
             aria-label="Share spot link"
           >
             <Share2 className="w-4 h-4" />
           </button>
           {copied && (
-            <span className="text-[10px] text-emerald-400 font-black uppercase tracking-wider">Copied!</span>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+              Copied
+            </span>
           )}
           <button
             type="button"
             onClick={() => onOpenReport(pin.id, 'pin', pin.id)}
-            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-white/50 hover:text-amber-400 hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
+            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 dark:text-white/55 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-slate-900/[0.06] dark:hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
             title="Report content"
             aria-label="Report spot"
           >
@@ -880,7 +876,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             <button
               type="button"
               onClick={handleRequestDeletePin}
-              className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-white/50 hover:text-rose-400 hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
+              className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 dark:text-white/55 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-900/[0.06] dark:hover:bg-white/10 rounded-full transition cursor-pointer touch-manipulation"
               title="Delete spot"
               aria-label="Delete spot"
             >
@@ -892,39 +888,43 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
 
       {/* Comments Thread */}
       <div className="space-y-3 pt-1">
-        <h4 className="text-[10px] font-black uppercase tracking-widest text-white/40">
-          Comments Thread ({displayCommentCount})
+        <h4 className="text-xs font-bold text-slate-500 dark:text-white/45 tabular-nums">
+          Comments ({displayCommentCount})
         </h4>
 
         {isLoadingComments && comments.length === 0 ? (
-          <div className="py-4 text-center text-xs text-white/40 font-medium">
+          <div className="py-4 text-center text-xs text-slate-500 dark:text-white/45 font-medium">
             Loading comments...
           </div>
         ) : comments.length === 0 ? (
-          <p className="text-xs text-white/40 py-4 text-center font-medium">
-            Be the first explorer to comment on this location!
+          <p className="text-xs text-slate-500 dark:text-white/45 py-4 text-center font-medium">
+            Be the first explorer to comment on this location.
           </p>
         ) : (
           <div className="space-y-2.5">
             {comments.map((c) => (
               <div key={c.id} className="flex gap-2.5 items-start text-xs">
-                {c.userAvatar ? (
-                  <img
-                    src={c.userAvatar}
-                    alt={c.userName}
-                    referrerPolicy="no-referrer"
-                    className="w-7 h-7 rounded-full object-cover shrink-0 ring-1 ring-white/20"
+                <button
+                  type="button"
+                  onClick={() => c.userId && onOpenProfile(c.userId)}
+                  aria-label={`Open ${c.userName}'s profile`}
+                  className="shrink-0 rounded-full cursor-pointer heyroq-focus-ring"
+                >
+                  <UserAvatar
+                    uid={c.userId}
+                    displayName={c.userName}
+                    imageUrl={c.userAvatar}
+                    size="sm"
+                    className="w-7 h-7"
                   />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 text-white text-[10px] font-black">
-                    {c.userName?.slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-3.5 py-2.5">
+                </button>
+                <div className="flex-1 liquid-glass-card rounded-2xl px-3.5 py-2.5">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-black text-[11px] uppercase tracking-wider text-white">@{c.userName}</span>
+                    <span className="font-bold text-xs text-slate-900 dark:text-white">
+                      @{c.userName}
+                    </span>
                     <div className="flex items-center gap-1.5 relative z-10">
-                      <span className="text-[9px] font-bold text-white/40">
+                      <span className="text-[10px] font-medium text-slate-500 dark:text-white/45 tabular-nums">
                         {formatCommentTime(c.createdAt)}
                       </span>
                       {canDeleteComment(c) && (
@@ -932,7 +932,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
                           type="button"
                           onClick={(e) => handleRequestDeleteComment(c, e)}
                           disabled={deletingCommentIds.has(c.id)}
-                          className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 -my-2 -mr-1 text-white/40 hover:text-rose-400 active:text-rose-400 rounded-full transition cursor-pointer disabled:opacity-30 touch-manipulation pointer-events-auto relative z-10"
+                          className="min-h-[36px] min-w-[36px] flex items-center justify-center p-1.5 -my-2 -mr-1 text-slate-400 dark:text-white/40 hover:text-rose-600 dark:hover:text-rose-400 active:text-rose-600 rounded-full transition cursor-pointer disabled:opacity-30 touch-manipulation pointer-events-auto relative z-10"
                           title="Delete comment"
                           aria-label="Delete comment"
                         >
@@ -941,7 +941,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
                       )}
                     </div>
                   </div>
-                  <p className="text-white/80 leading-relaxed">{c.text}</p>
+                  <p className="text-slate-700 dark:text-white/80 leading-relaxed">{c.text}</p>
                 </div>
               </div>
             ))}
@@ -975,13 +975,13 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
       <div
         ref={isMobile ? mobileComposerRef : undefined}
         id={isMobile ? 'pin-detail-mobile-composer' : 'pin-detail-desktop-composer'}
-        className={`border-t border-white/10 bg-[#0E0E0E] shrink-0 p-3 sm:p-4 ${
+        className={`border-t border-[var(--heyroq-divider)] bg-[var(--heyroq-bg-surface)] shrink-0 p-3 sm:p-4 ${
           isMobile ? 'md:hidden' : 'hidden md:block'
         }`}
         style={isMobile ? { paddingBottom: mobilePaddingBottom } : undefined}
       >
         {commentError && (
-          <p className="text-[11px] text-rose-400 font-semibold mb-2 px-1">
+          <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mb-2 px-1">
             {commentError}
           </p>
         )}
@@ -1005,12 +1005,12 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
                 if (commentError) setCommentError(null);
               }}
               placeholder="Leave a recommendation or note..."
-              className="flex-1 text-base sm:text-xs bg-white/10 border border-white/20 rounded-full px-4 py-2 sm:py-2.5 text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition min-h-[44px] sm:min-h-[40px]"
+              className="liquid-glass-input flex-1 text-base sm:text-xs rounded-full px-4 py-2 sm:py-2.5 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 transition min-h-[44px] sm:min-h-[40px]"
             />
             <button
               type="submit"
               disabled={isSubmittingComment || !newComment.trim()}
-              className="px-4 py-2 sm:py-2.5 bg-[#FF5F40] hover:bg-[#ff7256] disabled:opacity-40 text-white rounded-full text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer shadow-[0_0_15px_rgba(255,95,64,0.4)] shrink-0 min-h-[44px] sm:min-h-[40px] touch-manipulation"
+              className="heyroq-btn-primary px-4 py-2 sm:py-2.5 disabled:opacity-40 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shrink-0 min-h-[44px] sm:min-h-[40px] touch-manipulation"
             >
               <Send className="w-3.5 h-3.5" />
               <span>Send</span>
@@ -1021,7 +1021,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             <button
               type="button"
               onClick={onAuthRequired}
-              className="text-xs font-black uppercase tracking-wider text-[#FF5F40] hover:underline cursor-pointer py-1 min-h-[36px] flex items-center justify-center mx-auto"
+              className="text-xs font-bold text-[var(--heyroq-accent-text)] hover:underline cursor-pointer py-1 min-h-[38px] flex items-center justify-center mx-auto"
             >
               Sign in to join the conversation and comment
             </button>
@@ -1037,7 +1037,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
       onClick={handleModalClose}
       className={`fixed top-0 left-0 right-0 z-50 w-full ${
         isIOS ? 'bottom-0 h-[100dvh]' : ''
-      } overflow-hidden flex items-center justify-center p-0 md:p-4 bg-[#0E0E0E] md:bg-black/85 md:backdrop-blur-2xl animate-in fade-in`}
+      } overflow-hidden flex items-center justify-center p-0 md:p-4 bg-[var(--heyroq-bg-canvas)] md:bg-[var(--heyroq-backdrop-scrim)] animate-in fade-in`}
       style={
         !isIOS && isAndroid && isKeyboardOpen && androidModalHeight > 0
           ? {
@@ -1065,7 +1065,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
       <div
         id={`pin-detail-${pin.id}`}
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] md:rounded-[28px] lg:rounded-[32px] w-full h-full md:h-[540px] md:max-h-[85vh] lg:h-[600px] lg:max-h-[88vh] md:max-w-4xl shadow-2xl flex flex-col md:flex-row border-0 md:border md:border-white/20 text-white relative overflow-hidden"
+        className="bg-[var(--heyroq-bg-surface)] md:liquid-glass-modal md:rounded-[28px] lg:rounded-[32px] w-full h-full md:h-[560px] md:max-h-[86vh] lg:h-[620px] lg:max-h-[88vh] md:max-w-4xl flex flex-col md:flex-row border-0 md:border md:border-[var(--heyroq-glass-border-strong)] text-[var(--heyroq-text-primary)] relative overflow-hidden"
         style={
           !isIOS && isAndroid && isKeyboardOpen && androidModalHeight > 0
             ? { height: `${androidModalHeight}px` }
@@ -1080,19 +1080,19 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         {/* ========================================================= */}
         <div className="flex md:hidden flex-col w-full h-full min-h-0 overflow-hidden">
           {/* 1. HEADER */}
-          <header className="shrink-0 z-30 bg-[#0E0E0E]/95 backdrop-blur-md border-b border-white/10 pt-[env(safe-area-inset-top)] px-3 py-2 flex items-center justify-between min-h-[calc(48px+env(safe-area-inset-top))]">
+          <header className="shrink-0 z-30 liquid-glass-nav pt-[env(safe-area-inset-top)] px-3 py-2 flex items-center justify-between min-h-[calc(48px+env(safe-area-inset-top))]">
             <button
               type="button"
               onClick={handleModalClose}
-              className="flex items-center gap-1 text-white/80 hover:text-white px-2 py-1.5 -ml-1 rounded-full active:bg-white/10 transition cursor-pointer min-h-[44px] min-w-[44px] touch-manipulation"
+              className="flex items-center gap-1 text-slate-800 dark:text-white/85 hover:text-slate-950 dark:hover:text-white px-2 py-1.5 -ml-1 rounded-full active:bg-slate-900/10 dark:active:bg-white/10 transition cursor-pointer min-h-[44px] min-w-[44px] touch-manipulation"
               aria-label="Back to spots"
             >
-              <ArrowLeft className="w-5 h-5 text-[#FF5F40] shrink-0" />
-              <span className="text-xs font-black uppercase tracking-wider">Spots</span>
+              <ArrowLeft className="w-5 h-5 text-[var(--brand-primary)] shrink-0" />
+              <span className="text-xs font-bold">Spots</span>
             </button>
 
             <div className="flex-1 min-w-0 px-2 text-center">
-              <span className="text-xs font-black uppercase tracking-wider text-white truncate block">
+              <span className="font-heading text-xs font-bold text-slate-900 dark:text-white truncate block">
                 {pin.title}
               </span>
             </div>
@@ -1101,20 +1101,16 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
               <button
                 type="button"
                 onClick={handleShare}
-                className="p-2 text-white/60 hover:text-white rounded-full active:bg-white/10 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
+                className="p-2 text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white rounded-full active:bg-slate-900/10 dark:active:bg-white/10 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
                 title="Share link"
                 aria-label="Share link"
               >
                 <Share2 className="w-4 h-4" />
               </button>
-              <button
-                type="button"
+              <CloseButton
                 onClick={handleModalClose}
-                className="p-2 text-white/60 hover:text-white rounded-full active:bg-white/10 transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
-                aria-label="Close details"
-              >
-                <X className="w-5 h-5" />
-              </button>
+                ariaLabel="Close Spot Details"
+              />
             </div>
           </header>
 
@@ -1125,7 +1121,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             {renderGallery(true)}
-            <div className="bg-[#121212] text-white flex flex-col">
+            <div className="bg-[var(--heyroq-bg-surface)] text-[var(--heyroq-text-primary)] flex flex-col">
               {renderAuthorBar(false)}
               <div className="p-4 space-y-4 pb-12">
                 {renderDetailsAndComments()}
@@ -1142,14 +1138,14 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         {/* ========================================================= */}
         <div className="hidden md:flex flex-row w-full h-full min-h-0 overflow-hidden">
           {/* Left Column: Photos Gallery */}
-          <div className="w-1/2 h-full bg-black relative flex flex-col justify-center shrink-0 overflow-hidden group">
+          <div className="w-1/2 h-full bg-slate-950 relative flex flex-col justify-center shrink-0 overflow-hidden group">
             {renderGallery(false)}
           </div>
 
           {/* Right Column: Details & Comments */}
-          <div className="w-1/2 h-full flex flex-col min-h-0 bg-[#121212] text-white">
+          <div className="w-1/2 h-full flex flex-col min-h-0 bg-[var(--heyroq-bg-surface)] md:bg-transparent text-[var(--heyroq-text-primary)]">
             {renderAuthorBar(true)}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 no-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 subtle-glass-scrollbar">
               {renderDetailsAndComments()}
             </div>
             {renderCommentComposer(false)}

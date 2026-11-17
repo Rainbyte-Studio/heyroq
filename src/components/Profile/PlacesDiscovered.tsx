@@ -31,15 +31,18 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
   const remainingCount = countries.length - INITIAL_VISIBLE_COUNT;
 
   return (
-    <div id="places-discovered-section" className="mt-4 pt-4 border-t border-white/10">
+    <div
+      id="places-discovered-section"
+      className="mt-4 pt-4 border-t border-slate-900/8 dark:border-white/10"
+    >
       {/* Header with Title & Active Filter Reset */}
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2">
-          <Compass className="w-3.5 h-3.5 text-[#FF5F40]" />
-          <h4 className="text-[11px] font-black uppercase tracking-widest text-white/70">
+          <Compass className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+          <h4 className="font-heading text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-white/70">
             Places Discovered
           </h4>
-          <span className="text-[10px] font-mono text-white/40 font-semibold">
+          <span className="text-[11px] tabular-nums text-slate-500 dark:text-white/45 font-medium">
             ({countries.length} {countries.length === 1 ? 'country' : 'countries'})
           </span>
         </div>
@@ -49,7 +52,7 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
             type="button"
             id="clear-footprint-filter-btn"
             onClick={onClearFilter}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-[#FF5F40] bg-[#FF5F40]/10 hover:bg-[#FF5F40]/20 border border-[#FF5F40]/30 transition cursor-pointer"
+            className="inline-flex items-center gap-1 px-2.5 py-1 min-h-[32px] rounded-full text-xs font-semibold text-[var(--heyroq-accent-text)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/18 border border-[var(--brand-primary)]/25 transition-colors cursor-pointer heyroq-focus-ring"
             title="Reset location filter and show full map"
           >
             <span>Reset View</span>
@@ -68,17 +71,17 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
             <div
               key={country.countryName}
               id={`country-row-${country.countryName.toLowerCase().replace(/\s+/g, '-')}`}
-              className={`p-2.5 rounded-xl border transition-all duration-200 ${
+              className={`liquid-glass-card p-3 rounded-xl transition-all duration-150 ${
                 isCountryActive
-                  ? 'bg-white/[0.08] border-[#FF5F40]/50 shadow-[0_0_15px_rgba(255,95,64,0.15)] ring-1 ring-[#FF5F40]/30'
-                  : 'bg-[#141414]/90 hover:bg-[#1a1a1a] border-white/5 hover:border-white/15'
+                  ? 'border-[var(--brand-primary)]/55 ring-1 ring-[var(--brand-primary)]/25'
+                  : 'hover:border-slate-900/18 dark:hover:border-white/18'
               }`}
             >
               {/* Country Row: Flag, Name, Spots Count */}
               <button
                 type="button"
                 onClick={() => onSelectCountry(country)}
-                className="w-full flex items-center justify-between gap-3 text-left cursor-pointer group select-none"
+                className="w-full flex items-center justify-between gap-3 text-left cursor-pointer group select-none min-h-[34px] heyroq-focus-ring rounded-lg"
                 title={`Filter map to ${country.countryName}`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -89,25 +92,25 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
                   >
                     {country.flag}
                   </span>
-                  <span className="text-xs font-black uppercase tracking-wider text-white group-hover:text-[#FF5F40] transition truncate">
+                  <span className="font-heading text-xs font-bold tracking-tight text-slate-900 dark:text-white group-hover:text-[var(--heyroq-accent-text)] transition-colors truncate">
                     {country.countryName}
                   </span>
                 </div>
 
                 <div className="shrink-0 flex items-center gap-1.5">
                   <span
-                    className={`text-[10px] font-mono font-black uppercase tracking-wider px-2 py-0.5 rounded-md transition ${
+                    className={`text-[11px] tabular-nums font-semibold ${
                       isCountryActive
-                        ? 'bg-[#FF5F40] text-white'
-                        : 'bg-white/10 text-white/90 group-hover:bg-white/20'
+                        ? 'text-[var(--heyroq-accent-text)]'
+                        : 'text-slate-500 dark:text-white/55'
                     }`}
                   >
-                    {country.spotsCount} {country.spotsCount === 1 ? 'SPOT' : 'SPOTS'}
+                    {country.spotsCount} {country.spotsCount === 1 ? 'spot' : 'spots'}
                   </span>
                 </div>
               </button>
 
-              {/* City Chips */}
+              {/* City Filter Buttons */}
               {country.cities && country.cities.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 mt-2 pl-7">
                   {country.cities.map((city) => {
@@ -124,17 +127,17 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
                           e.stopPropagation();
                           onSelectCity(city, country);
                         }}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 min-h-[32px] rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer heyroq-focus-ring ${
                           isCityActive
-                            ? 'bg-[#FF5F40] text-white shadow-md font-bold ring-1 ring-white/30'
-                            : 'bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 hover:border-white/20'
+                            ? 'heyroq-btn-primary font-semibold'
+                            : 'bg-slate-900/[0.04] dark:bg-white/[0.05] hover:bg-slate-900/[0.08] dark:hover:bg-white/[0.12] text-slate-700 dark:text-white/80 hover:text-slate-950 dark:hover:text-white border border-slate-900/10 dark:border-white/10'
                         }`}
                         title={`Zoom to ${city.cityName}, ${country.countryName}`}
                       >
                         <span className="truncate max-w-[120px]">{city.cityName}</span>
                         <span
-                          className={`text-[10px] font-mono font-bold ${
-                            isCityActive ? 'text-white/90' : 'text-white/40'
+                          className={`text-[10px] tabular-nums font-bold ${
+                            isCityActive ? 'text-white/90' : 'text-slate-400 dark:text-white/45'
                           }`}
                         >
                           {city.spotsCount}
@@ -149,23 +152,25 @@ export const PlacesDiscovered: React.FC<PlacesDiscoveredProps> = ({
         })}
       </div>
 
-      {/* "+ N More" / "Show Less" Toggle for compactness */}
+      {/* "+ N More" / "Show Less" Toggle */}
       {hasMore && (
         <button
           type="button"
           id="toggle-more-countries-btn"
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="w-full mt-2.5 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white hover:bg-white/5 rounded-xl border border-dashed border-white/15 hover:border-white/30 transition flex items-center justify-center gap-1.5 cursor-pointer"
+          className="w-full mt-2.5 py-2.5 min-h-[40px] text-center text-xs font-semibold text-slate-600 dark:text-white/60 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.04] dark:hover:bg-white/5 rounded-xl border border-dashed border-slate-900/15 dark:border-white/15 hover:border-slate-900/30 dark:hover:border-white/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer heyroq-focus-ring"
         >
           {isExpanded ? (
             <>
               <span>Show Less</span>
-              <ChevronUp className="w-3 h-3" />
+              <ChevronUp className="w-3.5 h-3.5" />
             </>
           ) : (
             <>
-              <span>+ {remainingCount} more {remainingCount === 1 ? 'country' : 'countries'}</span>
-              <ChevronDown className="w-3 h-3" />
+              <span>
+                + {remainingCount} more {remainingCount === 1 ? 'country' : 'countries'}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5" />
             </>
           )}
         </button>

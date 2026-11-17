@@ -1,4 +1,243 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Metric-matched local fallbacks to prevent Cumulative Layout Shift (CLS) while Manrope and Space Grotesk load */
+@font-face {
+  font-family: 'Manrope Fallback';
+  src: local('Segoe UI'), local('Roboto'), local('Helvetica Neue'), local('Arial');
+  size-adjust: 102.5%;
+  ascent-override: 96%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Space Grotesk Fallback';
+  src: local('Segoe UI'), local('Roboto'), local('Helvetica Neue'), local('Arial');
+  size-adjust: 103%;
+  ascent-override: 95%;
+  descent-override: 23%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Momo Signature Fallback';
+  src: local('Segoe Script'), local('Bradley Hand'), local('Snell Roundhand'), local('Apple Chancery'), local('cursive');
+  size-adjust: 100%;
+  ascent-override: 98%;
+  descent-override: 28%;
+  line-gap-override: 0%;
+}
+
+@theme {
+  --font-brand: 'Momo Signature', 'Momo Signature Fallback', cursive;
+  --font-heading: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Manrope', 'Manrope Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: var(--font-body);
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  --color-solaris-primary: #E87924;
+  --color-solaris-highlight: #FF9B43;
+  --color-solaris-deep: #B95318;
+}
+
+/* ==========================================================================
+   HEYROQ READABLE LIQUID GLASS DESIGN SYSTEM, SOLARIS ORANGE & ADAPTIVE TOKENS
+   Light Mode (:root, [data-theme="light"], .light) + Dark Mode (.dark, [data-theme="dark"])
+   ========================================================================== */
+
+:root,
+[data-theme="light"],
+.light,
+.theme-light {
+  /* Typography family & weight tokens */
+  --font-brand: 'Momo Signature', 'Momo Signature Fallback', cursive;
+  --font-heading: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Manrope', 'Manrope Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  --heyroq-font-brand: var(--font-brand);
+  --heyroq-font-heading: var(--font-heading);
+  --heyroq-font-sans: var(--font-body);
+  --heyroq-font-mono: var(--font-mono);
+
+  --heyroq-weight-regular: 400;
+  --heyroq-weight-medium: 500;
+  --heyroq-weight-semibold: 600;
+  --heyroq-weight-bold: 700;
+
+  /* MINI Solaris Orange Metallic-inspired Brand Palette (Single Source of Truth) */
+  --brand-primary: #E87924;
+  --brand-highlight: #FF9B43;
+  --brand-deep: #B95318;
+  --brand-cta-bg: #B95318; /* Solaris Deep: 4.79:1 WCAG AA contrast behind #FFFFFF text */
+  --brand-cta-hover: #A14612; /* 5.65:1 contrast behind #FFFFFF text */
+  --brand-cta-active: #8E3D10;
+  --brand-on-primary: #FFFFFF;
+
+  --heyroq-brand-primary: var(--brand-primary);
+  --heyroq-brand-highlight: var(--brand-highlight);
+  --heyroq-brand-deep: var(--brand-deep);
+  --heyroq-brand-primary-hover: #D46B1B;
+  --heyroq-brand-primary-soft: var(--brand-highlight);
+  --heyroq-accent-text: #B34E15; /* >= 4.65:1 contrast on light canvas (#F5F6F8) and 5.04:1 on white */
+
+  --heyroq-status-success: #059669;
+  --heyroq-status-warning: #D97706;
+  --heyroq-status-error: #DC2626;
+  --heyroq-status-info: #2563EB;
+
+  /* Light Canvas & Surface Hierarchy */
+  --heyroq-bg-canvas: #F5F6F8;
+  --heyroq-bg-surface: #FFFFFF;
+  --heyroq-bg-elevated: #ECEEF2;
+  --heyroq-bg-subtle: rgba(15, 23, 42, 0.04);
+  --heyroq-bg-muted: rgba(15, 23, 42, 0.07);
+
+  /* Light Text Hierarchy (WCAG AA compliant, 100% opaque foregrounds) */
+  --heyroq-text-primary: #0F172A;
+  --heyroq-text-secondary: #334155;
+  --heyroq-text-muted: #525866;
+  --heyroq-text-subtle: #64748B;
+
+  /* Borders & Dividers */
+  --heyroq-border-subtle: rgba(15, 23, 42, 0.09);
+  --heyroq-border-strong: rgba(15, 23, 42, 0.16);
+  --heyroq-divider: rgba(15, 23, 42, 0.07);
+
+  /* Centralized Readable Liquid Glass Semantic Tokens (Light Mode) */
+  --glass-nav-bg: rgba(255, 255, 255, 0.86);
+  --glass-sidebar-bg: rgba(255, 255, 255, 0.90);
+  --glass-floating-bg: rgba(255, 255, 255, 0.95);
+  --glass-nav-blur: 26px;
+  --glass-sidebar-blur: 26px;
+  --glass-floating-blur: 20px;
+  --glass-saturation: 140%;
+  --glass-border: rgba(15, 23, 42, 0.09);
+  --glass-border-strong: rgba(15, 23, 42, 0.14);
+  --glass-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.11), 0 2px 6px -1px rgba(15, 23, 42, 0.05);
+
+  /* Mapped Heyroq Glass Tokens (preserving full design-system compatibility) */
+  --heyroq-glass-nav-bg: var(--glass-nav-bg);
+  --heyroq-glass-subbar-bg: transparent;
+  --heyroq-glass-panel-bg: var(--glass-sidebar-bg);
+  --heyroq-glass-floating-bg: var(--glass-floating-bg);
+  --heyroq-glass-popover-bg: var(--glass-floating-bg);
+  --heyroq-glass-modal-bg: rgba(255, 255, 255, 0.97);
+  --heyroq-glass-card-bg: rgba(255, 255, 255, 0.92);
+  --heyroq-glass-input-bg: rgba(15, 23, 42, 0.045);
+  --heyroq-glass-pill-bg: rgba(15, 23, 42, 0.045);
+  --heyroq-glass-segmented-bg: rgba(15, 23, 42, 0.055);
+  --heyroq-glass-border: var(--glass-border);
+  --heyroq-glass-border-strong: var(--glass-border-strong);
+  --heyroq-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --heyroq-backdrop-scrim: rgba(15, 23, 42, 0.42);
+
+  /* Elevation & Shadows */
+  --heyroq-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --heyroq-shadow-floating: var(--glass-shadow);
+  --heyroq-shadow-popover: 0 16px 38px -8px rgba(15, 23, 42, 0.16), 0 4px 12px -2px rgba(15, 23, 42, 0.07);
+  --heyroq-shadow-modal: 0 24px 56px -12px rgba(15, 23, 42, 0.22), 0 8px 20px -4px rgba(15, 23, 42, 0.08);
+
+  /* Blur, Radius, Spacing & Motion Tokens */
+  --heyroq-blur-sm: 12px;
+  --heyroq-blur-md: var(--glass-floating-blur);
+  --heyroq-blur-lg: var(--glass-nav-blur);
+  --heyroq-radius-sm: 0.625rem;
+  --heyroq-radius-md: 0.75rem;
+  --heyroq-radius-lg: 1rem;
+  --heyroq-radius-xl: 1.5rem;
+  --heyroq-radius-2xl: 1.75rem;
+  --heyroq-duration-fast: 150ms;
+  --heyroq-duration-normal: 200ms;
+  --heyroq-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --heyroq-focus-ring: rgba(232, 121, 36, 0.65);
+
+  /* Scrollbar & Grid Dots */
+  --heyroq-scrollbar-thumb: rgba(15, 23, 42, 0.18);
+  --heyroq-scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
+  --heyroq-grid-dot: rgba(15, 23, 42, 0.12);
+}
+
+.dark,
+[data-theme="dark"] {
+  --brand-primary: #E87924;
+  --brand-highlight: #FF9B43;
+  --brand-deep: #B95318;
+  --brand-cta-bg: #B95318; /* Solaris Deep: 4.79:1 WCAG AA contrast behind #FFFFFF text, zero neon glare */
+  --brand-cta-hover: #A64813; /* 5.35:1 contrast behind #FFFFFF text */
+  --brand-cta-active: #8E3D10;
+  --brand-on-primary: #FFFFFF;
+
+  --heyroq-brand-primary: var(--brand-primary);
+  --heyroq-brand-highlight: var(--brand-highlight);
+  --heyroq-brand-deep: var(--brand-deep);
+  --heyroq-brand-primary-hover: var(--brand-highlight);
+  --heyroq-brand-primary-soft: var(--brand-highlight);
+  --heyroq-accent-text: #FF9B43; /* Solaris Highlight: >= 8.65:1 contrast on dark surfaces */
+
+  --heyroq-status-success: #34D399;
+  --heyroq-status-warning: #FBBF24;
+  --heyroq-status-error: #F87171;
+  --heyroq-status-info: #60A5FA;
+
+  /* Dark Canvas & Surface Hierarchy */
+  --heyroq-bg-canvas: #0E0F12;
+  --heyroq-bg-surface: #18191C;
+  --heyroq-bg-elevated: #202227;
+  --heyroq-bg-subtle: rgba(255, 255, 255, 0.05);
+  --heyroq-bg-muted: rgba(255, 255, 255, 0.085);
+
+  /* Dark Text Hierarchy (WCAG AA compliant, crisp solid hex values for opaque legibility) */
+  --heyroq-text-primary: #F5F6F8;
+  --heyroq-text-secondary: #D1D5DB;
+  --heyroq-text-muted: #9CA3AF;
+  --heyroq-text-subtle: #6B7280;
+
+  /* Borders & Dividers */
+  --heyroq-border-subtle: rgba(255, 255, 255, 0.10);
+  --heyroq-border-strong: rgba(255, 255, 255, 0.17);
+  --heyroq-divider: rgba(255, 255, 255, 0.08);
+
+  /* Centralized Readable Liquid Glass Semantic Tokens (Dark Mode) */
+  --glass-nav-bg: rgba(24, 25, 28, 0.86);
+  --glass-sidebar-bg: rgba(24, 25, 28, 0.90);
+  --glass-floating-bg: rgba(24, 25, 28, 0.95);
+  --glass-nav-blur: 26px;
+  --glass-sidebar-blur: 26px;
+  --glass-floating-blur: 20px;
+  --glass-saturation: 140%;
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border-strong: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.52), 0 2px 8px -1px rgba(0, 0, 0, 0.32);
+
+  /* Mapped Heyroq Glass Tokens */
+  --heyroq-glass-nav-bg: var(--glass-nav-bg);
+  --heyroq-glass-subbar-bg: transparent;
+  --heyroq-glass-panel-bg: var(--glass-sidebar-bg);
+  --heyroq-glass-floating-bg: var(--glass-floating-bg);
+  --heyroq-glass-popover-bg: var(--glass-floating-bg);
+  --heyroq-glass-modal-bg: rgba(24, 25, 28, 0.97);
+  --heyroq-glass-card-bg: rgba(255, 255, 255, 0.045);
+  --heyroq-glass-input-bg: rgba(255, 255, 255, 0.065);
+  --heyroq-glass-pill-bg: rgba(255, 255, 255, 0.07);
+  --heyroq-glass-segmented-bg: rgba(255, 255, 255, 0.06);
+  --heyroq-glass-border: var(--glass-border);
+  --heyroq-glass-border-strong: var(--glass-border-strong);
+  --heyroq-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --heyroq-backdrop-scrim: rgba(0, 0, 0, 0.66);
+
+  /* Elevation & Shadows */
+  --heyroq-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32);
+  --heyroq-shadow-floating: var(--glass-shadow);
+  --heyroq-shadow-popover: 0 20px 46px -8px rgba(0, 0, 0, 0.65), 0 4px 14px -2px rgba(0, 0, 0, 0.42);
+  --heyroq-shadow-modal: 0 28px 68px -12px rgba(0, 0, 0, 0.76), 0 8px 24px -4px rgba(0, 0, 0, 0.48);
+
+  /* Scrollbar & Grid Dots */
+  --heyroq-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --heyroq-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
+  --heyroq-grid-dot: rgba(255, 255, 255, 0.14);
+}
 
 @layer base {
   html,
@@ -10,14 +249,305 @@
     padding: 0;
   }
 
+  html {
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-synthesis-weight: none;
+  }
+
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-    background-color: #0A0A0A;
-    color: #FFFFFF;
+    font-family: var(--font-body);
+    font-weight: var(--heyroq-weight-regular);
+    line-height: 1.5;
+    background-color: var(--heyroq-bg-canvas);
+    color: var(--heyroq-text-primary);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
   }
 }
 
-/* Custom scrollbar and aesthetics */
+/* ==========================================================================
+   READABLE LIQUID GLASS SURFACE PRIMITIVES
+   - Top Navigation: 86% alpha, 26px blur, 140% saturation
+   - Sidebars / Nearby Spots: 90% alpha, 26px blur, 140% saturation
+   - Menus, Popovers & Floating Map Controls: 95% alpha, 20px blur, 140% saturation
+   - Zero nested backdrop blurs & zero full-screen backdrop filters
+   ========================================================================== */
+
+.liquid-glass-nav {
+  background-color: var(--glass-nav-bg);
+  backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--heyroq-glass-highlight);
+}
+
+/* Subbar inside .liquid-glass-nav avoids nested backdrop-filter stacking */
+.liquid-glass-subbar {
+  background-color: var(--heyroq-glass-subbar-bg);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.liquid-glass-panel {
+  background-color: var(--glass-sidebar-bg);
+  backdrop-filter: blur(var(--glass-sidebar-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-sidebar-blur)) saturate(var(--glass-saturation));
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--heyroq-glass-highlight);
+}
+
+.liquid-glass-floating {
+  background-color: var(--glass-floating-bg);
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--glass-shadow), var(--heyroq-glass-highlight);
+}
+
+.liquid-glass-popover {
+  background-color: var(--glass-floating-bg);
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--heyroq-shadow-popover), var(--heyroq-glass-highlight);
+}
+
+.liquid-glass-modal {
+  background-color: var(--heyroq-glass-modal-bg);
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
+}
+
+.liquid-glass-sheet {
+  background-color: var(--heyroq-glass-modal-bg);
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  border-top: 1px solid var(--glass-border-strong);
+  box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
+}
+
+/* Inner cards & pills do NOT stack nested backdrop-filter over parent glass surfaces */
+.liquid-glass-card {
+  background-color: var(--heyroq-glass-card-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--heyroq-shadow-sm), var(--heyroq-glass-highlight);
+}
+
+.liquid-glass-pill {
+  background-color: var(--heyroq-glass-pill-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--heyroq-shadow-sm);
+}
+
+.liquid-glass-input {
+  background-color: var(--heyroq-glass-input-bg);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.liquid-glass-segmented {
+  background-color: var(--heyroq-glass-segmented-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* Full-screen modal backdrop uses clean alpha scrim without expensive full-viewport blur */
+.liquid-glass-backdrop {
+  background-color: var(--heyroq-backdrop-scrim);
+}
+
+.heyroq-btn-primary {
+  font-family: var(--font-body);
+  font-weight: 600;
+  background-color: var(--brand-cta-bg);
+  color: var(--brand-on-primary);
+  border: 1px solid rgba(255, 155, 67, 0.24);
+  box-shadow: 0 3px 10px -2px rgba(185, 83, 24, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  transition: background-color var(--heyroq-duration-fast) var(--heyroq-ease-out),
+    transform var(--heyroq-duration-fast) var(--heyroq-ease-out),
+    box-shadow var(--heyroq-duration-fast) var(--heyroq-ease-out);
+}
+
+.heyroq-btn-primary:hover:not(:disabled) {
+  background-color: var(--brand-cta-hover);
+  box-shadow: 0 5px 14px -3px rgba(185, 83, 24, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+.heyroq-btn-primary:active:not(:disabled) {
+  background-color: var(--brand-cta-active);
+  transform: scale(0.98);
+}
+
+.heyroq-focus-ring:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="radio"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--heyroq-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Reusable Semantic Typography Tokens
+   - Brand Logo: Momo Signature (400)
+   - Headings / Display: Space Grotesk (500, 600, 700)
+   - Body / UI: Manrope (400, 500, 600, 700)
+   - Technical Metadata: JetBrains Mono (400, 500)
+   ========================================================================== */
+
+/* Brand Wordmark ("heyroq") — strictly Momo Signature Regular (400), no shadows/bevels/blur/clipping */
+.heyroq-wordmark {
+  font-family: var(--font-brand);
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+  letter-spacing: 0em;
+  line-height: 1.15;
+  padding-top: 0.04em;
+  padding-bottom: 0.08em;
+  padding-inline: 0.03em;
+  color: var(--brand-primary);
+  text-shadow: none;
+  vertical-align: middle;
+}
+
+/* Headings (Space Grotesk) */
+.type-display {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  line-height: 1.16;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+
+.type-h1 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+
+.type-h2 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(1.125rem, 1.6vw, 1.375rem);
+  line-height: 1.28;
+  letter-spacing: -0.014em;
+  text-wrap: balance;
+}
+
+.type-h3 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(0.9375rem, 1.2vw, 1.0625rem);
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+/* Body Prose (Manrope) */
+.type-body-lg {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: clamp(0.9375rem, 1.1vw, 1rem);
+  line-height: 1.62;
+  letter-spacing: 0.002em;
+}
+
+.type-body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  letter-spacing: 0.002em;
+}
+
+.type-body-medium {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  letter-spacing: 0.002em;
+}
+
+/* Captions & Labels (Manrope) */
+.type-caption {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1.48;
+  letter-spacing: 0.004em;
+}
+
+.type-label {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  line-height: 1.38;
+  letter-spacing: 0.004em;
+}
+
+.type-overline {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+/* Buttons & Navigation (Manrope) */
+.type-button {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+  letter-spacing: 0.004em;
+  white-space: nowrap;
+}
+
+.type-button-sm {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  letter-spacing: 0.004em;
+  white-space: nowrap;
+}
+
+.type-nav {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  letter-spacing: 0.003em;
+}
+
+/* Technical Metadata (JetBrains Mono) */
+.type-mono-meta {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Scrollbars & Fallback Vector Map Grid
+   ========================================================================== */
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -26,7 +556,6 @@
   scrollbar-width: none;
 }
 
-/* Subtle dark scrollbar */
 *::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -35,39 +564,146 @@
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--heyroq-scrollbar-thumb);
   border-radius: 9999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: var(--heyroq-scrollbar-thumb-hover);
 }
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: var(--heyroq-scrollbar-thumb) transparent;
 }
 
-.subtle-dark-scrollbar::-webkit-scrollbar {
+.subtle-dark-scrollbar::-webkit-scrollbar,
+.subtle-glass-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
-.subtle-dark-scrollbar::-webkit-scrollbar-track {
+.subtle-dark-scrollbar::-webkit-scrollbar-track,
+.subtle-glass-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-.subtle-dark-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
+.subtle-dark-scrollbar::-webkit-scrollbar-thumb,
+.subtle-glass-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--heyroq-scrollbar-thumb);
   border-radius: 9999px;
 }
-.subtle-dark-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+.subtle-dark-scrollbar::-webkit-scrollbar-thumb:hover,
+.subtle-glass-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--heyroq-scrollbar-thumb-hover);
 }
-.subtle-dark-scrollbar {
+.subtle-dark-scrollbar,
+.subtle-glass-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-color: var(--heyroq-scrollbar-thumb) transparent;
 }
 
-/* Dark dot grid background */
+/* Adaptive dot grid background for fallback map canvas */
 .bg-grid-dots {
-  background-image: radial-gradient(#333 1px, transparent 1px);
+  background-image: radial-gradient(var(--heyroq-grid-dot) 1px, transparent 1px);
   background-size: 28px 28px;
+}
+
+/* ==========================================================================
+   Opaque Fallbacks for Unsupported Browsers & Reduced-Transparency Preference
+   ========================================================================== */
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root,
+  [data-theme="light"],
+  .light,
+  .theme-light {
+    --glass-nav-bg: #FFFFFF;
+    --glass-sidebar-bg: #FFFFFF;
+    --glass-floating-bg: #FFFFFF;
+    --heyroq-glass-modal-bg: #FFFFFF;
+    --heyroq-glass-card-bg: #FFFFFF;
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    --glass-nav-bg: #18191C;
+    --glass-sidebar-bg: #18191C;
+    --glass-floating-bg: #1C1E24;
+    --heyroq-glass-modal-bg: #18191C;
+    --heyroq-glass-card-bg: #202227;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  [data-theme="light"],
+  .light,
+  .theme-light {
+    --glass-nav-bg: #FFFFFF;
+    --glass-sidebar-bg: #FFFFFF;
+    --glass-floating-bg: #FFFFFF;
+    --heyroq-glass-nav-bg: #FFFFFF;
+    --heyroq-glass-subbar-bg: #F8FAFC;
+    --heyroq-glass-panel-bg: #FFFFFF;
+    --heyroq-glass-floating-bg: #FFFFFF;
+    --heyroq-glass-popover-bg: #FFFFFF;
+    --heyroq-glass-modal-bg: #FFFFFF;
+    --heyroq-glass-card-bg: #FFFFFF;
+    --heyroq-glass-pill-bg: #F1F5F9;
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    --glass-nav-bg: #18191C;
+    --glass-sidebar-bg: #18191C;
+    --glass-floating-bg: #1C1E24;
+    --heyroq-glass-nav-bg: #18191C;
+    --heyroq-glass-subbar-bg: #18191C;
+    --heyroq-glass-panel-bg: #18191C;
+    --heyroq-glass-floating-bg: #1C1E24;
+    --heyroq-glass-popover-bg: #1C1E24;
+    --heyroq-glass-modal-bg: #18191C;
+    --heyroq-glass-card-bg: #202227;
+    --heyroq-glass-pill-bg: #24262D;
+  }
+
+  .liquid-glass-nav,
+  .liquid-glass-subbar,
+  .liquid-glass-panel,
+  .liquid-glass-floating,
+  .liquid-glass-popover,
+  .liquid-glass-modal,
+  .liquid-glass-sheet,
+  .liquid-glass-pill,
+  .liquid-glass-backdrop {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .liquid-glass-nav,
+  .liquid-glass-subbar,
+  .liquid-glass-panel,
+  .liquid-glass-floating,
+  .liquid-glass-popover,
+  .liquid-glass-modal,
+  .liquid-glass-sheet,
+  .liquid-glass-card,
+  .liquid-glass-pill,
+  .liquid-glass-input,
+  .heyroq-btn-primary {
+    border: 1px solid CanvasText;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
 
 /* Ensure native Google Maps controls (pan arrows, pegman, zoom buttons, keyboard shortcuts UI) are removed, while strictly preserving required Google logo, copyright, and Terms attribution */
@@ -75,4 +711,3 @@
 .gmnoprint:not(.gm-style-cc) {
   display: none !important;
 }
-

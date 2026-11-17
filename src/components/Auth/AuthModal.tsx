@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
-  X,
   Mail,
   Lock,
   User,
@@ -11,6 +10,10 @@ import {
   Loader2,
   CheckCircle2,
 } from 'lucide-react';
+import { AppLink } from '../../utils/appRoutes';
+import { BRAND_IDENTITY } from '../../config/brandConfig';
+import { Wordmark } from '../Common/Wordmark';
+import { CloseButton } from '../Common/CloseButton';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -77,9 +80,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       let message = err.message || 'Authentication failed.';
 
       if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        message = mode === 'signin'
-          ? 'Invalid email or password. If you are new to Heyroq, you can create an account below.'
-          : 'Invalid credentials provided. Please double check your details.';
+        message =
+          mode === 'signin'
+            ? 'Invalid email or password. If you are new to Heyroq, you can create an account below.'
+            : 'Invalid credentials provided. Please double check your details.';
       } else if (code === 'auth/email-already-in-use') {
         message = 'An account with this email already exists. Try signing in instead.';
       } else if (code === 'auth/weak-password') {
@@ -173,95 +177,91 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     <div
       id="auth-modal-overlay"
       onClick={handleModalClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 md:backdrop-blur-2xl animate-in fade-in"
+      className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
     >
       <div
         id="auth-modal-dialog"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] rounded-[32px] max-w-md w-full max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto subtle-dark-scrollbar shadow-2xl border border-white/20 p-5 sm:p-7 relative text-white"
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === 'signup' ? 'Join Heyroq' : mode === 'signin' ? 'Sign in to Heyroq' : 'Reset password'}
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-md w-full max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto subtle-glass-scrollbar p-5 sm:p-7 relative text-slate-900 dark:text-white"
       >
         {/* Close Button */}
-        <button
-          type="button"
+        <CloseButton
           onClick={handleModalClose}
-          className="absolute top-4 right-4 sm:top-5 sm:right-5 p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer z-10"
-          aria-label="Close authentication modal"
-        >
-          <X className="w-5 h-5" />
-        </button>
+          ariaLabel="Close Authentication"
+          className="absolute top-4 right-4 sm:top-5 sm:right-5 z-10"
+        />
 
         {/* Brand Wordmark & Heading */}
-        <div className="text-center mb-5 sm:mb-6 pr-6 pl-6 sm:px-0">
+        <div className="text-center mb-5 sm:mb-6 px-6 sm:px-0">
           <div className="flex justify-center mb-2.5">
-            <span
-              id="auth-brand-wordmark"
-              className="text-3xl sm:text-4xl font-black tracking-tighter italic text-[#FF5F40] leading-none select-none"
-            >
-              heyroq.
-            </span>
+            <Wordmark id="auth-brand-wordmark" size="modal" />
           </div>
-          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">
+          <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {mode === 'signup'
               ? 'Join Heyroq'
               : mode === 'signin'
-              ? 'Welcome Back'
-              : 'Reset Password'}
+                ? 'Welcome Back'
+                : 'Reset Password'}
           </h2>
-          <p className="text-xs text-white/50 mt-1 max-w-xs mx-auto">
+          <p className="text-xs text-slate-500 dark:text-white/55 mt-1 max-w-xs mx-auto leading-relaxed">
             {mode === 'signup'
               ? 'Discover and pin secret places, food hubs & events'
               : mode === 'signin'
-              ? 'Sign in to like, comment, and save your map discoveries'
-              : 'Enter your email to receive recovery instructions'}
+                ? 'Sign in to like, comment, and save your map discoveries'
+                : 'Enter your email to receive recovery instructions'}
           </p>
         </div>
 
         {/* Feedback messages */}
         {errorMsg && (
-          <div className="mb-4 p-3.5 bg-red-950/80 border border-red-500/40 text-red-200 rounded-2xl text-xs flex flex-col gap-2">
+          <div className="mb-4 p-3.5 bg-red-500/10 dark:bg-red-950/75 border border-red-500/30 dark:border-red-500/40 text-red-800 dark:text-red-200 rounded-2xl text-xs flex flex-col gap-2">
             <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
               <span className="leading-snug">{errorMsg}</span>
             </div>
 
-            {/* Smart Recovery Action: Switch to Sign Up if credential invalid on Sign In */}
-            {(errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found') && mode === 'signin' && (
-              <div className="pt-2 border-t border-red-500/25 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('signup');
-                    setErrorMsg(null);
-                    setErrorCode(null);
-                    if (!displayName && email) {
-                      const namePart = email.split('@')[0] || '';
-                      setDisplayName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
-                    }
-                    if (!username && email) {
-                      setUsername(email.split('@')[0]?.toLowerCase().replace(/[^a-z0-9_]/g, '') || '');
-                    }
-                  }}
-                  className="px-3 py-2 bg-[#FF5F40] hover:bg-[#ff7256] text-white rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-md min-h-[36px]"
-                >
-                  Create Account with this Email →
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('forgot');
-                    setErrorMsg(null);
-                    setErrorCode(null);
-                  }}
-                  className="px-2.5 py-1.5 text-white/70 hover:text-white text-xs font-bold underline transition cursor-pointer min-h-[36px] flex items-center"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-            )}
+            {(errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found') &&
+              mode === 'signin' && (
+                <div className="pt-2 border-t border-red-500/20 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('signup');
+                      setErrorMsg(null);
+                      setErrorCode(null);
+                      if (!displayName && email) {
+                        const namePart = email.split('@')[0] || '';
+                        setDisplayName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
+                      }
+                      if (!username && email) {
+                        setUsername(
+                          email.split('@')[0]?.toLowerCase().replace(/[^a-z0-9_]/g, '') || ''
+                        );
+                      }
+                    }}
+                    className="heyroq-btn-primary px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer min-h-[38px]"
+                  >
+                    Create Account with this Email →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('forgot');
+                      setErrorMsg(null);
+                      setErrorCode(null);
+                    }}
+                    className="px-2.5 py-1.5 text-red-800 dark:text-white/80 hover:text-red-950 dark:hover:text-white text-xs font-semibold underline transition-colors cursor-pointer min-h-[38px] flex items-center"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              )}
 
-            {/* Smart Recovery Action: Switch to Sign In if email already exists on Sign Up */}
             {errorCode === 'auth/email-already-in-use' && mode === 'signup' && (
-              <div className="pt-2 border-t border-red-500/25 flex items-center gap-2">
+              <div className="pt-2 border-t border-red-500/20 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -269,7 +269,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setErrorMsg(null);
                     setErrorCode(null);
                   }}
-                  className="px-3 py-2 bg-white text-black hover:bg-neutral-200 rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-md min-h-[36px]"
+                  className="liquid-glass-pill px-3 py-2 text-slate-900 dark:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer min-h-[38px]"
                 >
                   Sign In to Existing Account →
                 </button>
@@ -278,8 +278,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
         {successMsg && (
-          <div className="mb-4 p-3 bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 rounded-2xl text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          <div className="mb-4 p-3 bg-emerald-500/10 dark:bg-emerald-950/75 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>{successMsg}</span>
           </div>
         )}
@@ -289,35 +289,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode === 'signup' && (
             <>
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
                   Display Name
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-white/40 absolute left-3.5 top-3.5" />
+                  <User className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                   <input
                     type="text"
                     required
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="e.g. Alex Rivera"
-                    className="w-full text-base sm:text-xs pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                    className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
                   Username
                 </label>
                 <div className="relative">
-                  <AtSign className="w-4 h-4 text-white/40 absolute left-3.5 top-3.5" />
+                  <AtSign className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                   <input
                     type="text"
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="e.g. alex_rivera"
-                    className="w-full text-base sm:text-xs pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                    className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
                   />
                 </div>
               </div>
@@ -325,18 +325,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           <div>
-            <label className="block text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
               Email Address
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-white/40 absolute left-3.5 top-3.5" />
+              <Mail className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full text-base sm:text-xs pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
               />
             </div>
           </div>
@@ -344,28 +344,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode !== 'forgot' && (
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="text-[10px] font-black text-white/60 uppercase tracking-widest">
+                <label className="text-xs font-semibold text-slate-700 dark:text-white/75">
                   Password
                 </label>
                 {mode === 'signin' && (
                   <button
                     type="button"
                     onClick={() => setMode('forgot')}
-                    className="text-[10px] font-black uppercase text-[#FF5F40] hover:underline tracking-wider p-1"
+                    className="text-xs font-semibold text-[var(--heyroq-accent-text)] hover:underline px-1 py-0.5 cursor-pointer heyroq-focus-ring rounded"
                   >
                     Forgot?
                   </button>
                 )}
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-white/40 absolute left-3.5 top-3.5" />
+                <Lock className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full text-base sm:text-xs pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40]"
+                  className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
                 />
               </div>
             </div>
@@ -374,7 +374,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="submit"
             disabled={loading}
-            className="w-full min-h-[44px] py-3 bg-[#FF5F40] hover:bg-[#ff7256] text-white rounded-full text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(255,95,64,0.4)] flex items-center justify-center gap-2 transition disabled:opacity-50 mt-2 cursor-pointer"
+            className="heyroq-btn-primary w-full min-h-[44px] py-3 rounded-full text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 mt-2 cursor-pointer heyroq-focus-ring"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -392,20 +392,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {mode !== 'forgot' && (
           <div className="mt-4">
             <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-white/10"></div>
-              <span className="flex-shrink mx-3 text-[10px] text-white/40 uppercase font-black tracking-widest">
-                Or
+              <div className="flex-grow border-t border-slate-900/10 dark:border-white/10" />
+              <span className="flex-shrink mx-3 text-[11px] text-slate-400 dark:text-white/40 font-medium">
+                or
               </span>
-              <div className="flex-grow border-t border-white/10"></div>
+              <div className="flex-grow border-t border-slate-900/10 dark:border-white/10" />
             </div>
 
             <button
               type="button"
               disabled={loading}
               onClick={handleGoogleSignIn}
-              className="w-full min-h-[44px] py-2.5 px-4 border border-white/20 bg-white/10 hover:bg-white/20 rounded-full text-xs font-black uppercase tracking-wider text-white flex items-center justify-center gap-2 transition cursor-pointer"
+              className="liquid-glass-pill w-full min-h-[44px] py-2.5 px-4 rounded-full text-xs font-semibold text-slate-800 dark:text-white hover:text-slate-950 dark:hover:text-white flex items-center justify-center gap-2.5 transition-colors duration-150 cursor-pointer heyroq-focus-ring"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   fill="#EA4335"
                   d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"
@@ -429,14 +429,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Mode Switchers */}
-        <div className="mt-5 text-center text-xs text-white/50">
+        <div className="mt-5 text-center text-xs text-slate-500 dark:text-white/55">
           {mode === 'signin' ? (
             <p>
-              Don't have an account yet?{' '}
+              Don&apos;t have an account yet?{' '}
               <button
                 type="button"
                 onClick={() => setMode('signup')}
-                className="font-black text-white hover:text-[#FF5F40] uppercase tracking-wider ml-1 underline cursor-pointer p-1"
+                className="font-bold text-slate-900 dark:text-white hover:text-[var(--heyroq-accent-text)] ml-1 underline underline-offset-2 cursor-pointer p-1 heyroq-focus-ring rounded"
               >
                 Sign up
               </button>
@@ -447,12 +447,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <button
                 type="button"
                 onClick={() => setMode('signin')}
-                className="font-black text-white hover:text-[#FF5F40] uppercase tracking-wider ml-1 underline cursor-pointer p-1"
+                className="font-bold text-slate-900 dark:text-white hover:text-[var(--heyroq-accent-text)] ml-1 underline underline-offset-2 cursor-pointer p-1 heyroq-focus-ring rounded"
               >
                 Sign in
               </button>
             </p>
           )}
+        </div>
+
+        {/* Legal & Operator Attribution Links */}
+        <div className="mt-4 pt-3.5 border-t border-slate-900/8 dark:border-white/10 text-center space-y-1.5">
+          <p className="text-[11px] text-slate-500 dark:text-white/50 leading-relaxed">
+            By continuing, you acknowledge Heyroq&apos;s{' '}
+            <AppLink
+              id="auth-terms-link"
+              to="/terms"
+              onBeforeNavigate={handleModalClose}
+              className="text-slate-800 dark:text-white/80 hover:text-[var(--heyroq-accent-text)] underline underline-offset-2 transition-colors"
+            >
+              Terms of Service
+            </AppLink>{' '}
+            and{' '}
+            <AppLink
+              id="auth-privacy-link"
+              to="/privacy"
+              onBeforeNavigate={handleModalClose}
+              className="text-slate-800 dark:text-white/80 hover:text-[var(--heyroq-accent-text)] underline underline-offset-2 transition-colors"
+            >
+              Privacy Policy
+            </AppLink>
+            .
+          </p>
+          <p className="text-[11px] text-slate-400 dark:text-white/40">
+            {BRAND_IDENTITY.brandAttribution}
+          </p>
         </div>
       </div>
     </div>

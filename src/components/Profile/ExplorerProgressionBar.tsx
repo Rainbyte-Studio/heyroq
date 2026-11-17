@@ -4,12 +4,7 @@ import { EXPLORER_LEVELS } from '../../services/gamificationService';
 import {
   Compass,
   Trophy,
-  Sparkles,
   ChevronRight,
-  MapPin,
-  Globe,
-  Heart,
-  Award,
 } from 'lucide-react';
 
 interface ExplorerProgressionBarProps {
@@ -27,12 +22,12 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
 }) => {
   if (isLoading && !summary) {
     return (
-      <div className={`p-4 rounded-2xl bg-white/[0.03] border border-white/10 animate-pulse ${className}`}>
+      <div className={`liquid-glass-card p-4 rounded-2xl animate-pulse ${className}`}>
         <div className="flex items-center justify-between mb-3">
-          <div className="h-5 w-32 bg-white/10 rounded-full" />
-          <div className="h-5 w-20 bg-white/10 rounded-full" />
+          <div className="h-5 w-32 bg-slate-900/10 dark:bg-white/10 rounded-full" />
+          <div className="h-5 w-20 bg-slate-900/10 dark:bg-white/10 rounded-full" />
         </div>
-        <div className="h-2 w-full bg-white/10 rounded-full" />
+        <div className="h-2 w-full bg-slate-900/10 dark:bg-white/10 rounded-full" />
       </div>
     );
   }
@@ -62,48 +57,42 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
   return (
     <div
       id="explorer-progression-bar"
-      className={`rounded-2xl p-4 bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-white/10 backdrop-blur-md relative overflow-hidden transition hover:border-white/20 ${className}`}
+      className={`liquid-glass-card rounded-2xl p-4 relative overflow-hidden transition-colors ${className}`}
     >
-      {/* Subtle background glow */}
-      <div
-        className="absolute -right-10 -top-10 w-32 h-32 rounded-full blur-3xl opacity-20 pointer-events-none"
-        style={{ backgroundColor: currentDef.badgeColor }}
-      />
-
-      {/* Header: Level Badge, XP, and Achievements Action */}
+      {/* Header: Level, XP, and Achievements Action */}
       <div className="flex items-center justify-between gap-2 mb-3 relative z-10">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shadow-md border border-white/20"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold border border-slate-900/10 dark:border-white/15 shrink-0"
             style={{
-              backgroundColor: `${currentDef.badgeColor}25`,
+              backgroundColor: `${currentDef.badgeColor}20`,
               color: currentDef.badgeColor,
             }}
           >
             <Compass className="w-4 h-4" />
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <span
-                className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border"
-                style={{
-                  backgroundColor: `${currentDef.badgeColor}15`,
-                  borderColor: `${currentDef.badgeColor}40`,
-                  color: currentDef.badgeColor,
-                }}
-              >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-heading text-[11px] font-bold tabular-nums text-[var(--heyroq-accent-text)]">
                 LVL {level}
               </span>
-              <h4 className="text-xs font-black uppercase tracking-wider text-white">
+              <span aria-hidden="true" className="text-slate-300 dark:text-white/25">
+                ·
+              </span>
+              <h4 className="font-heading text-xs font-bold tracking-tight text-slate-900 dark:text-white truncate">
                 {title}
               </h4>
             </div>
-            <p className="text-[10px] font-mono text-white/50 mt-0.5">
+            <p className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/50 mt-0.5">
               {isMaxLevel ? (
-                <span className="text-[#FF8C75] font-semibold">Max Explorer Rank Reached</span>
+                <span className="text-[var(--heyroq-accent-text)] font-semibold">
+                  Max Explorer Rank Reached
+                </span>
               ) : (
-                <span>{xpRemaining.toLocaleString()} XP to Level {level + 1}</span>
+                <span>
+                  {xpRemaining.toLocaleString()} XP to Level {level + 1}
+                </span>
               )}
             </p>
           </div>
@@ -113,79 +102,65 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
           <button
             type="button"
             onClick={onOpenAchievements}
-            className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#FF5F40]/50 text-white/80 hover:text-white transition cursor-pointer"
+            className="liquid-glass-pill group flex items-center gap-1.5 px-3 py-1.5 min-h-[38px] rounded-full text-slate-800 dark:text-white/85 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer shrink-0 heyroq-focus-ring"
             title="View Explorer Achievements & Badges"
           >
-            <Trophy className="w-3.5 h-3.5 text-[#FF5F40] group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-mono font-bold tracking-tight">
+            <Trophy className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+            <span className="font-heading text-xs tabular-nums font-bold tracking-tight">
               {unlockedAchievements}/{totalAchievements}
             </span>
-            <ChevronRight className="w-3 h-3 text-white/40 group-hover:text-white transition-colors" />
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-white/45 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
           </button>
         )}
       </div>
 
       {/* Progress Bar */}
       <div className="relative z-10 mb-3">
-        <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden p-0.5 border border-white/10">
+        <div className="h-2 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden p-0.5 border border-slate-900/8 dark:border-white/10">
           <div
-            className="h-full rounded-full transition-all duration-700 ease-out relative"
+            className="h-full rounded-full transition-all duration-300 ease-out"
             style={{
               width: `${Math.max(4, Math.min(100, progressPercent))}%`,
-              background: `linear-gradient(90deg, ${currentDef.badgeColor}, #FF5F40)`,
+              background: `linear-gradient(90deg, ${currentDef.badgeColor}, #E87924)`,
             }}
-          >
-            <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
-          </div>
+          />
         </div>
 
-        <div className="flex justify-between items-center text-[9px] font-mono text-white/40 mt-1.5">
+        <div className="flex justify-between items-center text-[10px] font-medium tabular-nums text-slate-500 dark:text-white/45 mt-1.5">
           <span>{xp.toLocaleString()} XP</span>
           <span>{progressPercent}%</span>
           <span>{isMaxLevel ? 'MAX' : `${nextLevelXp.toLocaleString()} XP`}</span>
         </div>
       </div>
 
-      {/* Quick Footprint Stats Chips */}
-      <div className="grid grid-cols-4 gap-2 pt-2 border-t border-white/5 text-center">
-        <div className="bg-black/30 rounded-xl py-1 px-1.5 border border-white/5">
-          <div className="flex items-center justify-center gap-1 text-white/40 text-[9px]">
-            <MapPin className="w-2.5 h-2.5 text-[#FF5F40]" />
-            <span className="uppercase font-bold tracking-wider">Spots</span>
-          </div>
-          <span className="font-mono text-xs font-bold text-white block mt-0.5">
+      {/* Quick Footprint Stats Row (clean hairline grid without nested bordered boxes) */}
+      <div className="grid grid-cols-4 divide-x divide-slate-900/8 dark:divide-white/10 pt-2.5 border-t border-slate-900/8 dark:border-white/10 text-center">
+        <div className="px-1">
+          <span className="font-heading tabular-nums text-xs font-bold text-slate-900 dark:text-white block">
             {summary?.totalSpotsCount ?? 0}
           </span>
+          <span className="text-[10px] font-medium text-slate-500 dark:text-white/45">Spots</span>
         </div>
 
-        <div className="bg-black/30 rounded-xl py-1 px-1.5 border border-white/5">
-          <div className="flex items-center justify-center gap-1 text-white/40 text-[9px]">
-            <Award className="w-2.5 h-2.5 text-amber-400" />
-            <span className="uppercase font-bold tracking-wider">Cities</span>
-          </div>
-          <span className="font-mono text-xs font-bold text-white block mt-0.5">
+        <div className="px-1">
+          <span className="font-heading tabular-nums text-xs font-bold text-slate-900 dark:text-white block">
             {summary?.citiesCount ?? 0}
           </span>
+          <span className="text-[10px] font-medium text-slate-500 dark:text-white/45">Cities</span>
         </div>
 
-        <div className="bg-black/30 rounded-xl py-1 px-1.5 border border-white/5">
-          <div className="flex items-center justify-center gap-1 text-white/40 text-[9px]">
-            <Globe className="w-2.5 h-2.5 text-blue-400" />
-            <span className="uppercase font-bold tracking-wider">Nations</span>
-          </div>
-          <span className="font-mono text-xs font-bold text-white block mt-0.5">
+        <div className="px-1">
+          <span className="font-heading tabular-nums text-xs font-bold text-slate-900 dark:text-white block">
             {summary?.countriesCount ?? 0}
           </span>
+          <span className="text-[10px] font-medium text-slate-500 dark:text-white/45">Nations</span>
         </div>
 
-        <div className="bg-black/30 rounded-xl py-1 px-1.5 border border-white/5">
-          <div className="flex items-center justify-center gap-1 text-white/40 text-[9px]">
-            <Heart className="w-2.5 h-2.5 text-rose-400" />
-            <span className="uppercase font-bold tracking-wider">Likes</span>
-          </div>
-          <span className="font-mono text-xs font-bold text-white block mt-0.5">
+        <div className="px-1">
+          <span className="font-heading tabular-nums text-xs font-bold text-slate-900 dark:text-white block">
             {summary?.likesReceivedCount ?? 0}
           </span>
+          <span className="text-[10px] font-medium text-slate-500 dark:text-white/45">Likes</span>
         </div>
       </div>
     </div>

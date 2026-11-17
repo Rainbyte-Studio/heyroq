@@ -18,7 +18,7 @@ export const EXPLORER_LEVELS: ExplorerLevelDef[] = [
   { level: 7, title: 'Adventurer', minXp: 9000, maxXp: 13999, badgeColor: '#3B82F6' },
   { level: 8, title: 'Voyager', minXp: 14000, maxXp: 21999, badgeColor: '#10B981' },
   { level: 9, title: 'Globetrotter', minXp: 22000, maxXp: 34999, badgeColor: '#F97316' },
-  { level: 10, title: 'Master Explorer', minXp: 35000, maxXp: Infinity, badgeColor: '#FF5F40' },
+  { level: 10, title: 'Master Explorer', minXp: 35000, maxXp: Infinity, badgeColor: '#E87924' },
 ];
 
 export const PROGRESSION_CONSTANTS = {

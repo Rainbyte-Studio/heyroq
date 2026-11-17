@@ -12,8 +12,8 @@ import {
   fetchUserXpEvents,
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
+import { CloseButton } from '../Common/CloseButton';
 import {
-  X,
   Trophy,
   Compass,
   MapPin,
@@ -34,7 +34,6 @@ import {
   ShieldCheck,
   Crown,
   CheckCircle2,
-  Lock,
   History,
   TrendingUp,
   Loader2,
@@ -183,20 +182,36 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     }
 
     const tierColors: Record<ProgressionTier, { bg: string; text: string; border: string }> = {
-      bronze: { bg: 'bg-amber-950/40', text: 'text-amber-400', border: 'border-amber-700/40' },
-      silver: { bg: 'bg-slate-800/60', text: 'text-slate-300', border: 'border-slate-500/40' },
-      gold: { bg: 'bg-yellow-950/40', text: 'text-yellow-400', border: 'border-yellow-600/40' },
-      platinum: { bg: 'bg-cyan-950/40', text: 'text-cyan-400', border: 'border-cyan-500/40' },
+      bronze: {
+        bg: 'bg-amber-500/12 dark:bg-amber-950/40',
+        text: 'text-amber-700 dark:text-amber-400',
+        border: 'border-amber-600/25 dark:border-amber-700/40',
+      },
+      silver: {
+        bg: 'bg-slate-500/12 dark:bg-slate-800/60',
+        text: 'text-slate-700 dark:text-slate-300',
+        border: 'border-slate-500/25 dark:border-slate-500/40',
+      },
+      gold: {
+        bg: 'bg-yellow-500/14 dark:bg-yellow-950/40',
+        text: 'text-yellow-700 dark:text-yellow-400',
+        border: 'border-yellow-600/30 dark:border-yellow-600/40',
+      },
+      platinum: {
+        bg: 'bg-cyan-500/12 dark:bg-cyan-950/40',
+        text: 'text-cyan-700 dark:text-cyan-400',
+        border: 'border-cyan-600/25 dark:border-cyan-500/40',
+      },
     };
 
     const colors = tierColors[tier] || tierColors.bronze;
 
     return (
       <div
-        className={`w-10 h-10 rounded-2xl flex items-center justify-center border transition-all ${
+        className={`w-10 h-10 rounded-2xl flex items-center justify-center border transition-colors shrink-0 ${
           isUnlocked
-            ? `${colors.bg} ${colors.text} ${colors.border} shadow-lg`
-            : 'bg-white/5 text-white/30 border-white/10'
+            ? `${colors.bg} ${colors.text} ${colors.border}`
+            : 'bg-slate-900/5 dark:bg-white/5 text-slate-400 dark:text-white/30 border-slate-900/10 dark:border-white/10'
         }`}
       >
         {iconElement}
@@ -218,89 +233,83 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-2xl animate-in fade-in"
+      className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
     >
       <div
         id="achievements-modal"
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[92vh] overflow-hidden shadow-2xl flex flex-col border border-white/20 text-white relative"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Explorer Progression"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[92vh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
         {/* Header Bar */}
-        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-white/10 flex items-center justify-between bg-black/40 relative z-20">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between relative z-20">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#FF5F40]/15 border border-[#FF5F40]/30 flex items-center justify-center text-[#FF5F40] shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
               <Trophy className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white flex items-center gap-2 truncate">
+              <h2 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 truncate">
                 Explorer Progression
               </h2>
-              <p className="text-[11px] sm:text-xs text-white/50 truncate">
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-white/50 truncate">
                 {displayName ? `${displayName}'s journey & milestones` : 'Earn XP by discovering genuine places'}
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
+          <CloseButton
             onClick={onClose}
-            aria-label="Close achievements"
-            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-full transition cursor-pointer border border-white/15 shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            ariaLabel="Close Explorer Progression"
+          />
         </div>
 
         {/* Modal Scroll Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+        <div className="flex-1 overflow-y-auto subtle-glass-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
           {/* Main Progression Card */}
-          <div className="rounded-3xl p-5 bg-gradient-to-br from-white/[0.07] to-white/[0.02] border border-white/15 relative overflow-hidden">
-            <div
-              className="absolute -right-12 -top-12 w-44 h-44 rounded-full blur-3xl opacity-20 pointer-events-none"
-              style={{ backgroundColor: currentDef.badgeColor }}
-            />
-
+          <div className="liquid-glass-card rounded-3xl p-5 relative overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 relative z-10">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md border"
-                    style={{
-                      backgroundColor: `${currentDef.badgeColor}20`,
-                      borderColor: `${currentDef.badgeColor}50`,
-                      color: currentDef.badgeColor,
-                    }}
-                  >
+                <div className="flex items-center gap-2.5 mb-1">
+                  <span className="font-heading text-xs font-bold uppercase tracking-wider text-[var(--heyroq-accent-text)] tabular-nums">
                     LEVEL {level}
                   </span>
-                  <span className="text-lg font-black uppercase tracking-wider text-white">
+                  <span aria-hidden="true" className="text-slate-300 dark:text-white/25">
+                    ·
+                  </span>
+                  <span className="font-heading text-lg font-bold tracking-tight text-slate-900 dark:text-white">
                     {currentDef.title}
                   </span>
                 </div>
-                <p className="text-xs font-mono text-white/60">
+                <p className="text-xs font-medium tabular-nums text-slate-600 dark:text-white/60">
                   {isMaxLevel ? (
-                    <span className="text-[#FF8C75]">Highest explorer rank achieved</span>
+                    <span className="text-[var(--heyroq-accent-text)] font-semibold">
+                      Highest explorer rank achieved
+                    </span>
                   ) : (
-                    <span>{xpRemaining.toLocaleString()} XP remaining until Level {level + 1}</span>
+                    <span>
+                      {xpRemaining.toLocaleString()} XP remaining until Level {level + 1}
+                    </span>
                   )}
                 </p>
               </div>
 
               <div className="flex items-center gap-4 text-right">
                 <div>
-                  <span className="text-xl font-black font-mono text-white block">
+                  <span className="font-heading text-xl font-bold tabular-nums text-slate-900 dark:text-white block">
                     {xp.toLocaleString()}
                   </span>
-                  <span className="text-[10px] font-black uppercase tracking-wider text-white/40">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-white/45">
                     Total XP
                   </span>
                 </div>
-                <div className="h-8 w-px bg-white/10" />
+                <div className="h-8 w-px bg-slate-900/10 dark:bg-white/10" />
                 <div>
-                  <span className="text-xl font-black font-mono text-[#FF5F40] block">
+                  <span className="font-heading text-xl font-bold tabular-nums text-[var(--heyroq-accent-text)] block">
                     {unlockedCount} / {totalCount}
                   </span>
-                  <span className="text-[10px] font-black uppercase tracking-wider text-white/40">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-white/45 tabular-nums">
                     Badges ({completionPercent}%)
                   </span>
                 </div>
@@ -309,24 +318,24 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
 
             {/* Level XP Progress Bar */}
             <div className="space-y-1.5 relative z-10">
-              <div className="h-2.5 w-full bg-black/60 rounded-full overflow-hidden p-0.5 border border-white/10">
+              <div className="h-2.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden p-0.5 border border-slate-900/8 dark:border-white/10">
                 <div
-                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  className="h-full rounded-full transition-all duration-300 ease-out"
                   style={{
                     width: `${Math.max(4, Math.min(100, progressPercent))}%`,
-                    background: `linear-gradient(90deg, ${currentDef.badgeColor}, #FF5F40)`,
+                    background: `linear-gradient(90deg, ${currentDef.badgeColor}, #E87924)`,
                   }}
                 />
               </div>
-              <div className="flex justify-between items-center text-[10px] font-mono text-white/40">
+              <div className="flex justify-between items-center text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
                 <span>{xp.toLocaleString()} XP</span>
-                <span className="text-white/60 font-bold">{progressPercent}%</span>
+                <span className="text-slate-700 dark:text-white/70 font-semibold">{progressPercent}%</span>
                 <span>{isMaxLevel ? 'MAX' : `${nextLevelXp.toLocaleString()} XP`}</span>
               </div>
             </div>
           </div>
 
-          {/* Category Tabs */}
+          {/* Category Filter Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
             {CATEGORIES.map((cat) => {
               const isSelected = selectedCategory === cat.id;
@@ -344,16 +353,16 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   key={cat.id}
                   type="button"
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer border ${
+                  className={`px-3.5 py-2 min-h-[38px] rounded-full text-xs font-semibold transition-all duration-150 whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer heyroq-focus-ring ${
                     isSelected
-                      ? 'bg-[#FF5F40] text-white border-[#FF5F40] shadow-md shadow-[#FF5F40]/20'
-                      : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border-white/10'
+                      ? 'heyroq-btn-primary'
+                      : 'liquid-glass-pill text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white'
                   }`}
                 >
                   <span>{cat.label}</span>
                   <span
-                    className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                      isSelected ? 'bg-black/30 text-white' : 'bg-white/10 text-white/50'
+                    className={`text-[10px] font-semibold tabular-nums ${
+                      isSelected ? 'text-white/90' : 'text-slate-400 dark:text-white/45'
                     }`}
                   >
                     {catUnlocked}/{catCount}
@@ -365,9 +374,9 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
 
           {/* Achievements Grid */}
           {isLoading ? (
-            <div className="py-16 flex flex-col items-center justify-center gap-3 text-white/40">
-              <Loader2 className="w-7 h-7 animate-spin text-[#FF5F40]" />
-              <span className="text-xs font-mono">Synchronizing progression state...</span>
+            <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-white/45">
+              <Loader2 className="w-7 h-7 animate-spin text-[var(--brand-primary)]" />
+              <span className="text-xs font-medium">Loading progression...</span>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -377,48 +386,50 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                 return (
                   <div
                     key={ach.id}
-                    className={`rounded-2xl p-4 border transition-all relative overflow-hidden flex flex-col justify-between ${
+                    className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${
                       ach.isUnlocked
-                        ? 'bg-gradient-to-br from-white/[0.06] to-white/[0.02] border-white/20'
-                        : 'bg-black/30 border-white/10 opacity-75'
+                        ? 'border-slate-900/14 dark:border-white/20'
+                        : 'opacity-80'
                     }`}
                   >
                     {/* Top Row: Icon, Title & Reward */}
                     <div>
                       <div className="flex items-start justify-between gap-3 mb-2.5">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           {renderIcon(ach.iconName, ach.isUnlocked, ach.tier)}
-                          <div>
+                          <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <h4 className="text-sm font-black uppercase tracking-tight text-white">
+                              <h4 className="font-heading text-sm font-bold tracking-tight text-slate-900 dark:text-white truncate">
                                 {ach.title}
                               </h4>
                               {ach.isUnlocked && (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               )}
                             </div>
-                            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+                            <span className="text-[11px] text-slate-500 dark:text-white/45 capitalize">
                               {ach.category} · {ach.tier}
                             </span>
                           </div>
                         </div>
 
-                        <span className="px-2 py-0.5 rounded-md bg-[#FF5F40]/15 border border-[#FF5F40]/30 text-[#FF5F40] font-mono text-[10px] font-black shrink-0">
+                        <span className="tabular-nums text-xs font-bold text-[var(--heyroq-accent-text)] shrink-0">
                           +{ach.xpReward} XP
                         </span>
                       </div>
 
-                      <p className="text-xs text-white/60 leading-relaxed mb-3">
+                      <p className="text-xs text-slate-600 dark:text-white/65 leading-relaxed mb-3">
                         {ach.description}
                       </p>
                     </div>
 
                     {/* Bottom Row: Progress */}
                     <div>
-                      <div className="flex justify-between items-center text-[10px] font-mono mb-1.5 text-white/50">
+                      <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
                         <span>
                           {ach.isUnlocked ? (
-                            <span className="text-emerald-400 font-bold">Completed</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                              Completed
+                            </span>
                           ) : (
                             <span>Progress</span>
                           )}
@@ -428,12 +439,12 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                         </span>
                       </div>
 
-                      <div className="h-1.5 w-full bg-black/60 rounded-full overflow-hidden border border-white/10">
+                      <div className="h-1.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all duration-500 ${
+                          className={`h-full rounded-full transition-all duration-300 ${
                             ach.isUnlocked
-                              ? 'bg-gradient-to-r from-emerald-500 to-[#FF5F40]'
-                              : 'bg-white/40'
+                              ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
+                              : 'bg-slate-400 dark:bg-white/40'
                           }`}
                           style={{ width: `${percent}%` }}
                         />
@@ -446,38 +457,41 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           )}
 
           {/* XP History Ledger Section */}
-          <div className="pt-2 border-t border-white/10">
+          <div className="pt-2 border-t border-slate-900/8 dark:border-white/10">
             <button
               type="button"
               onClick={() => setShowHistory(!showHistory)}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 text-xs font-bold text-white/70 hover:text-white transition cursor-pointer"
+              aria-expanded={showHistory}
+              className="liquid-glass-card w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-700 dark:text-white/75 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring"
             >
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-[#FF5F40]" />
+                <History className="w-4 h-4 text-[var(--brand-primary)]" />
                 <span>Recent Milestone Activity</span>
               </div>
-              <span className="text-[10px] font-mono text-white/40">
+              <span className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
                 {showHistory ? 'Hide' : `View ${xpEvents.length} Recent Events`}
               </span>
             </button>
 
             {showHistory && (
-              <div className="mt-3 space-y-2 animate-in fade-in">
+              <div className="mt-3 space-y-2 animate-in fade-in duration-150">
                 {xpEvents.length === 0 ? (
-                  <p className="text-xs text-white/40 text-center py-4 font-mono">
+                  <p className="text-xs text-slate-500 dark:text-white/45 text-center py-4">
                     No recent XP events recorded yet.
                   </p>
                 ) : (
                   xpEvents.map((ev) => (
                     <div
                       key={ev.id}
-                      className="p-3 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between text-xs"
+                      className="liquid-glass-card p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <div>
-                          <span className="font-semibold text-white block">{ev.description}</span>
-                          <span className="text-[10px] font-mono text-white/40">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-900 dark:text-white block truncate">
+                            {ev.description}
+                          </span>
+                          <span className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
                             {new Date(ev.createdAt).toLocaleDateString(undefined, {
                               month: 'short',
                               day: 'numeric',
@@ -487,7 +501,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                           </span>
                         </div>
                       </div>
-                      <span className="font-mono font-bold text-[#FF8C75] text-xs">
+                      <span className="tabular-nums font-bold text-[var(--heyroq-accent-text)] text-xs shrink-0">
                         +{ev.xpEarned} XP
                       </span>
                     </div>

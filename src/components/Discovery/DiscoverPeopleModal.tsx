@@ -4,14 +4,12 @@ import { PublicUserProfile } from '../../types';
 import { searchUsers, getSuggestedUsers, checkFollowingStatusBatch } from '../../services/userService';
 import { toggleFollow } from '../../services/pinService';
 import { UserCardRow } from '../Profile/UserCardRow';
+import { CloseButton } from '../Common/CloseButton';
 import {
   X,
   Search,
   Users,
-  Compass,
-  Sparkles,
   Loader2,
-  TrendingUp,
 } from 'lucide-react';
 
 interface DiscoverPeopleModalProps {
@@ -83,7 +81,6 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
       clearTimeout(searchDebounceRef.current);
     }
 
-    // Require at least 2 characters to search
     if (q.length < 2) {
       setIsLoadingSearch(false);
       if (q.length === 0) {
@@ -99,7 +96,6 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
       try {
         const results = await searchUsers(q, 20);
 
-        // Stale request guard: drop results if a newer search was initiated
         if (currentReqId !== searchRequestIdRef.current) return;
 
         setSearchResults(results);
@@ -191,7 +187,6 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
     onClose();
   }, [onClose]);
 
-  // Ensure scroll position is restored when modal closes or unmounts
   useEffect(() => {
     if (!isOpen && typeof window !== 'undefined') {
       (document.activeElement as HTMLElement)?.blur?.();
@@ -234,49 +229,43 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
     <div
       id="discover-people-overlay"
       onClick={handleModalClose}
-      className="fixed inset-0 z-50 flex flex-col justify-start sm:items-center sm:justify-center p-0 sm:p-4 bg-black/85 md:backdrop-blur-2xl animate-in fade-in"
+      className="liquid-glass-backdrop fixed inset-0 z-50 flex flex-col justify-start sm:items-center sm:justify-center p-0 sm:p-4 animate-in fade-in duration-150"
       style={viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
     >
       <div
         id="discover-people-dialog"
         onClick={(e) => e.stopPropagation()}
-        className="w-full h-full sm:h-auto max-w-xl lg:max-w-2xl sm:max-h-[88vh] bg-[#121212] border-0 sm:border border-white/15 rounded-none sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden text-white relative"
+        className="liquid-glass-modal w-full h-full sm:h-auto max-w-xl lg:max-w-2xl sm:max-h-[88vh] border-0 sm:border rounded-none sm:rounded-3xl flex flex-col overflow-hidden text-slate-900 dark:text-white relative"
         role="dialog"
         aria-modal="true"
+        aria-label="Discover Explorers"
       >
         {/* Header */}
-        <div className="shrink-0 p-3.5 sm:p-5 border-b border-white/10 flex items-center justify-between bg-black/40 pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-5">
+        <div className="shrink-0 p-3.5 sm:p-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-5">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-[#FF5F40] to-[#FF8C75] flex items-center justify-center text-white shadow-[0_0_15px_rgba(255,95,64,0.3)] shrink-0">
+            <div className="w-9 h-9 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
               <Users className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-black uppercase tracking-tight text-white flex items-center gap-2 truncate">
-                <span className="truncate">Discover Explorers</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-[#FF5F40] tracking-wider shrink-0 hidden sm:inline-block">
-                  Heyroq People
-                </span>
+              <h2 className="font-heading text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white truncate">
+                Discover Explorers
               </h2>
-              <p className="text-[11px] sm:text-xs text-white/50 truncate">
-                Connect with explorers uncovering secret spots
+              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-white/50 truncate">
+                Connect with explorers uncovering genuine spots
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
+          <CloseButton
             onClick={handleModalClose}
-            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/60 hover:text-white transition cursor-pointer shrink-0"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            ariaLabel="Close Discover Explorers"
+          />
         </div>
 
         {/* Search Bar Input */}
-        <div className="shrink-0 p-3 sm:p-4 border-b border-white/10 bg-black/20">
+        <div className="shrink-0 p-3 sm:p-4 border-b border-slate-900/8 dark:border-white/10">
           <div className="relative">
-            <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-3.5 sm:top-3" />
+            <Search className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 sm:top-3 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
@@ -289,13 +278,14 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
                 }
               }}
               placeholder="Search by display name or @username..."
-              className="w-full text-base sm:text-sm pl-10 pr-9 py-2.5 bg-white/5 border border-white/15 rounded-2xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] transition min-h-[42px]"
+              className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-9 py-2.5 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] transition-colors duration-150 min-h-[44px]"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-3 text-white/40 hover:text-white"
+                aria-label="Clear search"
+                className="absolute right-2.5 top-2.5 p-1 text-slate-400 dark:text-white/45 hover:text-slate-900 dark:hover:text-white rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -305,45 +295,43 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
 
         {/* Content Area */}
         <div
-          className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 space-y-4 subtle-dark-scrollbar pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-4 overscroll-contain touch-pan-y"
+          className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 space-y-4 subtle-glass-scrollbar pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-4 overscroll-contain touch-pan-y"
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {isSearching ? (
-            /* Search Results View */
             <div className="space-y-2.5">
               <div className="flex items-center justify-between px-1">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
-                  <Search className="w-3.5 h-3.5 text-[#FF5F40]" />
-                  <span>Search Results ({searchResults.length})</span>
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-white/50">
+                  Search Results ({searchResults.length})
                 </h3>
                 {isLoadingSearch && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FF5F40]" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--brand-primary)]" />
                 )}
               </div>
 
               {searchQuery.trim().length < 2 ? (
-                <div className="py-12 text-center text-white/40 text-xs flex flex-col items-center justify-center">
-                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2.5 text-white/30">
+                <div className="py-12 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-slate-900/5 dark:bg-white/5 flex items-center justify-center mb-2.5 text-slate-400 dark:text-white/35">
                     <Search className="w-5 h-5" />
                   </div>
-                  <p className="font-semibold text-white/60">Type at least 2 characters</p>
-                  <p className="text-[11px] text-white/40 mt-0.5">
+                  <p className="font-semibold text-slate-700 dark:text-white/70">Type at least 2 characters</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/45 mt-0.5">
                     Search explorers by display name or @username
                   </p>
                 </div>
               ) : isLoadingSearch && searchResults.length === 0 ? (
-                <div className="py-16 text-center text-white/40 text-xs flex flex-col items-center justify-center">
-                  <Loader2 className="w-7 h-7 text-[#FF5F40] animate-spin mb-3" />
+                <div className="py-16 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center justify-center">
+                  <Loader2 className="w-7 h-7 text-[var(--brand-primary)] animate-spin mb-3" />
                   <span>Searching explorers...</span>
                 </div>
               ) : !isLoadingSearch && searchResults.length === 0 ? (
-                <div className="py-16 text-center text-white/40 text-xs flex flex-col items-center justify-center">
-                  <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3 text-white/20">
+                <div className="py-16 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-full bg-slate-900/5 dark:bg-white/5 flex items-center justify-center mb-3 text-slate-400 dark:text-white/25">
                     <Search className="w-6 h-6" />
                   </div>
-                  <p className="font-semibold text-white/70">No people found</p>
-                  <p className="text-[11px] text-white/40 mt-1 max-w-xs mx-auto">
-                    We couldn't find anyone matching "{searchQuery}". Check the spelling or search by @username.
+                  <p className="font-semibold text-slate-700 dark:text-white/75">No people found</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/45 mt-1 max-w-xs mx-auto">
+                    We couldn&apos;t find anyone matching &ldquo;{searchQuery}&rdquo;. Check the spelling or search by @username.
                   </p>
                 </div>
               ) : (
@@ -366,24 +354,22 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
               )}
             </div>
           ) : (
-            /* Suggestions View (No Query) */
             <div className="space-y-4">
               <div>
                 <div className="flex items-center justify-between px-1 mb-2.5">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#FF5F40]" />
-                    <span>Active Explorers & Guides</span>
+                  <h3 className="text-xs font-semibold text-slate-500 dark:text-white/50">
+                    Active Explorers &amp; Guides
                   </h3>
-                  <span className="text-[10px] text-white/30 font-mono">Suggested</span>
+                  <span className="text-[11px] text-slate-400 dark:text-white/35">Suggested</span>
                 </div>
 
                 {isLoadingSuggestions ? (
-                  <div className="py-12 text-center text-white/40 text-xs flex flex-col items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-[#FF5F40] animate-spin mb-2" />
+                  <div className="py-12 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center justify-center">
+                    <Loader2 className="w-6 h-6 text-[var(--brand-primary)] animate-spin mb-2" />
                     <span>Discovering explorers...</span>
                   </div>
                 ) : suggestedUsers.length === 0 ? (
-                  <div className="py-8 text-center text-white/40 text-xs">
+                  <div className="py-8 text-center text-slate-500 dark:text-white/45 text-xs">
                     No suggestions available at the moment.
                   </div>
                 ) : (

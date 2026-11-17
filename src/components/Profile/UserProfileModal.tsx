@@ -3,30 +3,44 @@ import { useAuth } from '../../context/AuthContext';
 import { UserProfile, Pin, UserProgressionSummary } from '../../types';
 import { doc, getDoc, onSnapshot, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { fetchUserPins, subscribeToUserPins, checkIfFollowing, toggleFollow } from '../../services/pinService';
-import { uploadProfileImage, deletePreviousProfileImage } from '../../services/storageService';
+import { subscribeToUserPins, checkIfFollowing, toggleFollow } from '../../services/pinService';
+import {
+  uploadProfileImageWithProgress,
+  deletePreviousProfileImage,
+  validateImageFile,
+} from '../../services/storageService';
+import { isCustomUploadedAvatarUrl } from '../../utils/avatarUtils';
 import { FootprintSection } from './FootprintSection';
 import { ExplorerProgressionBar } from './ExplorerProgressionBar';
 import { AchievementsModal } from './AchievementsModal';
+import { AccountSecurityModal } from './AccountSecurityModal';
 import { subscribeToUserProgression } from '../../services/gamificationService';
 import { CategoryBadge } from '../Map/CategoryBadge';
 import { LikeIndicator } from '../Pin/LikeButton';
 import { FollowListModal } from './FollowListModal';
+import { ThemeSelector } from '../Common/ThemeSelector';
+import { UserAvatar } from '../Common/UserAvatar';
+import { CloseButton } from '../Common/CloseButton';
 import {
-  X,
-  User,
   MapPin,
-  Calendar,
   Edit3,
   Check,
   UserPlus,
   UserCheck,
   Compass,
-  Camera,
+  Upload,
+  Trash2,
   Loader2,
-  Users,
-  Trophy,
+  Info,
+  SunMoon,
+  Settings,
+  Shield,
+  ChevronRight,
+  AlertCircle,
 } from 'lucide-react';
+import { APP_VERSION } from '../../config/version';
+import { OPERATOR_IDENTITY } from '../../config/brandConfig';
+import { AppLink } from '../../utils/appRoutes';
 
 interface UserProfileModalProps {
   userId: string;
@@ -35,7 +49,33 @@ interface UserProfileModalProps {
   onAuthRequired: () => void;
   onOpenCreatePin?: () => void;
   onOpenOtherProfile?: (userId: string) => void;
+  onOpenAbout?: () => void;
+  onAvatarUpdated?: (userId: string, newAvatarUrl: string) => void;
+  onAccountDeleted?: () => void;
+  initialOpenAccountSecurity?: boolean;
 }
+
+const ProfilePinImage: React.FC<{ src?: string; alt: string }> = ({ src, alt }) => {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-slate-200/80 via-slate-100 to-slate-200/60 dark:from-white/[0.06] dark:via-white/[0.02] dark:to-white/[0.05] flex items-center justify-center text-slate-400 dark:text-white/30">
+        <MapPin className="w-6 h-6 text-[var(--brand-primary)]/75" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+    />
+  );
+};
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   userId,
@@ -44,28 +84,105 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onAuthRequired,
   onOpenCreatePin,
   onOpenOtherProfile,
+  onOpenAbout,
+  onAvatarUpdated,
+  onAccountDeleted,
+  initialOpenAccountSecurity = false,
 }) => {
   const {
     user,
     profile: myProfile,
+    providerStatus,
     updateUserProfile,
     refreshProfile,
     optimisticUpdateFollowingCount,
   } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [userPins, setUserPins] = useState<Pin[]>([]);
-  const [activeTab, setActiveTab] = useState<'pins' | 'about'>('pins');
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [bioInput, setBioInput] = useState('');
+
+  // Avatar upload, preview, replace & remove state
+  const [isAvatarControlsOpen, setIsAvatarControlsOpen] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarPreviewUrl, setPendingAvatarPreviewUrl] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState<number>(0);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  // Settings & Account Security navigation state (Profile -> Settings -> Account & Security)
+  const [isSettingsHighlighted, setIsSettingsHighlighted] = useState(false);
+  const [showAccountSecurityModal, setShowAccountSecurityModal] =
+    useState(initialOpenAccountSecurity);
+
   const [followListTab, setFollowListTab] = useState<'followers' | 'following' | null>(null);
   const [progressionSummary, setProgressionSummary] = useState<UserProgressionSummary | null>(null);
   const [isLoadingProgression, setIsLoadingProgression] = useState(true);
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const profileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const settingsSectionRef = useRef<HTMLDivElement>(null);
+  const settingsHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up highlight timer on unmount
+  useEffect(() => {
+    return () => {
+      if (settingsHighlightTimerRef.current) {
+        clearTimeout(settingsHighlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleNavigateToSettings = () => {
+    const sectionEl = settingsSectionRef.current;
+    if (!sectionEl) return;
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+    const scrollBehavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+
+    const scrollContainer = profileScrollContainerRef.current;
+    if (scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const sectionRect = sectionEl.getBoundingClientRect();
+      const targetTop = Math.max(
+        0,
+        scrollContainer.scrollTop + (sectionRect.top - containerRect.top) - 16
+      );
+      scrollContainer.scrollTo({
+        top: targetTop,
+        behavior: scrollBehavior,
+      });
+    } else {
+      sectionEl.scrollIntoView({
+        behavior: scrollBehavior,
+        block: 'start',
+      });
+    }
+
+    setIsSettingsHighlighted(true);
+    if (settingsHighlightTimerRef.current) {
+      clearTimeout(settingsHighlightTimerRef.current);
+    }
+    settingsHighlightTimerRef.current = setTimeout(() => {
+      setIsSettingsHighlighted(false);
+    }, 1400);
+
+    sectionEl.focus({ preventScroll: true });
+  };
+
+  // Clean up object URL on unmount or file swap
+  useEffect(() => {
+    return () => {
+      if (pendingAvatarPreviewUrl) {
+        URL.revokeObjectURL(pendingAvatarPreviewUrl);
+      }
+    };
+  }, [pendingAvatarPreviewUrl]);
 
   // Subscribe to real-time Explorer Progression
   useEffect(() => {
@@ -85,21 +202,63 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   }, [userId]);
 
   const isMe = Boolean(user?.uid && userId && user.uid === userId);
+  const currentAvatarUrl = profile?.avatarUrl || profile?.photoURL || '';
+  const hasCustomAvatar = isCustomUploadedAvatarUrl(currentAvatarUrl);
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const clearPendingAvatarSelection = () => {
+    if (pendingAvatarPreviewUrl) {
+      URL.revokeObjectURL(pendingAvatarPreviewUrl);
+    }
+    setPendingAvatarFile(null);
+    setPendingAvatarPreviewUrl(null);
+    setAvatarUploadProgress(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAvatarFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !isMe) return;
 
-    setIsUploadingAvatar(true);
+    setAvatarError(null);
     try {
-      const newAvatarUrl = await uploadProfileImage(file, user.uid);
+      validateImageFile(file);
+      if (pendingAvatarPreviewUrl) {
+        URL.revokeObjectURL(pendingAvatarPreviewUrl);
+      }
+      const previewUrl = URL.createObjectURL(file);
+      setPendingAvatarFile(file);
+      setPendingAvatarPreviewUrl(previewUrl);
+      setIsAvatarControlsOpen(true);
+    } catch (err: any) {
+      setAvatarError(err?.message || 'Unsupported image file.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleConfirmSaveAvatar = async () => {
+    if (!pendingAvatarFile || !user || !isMe || isUploadingAvatar) return;
+
+    setIsUploadingAvatar(true);
+    setAvatarError(null);
+    setAvatarUploadProgress(5);
+    try {
       const oldAvatarUrl = profile?.photoURL || profile?.avatarUrl;
-      await deletePreviousProfileImage(oldAvatarUrl, user.uid);
+      const newAvatarUrl = await uploadProfileImageWithProgress(
+        pendingAvatarFile,
+        user.uid,
+        (pct) => setAvatarUploadProgress(pct)
+      );
 
       await updateUserProfile({
         photoURL: newAvatarUrl,
         avatarUrl: newAvatarUrl,
       });
+
+      await deletePreviousProfileImage(oldAvatarUrl, user.uid);
 
       setProfile((prev) =>
         prev
@@ -110,15 +269,61 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             }
           : null
       );
-    } catch (err) {
+      onAvatarUpdated?.(user.uid, newAvatarUrl);
+      clearPendingAvatarSelection();
+      setIsAvatarControlsOpen(false);
+    } catch (err: any) {
       console.error('Failed to update avatar photo:', err);
+      setAvatarError(err?.message || 'Failed to upload profile photo. Please try again.');
     } finally {
       setIsUploadingAvatar(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setAvatarUploadProgress(0);
     }
   };
+
+  const handleRemoveAvatarPhoto = async () => {
+    if (!user || !isMe || isUploadingAvatar || !hasCustomAvatar) return;
+
+    setIsUploadingAvatar(true);
+    setAvatarError(null);
+    try {
+      const oldAvatarUrl = profile?.photoURL || profile?.avatarUrl;
+      await updateUserProfile({
+        photoURL: '',
+        avatarUrl: '',
+      });
+      await deletePreviousProfileImage(oldAvatarUrl, user.uid);
+
+      setProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              photoURL: '',
+              avatarUrl: '',
+            }
+          : null
+      );
+      onAvatarUpdated?.(user.uid, '');
+      clearPendingAvatarSelection();
+      setIsAvatarControlsOpen(false);
+    } catch (err: any) {
+      console.error('Failed to remove avatar photo:', err);
+      setAvatarError(err?.message || 'Failed to remove profile photo. Please try again.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isMe && myProfile) {
+      setProfile((prev) => ({
+        ...(prev || {}),
+        ...myProfile,
+        followersCount: prev?.followersCount ?? myProfile.followersCount ?? 0,
+        followingCount: prev?.followingCount ?? myProfile.followingCount ?? 0,
+      }));
+    }
+  }, [isMe, myProfile]);
 
   useEffect(() => {
     let isMounted = true;
@@ -231,9 +436,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     const nextFollowing = !prevFollowing;
     const delta = nextFollowing ? 1 : -1;
 
-    // 1. Optimistic updates:
-    // - User B: followersCount +1 (or -1)
-    // - User A (current user): followingCount +1 (or -1)
     setIsFollowing(nextFollowing);
     setProfile((prev) => {
       if (!prev) return null;
@@ -247,11 +449,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     optimisticUpdateFollowingCount(delta);
 
     try {
-      // 2. Perform atomic document write in Firestore (followers and following subcollections)
       const actualFollowing = await toggleFollow(user.uid, userId);
       setIsFollowing(actualFollowing);
 
-      // 3. Asynchronous server reconciliation:
       setTimeout(async () => {
         try {
           if (userId) {
@@ -283,7 +483,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       }, 1000);
     } catch (err) {
       console.error('Error toggling follow:', err);
-      // Roll back both profiles on write failure
       setIsFollowing(prevFollowing);
       setProfile((prev) => {
         if (!prev) return null;
@@ -304,7 +503,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     if (!isMe) return;
     try {
       await updateUserProfile({
-        displayName: displayNameInput.trim(),
+        displayName: displayNameInput.trim() || 'Explorer',
         bio: bioInput.trim(),
       });
       setIsEditing(false);
@@ -316,8 +515,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   // Keyboard navigation & Escape key dismiss
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showAccountSecurityModal) return;
       if (e.key === 'Escape') {
-        if (isEditing) {
+        if (pendingAvatarFile || isAvatarControlsOpen) {
+          clearPendingAvatarSelection();
+          setIsAvatarControlsOpen(false);
+        } else if (isEditing) {
           setIsEditing(false);
         } else {
           onClose();
@@ -326,7 +529,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditing, onClose]);
+  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, onClose]);
 
   const handleBackdropClick = () => {
     if (isEditing) {
@@ -339,104 +542,125 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   return (
     <div
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-2xl animate-in fade-in"
+      className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
     >
       <div
         id={`user-profile-modal-${userId}`}
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#0E0E0E] rounded-[28px] sm:rounded-[32px] max-w-2xl sm:max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden shadow-2xl flex flex-col border border-white/20 text-white relative"
+        role="dialog"
+        aria-modal="true"
+        aria-label={profile?.displayName ? `${profile.displayName}'s profile` : 'Explorer profile'}
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl sm:max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
         {/* Close Button */}
-        <button
-          type="button"
+        <CloseButton
           onClick={onClose}
-          aria-label="Close profile"
-          className="absolute top-3.5 sm:top-5 right-3.5 sm:right-5 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-full transition cursor-pointer border border-white/15 z-20 backdrop-blur-md"
-        >
-          <X className="w-4 h-4" />
-        </button>
+          ariaLabel="Close Profile"
+          className="absolute top-3.5 sm:top-5 right-3.5 sm:right-5 z-20"
+        />
 
         {/* Scrollable Profile Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar">
+        <div
+          ref={profileScrollContainerRef}
+          className="flex-1 overflow-y-auto subtle-glass-scrollbar"
+        >
           {/* Profile Info Header */}
           <div className="pt-5 sm:pt-6 px-4 sm:px-6 pb-4 relative">
-            <div className="flex justify-between items-start mb-4 pr-12">
-              <div className="relative group shrink-0">
-                {profile?.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl}
-                    alt={profile.displayName}
-                    referrerPolicy="no-referrer"
-                    className="w-18 h-18 sm:w-24 sm:h-24 rounded-full border-2 border-white/20 shadow-xl object-cover bg-neutral-900"
+            <div className="flex justify-between items-start gap-3 mb-4 pr-12">
+              {/* Prominent Shared Avatar + Hidden File Input */}
+              <div className="relative shrink-0">
+                <UserAvatar
+                  uid={userId}
+                  displayName={isEditing ? displayNameInput || profile?.displayName : profile?.displayName}
+                  imageUrl={pendingAvatarPreviewUrl || currentAvatarUrl}
+                  size="profile"
+                  ringClassName="ring-2 ring-slate-900/12 dark:ring-white/20 shadow-md"
+                  editable={isMe}
+                  isUploading={isUploadingAvatar}
+                  onEditClick={() => {
+                    setAvatarError(null);
+                    setIsAvatarControlsOpen((prev) => !prev);
+                  }}
+                />
+                {isMe && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/avif"
+                    className="hidden"
+                    onChange={handleAvatarFileSelected}
+                    disabled={isUploadingAvatar}
                   />
-                ) : (
-                  <div className="w-18 h-18 sm:w-24 sm:h-24 rounded-full border-2 border-white/20 shadow-xl bg-neutral-900 flex items-center justify-center text-white/50 border border-white/10">
-                    <User className="w-9 h-9 sm:w-10 sm:h-10 text-[#FF5F40]" />
-                  </div>
-                )}
-
-                {isMe && isEditing && (
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleAvatarFileChange}
-                      disabled={isUploadingAvatar}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploadingAvatar}
-                      title="Change profile avatar"
-                      className="absolute inset-0 rounded-full bg-black/60 flex flex-col items-center justify-center text-white transition hover:bg-black/75 cursor-pointer border border-white/20"
-                    >
-                      {isUploadingAvatar ? (
-                        <Loader2 className="w-6 h-6 animate-spin text-[#FF5F40]" />
-                      ) : (
-                        <>
-                          <Camera className="w-5 h-5 text-white" />
-                          <span className="text-[9px] font-bold mt-1 tracking-wider uppercase">Photo</span>
-                        </>
-                      )}
-                    </button>
-                  </>
                 )}
               </div>
 
               {isMe ? (
-                <button
-                  type="button"
-                  onClick={() => (isEditing ? handleSaveProfile() : setIsEditing(true))}
-                  className="px-3.5 sm:px-4 py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer min-h-[36px]"
-                >
-                  {isEditing ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Save Profile</span>
-                    </>
-                  ) : (
-                    <>
-                      <Edit3 className="w-3.5 h-3.5 text-[#FF5F40]" />
-                      <span>Edit Profile</span>
-                    </>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  {onOpenAbout && (
+                    <button
+                      id="profile-about-heyroq-btn"
+                      type="button"
+                      onClick={onOpenAbout}
+                      aria-label="About Heyroq"
+                      className="liquid-glass-pill px-3.5 py-2 text-slate-700 dark:text-white/85 hover:text-slate-950 dark:hover:text-white rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring"
+                    >
+                      <Info className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                      <span>About</span>
+                    </button>
                   )}
-                </button>
+
+                  <button
+                    id="profile-settings-btn"
+                    type="button"
+                    onClick={handleNavigateToSettings}
+                    aria-controls="profile-settings-panel"
+                    aria-label="Scroll to profile settings"
+                    className={`px-3.5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
+                      isSettingsHighlighted
+                        ? 'bg-slate-900/10 dark:bg-white/15 text-slate-950 dark:text-white border border-[var(--brand-primary)]/50'
+                        : 'liquid-glass-pill text-slate-700 dark:text-white/85 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.07] dark:hover:bg-white/[0.12]'
+                    }`}
+                  >
+                    <Settings className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                    <span>Settings</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => (isEditing ? handleSaveProfile() : setIsEditing(true))}
+                    className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
+                      isEditing
+                        ? 'heyroq-btn-primary'
+                        : 'liquid-glass-pill text-slate-800 dark:text-white hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                  >
+                    {isEditing ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save Profile</span>
+                      </>
+                    ) : (
+                      <>
+                        <Edit3 className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                        <span>Edit Profile</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               ) : (
                 <button
                   type="button"
                   onClick={handleToggleFollow}
                   disabled={isLoadingFollow}
-                  className={`px-4 sm:px-5 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition shadow-lg cursor-pointer min-h-[36px] ${
+                  className={`px-4 sm:px-5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
                     isFollowing
-                      ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
-                      : 'bg-[#FF5F40] text-white hover:bg-[#ff7256] shadow-[0_0_15px_rgba(255,95,64,0.4)]'
+                      ? 'liquid-glass-pill text-slate-800 dark:text-white hover:text-slate-950 dark:hover:text-white'
+                      : 'heyroq-btn-primary'
                   }`}
                 >
                   {isFollowing ? (
                     <>
-                      <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                       <span>Following</span>
                     </>
                   ) : (
@@ -449,57 +673,195 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
             </div>
 
+            {/* Owner Avatar Management Panel (Upload / Preview / Replace / Remove) */}
+            {isMe && (isAvatarControlsOpen || pendingAvatarFile || avatarError) && (
+              <div
+                id="profile-avatar-controls"
+                className="mb-4 liquid-glass-card rounded-2xl p-3.5 sm:p-4 space-y-3 animate-in fade-in duration-150"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-heading text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                      Profile Photo
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-white/55 mt-0.5">
+                      {pendingAvatarFile
+                        ? `Previewing "${pendingAvatarFile.name}" (${(
+                            pendingAvatarFile.size /
+                            (1024 * 1024)
+                          ).toFixed(2)} MB) — save to publish.`
+                        : hasCustomAvatar
+                          ? 'Upload a new photo or remove your custom photo to restore your default initials avatar.'
+                          : 'Using your Heyroq initials avatar. Upload a JPEG, PNG, WebP, GIF, HEIC, or AVIF photo up to 10 MB.'}
+                    </p>
+                  </div>
+                  <CloseButton
+                    size="sm"
+                    onClick={() => {
+                      clearPendingAvatarSelection();
+                      setAvatarError(null);
+                      setIsAvatarControlsOpen(false);
+                    }}
+                    disabled={isUploadingAvatar}
+                    ariaLabel="Close photo options"
+                  />
+                </div>
+
+                {avatarError && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-200 flex items-center gap-2"
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
+                    <span>{avatarError}</span>
+                  </div>
+                )}
+
+                {isUploadingAvatar && avatarUploadProgress > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-medium text-slate-600 dark:text-white/65 tabular-nums">
+                      <span>Uploading photo...</span>
+                      <span>{avatarUploadProgress}%</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-slate-900/10 dark:bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--brand-primary)] transition-all duration-150"
+                        style={{ width: `${avatarUploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {pendingAvatarFile ? (
+                    <>
+                      <button
+                        id="confirm-save-avatar-btn"
+                        type="button"
+                        onClick={handleConfirmSaveAvatar}
+                        disabled={isUploadingAvatar}
+                        className="heyroq-btn-primary min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isUploadingAvatar ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving Photo...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Save Photo</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingAvatar}
+                        className="liquid-glass-pill min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-white/85 cursor-pointer whitespace-nowrap"
+                      >
+                        Choose Different File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearPendingAvatarSelection}
+                        disabled={isUploadingAvatar}
+                        className="liquid-glass-pill min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-white/70 cursor-pointer whitespace-nowrap"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        id="upload-or-change-avatar-btn"
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingAvatar}
+                        className="heyroq-btn-primary min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{hasCustomAvatar ? 'Change Photo' : 'Upload Photo'}</span>
+                      </button>
+
+                      {hasCustomAvatar && (
+                        <button
+                          id="remove-avatar-photo-btn"
+                          type="button"
+                          onClick={handleRemoveAvatarPhoto}
+                          disabled={isUploadingAvatar}
+                          className="liquid-glass-pill min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {isUploadingAvatar ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                          <span>Remove Photo</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Name & Bio */}
             {isEditing ? (
-              <div className="space-y-2 mb-3">
+              <div className="space-y-2.5 mb-3">
                 <input
                   type="text"
                   value={displayNameInput}
                   onChange={(e) => setDisplayNameInput(e.target.value)}
                   placeholder="Display Name"
-                  className="w-full text-base sm:text-sm font-semibold bg-white/10 border border-white/20 text-white rounded-xl px-3 py-2 focus:outline-none focus:border-[#FF5F40] min-h-[40px]"
+                  className="liquid-glass-input w-full text-base sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[var(--brand-primary)] min-h-[42px]"
                 />
                 <textarea
                   rows={2}
                   value={bioInput}
                   onChange={(e) => setBioInput(e.target.value)}
                   placeholder="Bio"
-                  className="w-full text-base sm:text-xs bg-white/10 border border-white/20 text-white rounded-xl px-3 py-2 resize-none focus:outline-none focus:border-[#FF5F40]"
+                  className="liquid-glass-input w-full text-base sm:text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 rounded-xl px-3.5 py-2.5 resize-none focus:outline-none focus:border-[var(--brand-primary)]"
                 />
               </div>
             ) : (
               <div>
-                <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">
+                <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
                   {profile?.displayName || 'Explorer'}
                 </h2>
-                <p className="text-xs text-white/40 font-mono mt-0.5">
-                  @{profile?.username ? profile.username.replace(/^@/, '') : (profile?.email ? profile.email.split('@')[0] : 'explorer')}
+                <p className="text-xs text-slate-500 dark:text-white/45 font-medium mt-0.5">
+                  @
+                  {profile?.username
+                    ? profile.username.replace(/^@/, '')
+                    : profile?.email
+                      ? profile.email.split('@')[0]
+                      : 'explorer'}
                 </p>
-                <p className="text-xs text-white/70 mt-2 leading-relaxed">
+                <p className="text-sm text-slate-600 dark:text-white/75 mt-2 leading-relaxed max-w-2xl">
                   {profile?.bio || 'Heyroq explorer finding unique spots.'}
                 </p>
               </div>
             )}
 
             {/* Stats Bar with Clickable Followers & Following */}
-            <div className="flex gap-5 sm:gap-6 mt-4 pt-3 border-t border-white/10 text-xs">
-              <div className="text-center">
-                <span className="font-black text-white block text-lg font-mono">
+            <div className="flex items-center gap-6 sm:gap-8 mt-4 pt-3.5 border-t border-slate-900/8 dark:border-white/10 text-xs">
+              <div className="text-left">
+                <span className="font-heading font-bold text-slate-900 dark:text-white block text-lg tabular-nums">
                   {userPins.length}
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Pins</span>
+                <span className="text-xs font-medium text-slate-500 dark:text-white/50">Pins</span>
               </div>
 
               <button
                 type="button"
                 onClick={() => setFollowListTab('followers')}
                 title="View followers"
-                className="text-center group/stat cursor-pointer hover:opacity-80 transition focus:outline-none p-1 -m-1"
+                className="text-left group/stat cursor-pointer transition-colors duration-150 heyroq-focus-ring rounded-lg p-1.5 -m-1.5 min-h-[44px]"
               >
-                <span className="font-black text-white block text-lg font-mono group-hover/stat:text-[#FF8C75] transition-colors">
+                <span className="font-heading font-bold text-slate-900 dark:text-white block text-lg tabular-nums group-hover/stat:text-[var(--heyroq-accent-text)] transition-colors">
                   {profile?.followersCount || 0}
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover/stat:text-[#FF5F40] transition-colors underline decoration-white/20 underline-offset-4">
+                <span className="text-xs font-medium text-slate-500 dark:text-white/50 group-hover/stat:text-[var(--heyroq-accent-text)] transition-colors underline decoration-slate-900/20 dark:decoration-white/20 underline-offset-4">
                   Followers
                 </span>
               </button>
@@ -508,18 +870,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 type="button"
                 onClick={() => setFollowListTab('following')}
                 title="View following"
-                className="text-center group/stat cursor-pointer hover:opacity-80 transition focus:outline-none p-1 -m-1"
+                className="text-left group/stat cursor-pointer transition-colors duration-150 heyroq-focus-ring rounded-lg p-1.5 -m-1.5 min-h-[44px]"
               >
-                <span className="font-black text-white block text-lg font-mono group-hover/stat:text-[#FF8C75] transition-colors">
+                <span className="font-heading font-bold text-slate-900 dark:text-white block text-lg tabular-nums group-hover/stat:text-[var(--heyroq-accent-text)] transition-colors">
                   {profile?.followingCount || 0}
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover/stat:text-[#FF5F40] transition-colors underline decoration-white/20 underline-offset-4">
+                <span className="text-xs font-medium text-slate-500 dark:text-white/50 group-hover/stat:text-[var(--heyroq-accent-text)] transition-colors underline decoration-slate-900/20 dark:decoration-white/20 underline-offset-4">
                   Following
                 </span>
               </button>
             </div>
 
-            {/* EXPLORER PROGRESSION BAR */}
+            {/* Explorer Progression Bar */}
             <div className="mt-4">
               <ExplorerProgressionBar
                 summary={progressionSummary}
@@ -527,9 +889,65 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 onOpenAchievements={() => setShowAchievementsModal(true)}
               />
             </div>
+
+            {/* Own Profile Settings (Appearance + Account & Security) */}
+            {isMe && (
+              <div
+                ref={settingsSectionRef}
+                id="profile-settings-panel"
+                tabIndex={-1}
+                aria-label="Profile Settings"
+                className="mt-5 sm:mt-6 flex flex-col focus:outline-none"
+              >
+                <div
+                  className={`space-y-3 rounded-2xl transition-colors duration-200 ${
+                    isSettingsHighlighted
+                      ? 'ring-2 ring-[var(--brand-primary)]/45 bg-[var(--brand-primary)]/[0.04] px-3 py-2.5 -mx-3 -my-2.5'
+                      : ''
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-white/80">
+                      <SunMoon className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
+                      <span>Appearance</span>
+                    </div>
+                    <ThemeSelector
+                      compact
+                      idPrefix="profile-theme"
+                      className="w-full sm:w-64"
+                    />
+                  </div>
+
+                  {/* Account & Security Entry Row (Profile -> Settings -> Account & Security) */}
+                  <button
+                    id="profile-account-security-btn"
+                    type="button"
+                    onClick={() => setShowAccountSecurityModal(true)}
+                    className="liquid-glass-card w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left hover:border-[var(--brand-primary)]/50 transition cursor-pointer group heyroq-focus-ring min-h-[54px]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white group-hover:text-[var(--heyroq-accent-text)] transition-colors">
+                          Account &amp; Security
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-white/55 truncate">
+                          Email · {providerStatus.hasPassword ? 'Password enabled' : 'Set password'} ·{' '}
+                          {providerStatus.hasGoogle ? 'Google connected' : 'Connect Google'} · Delete
+                          account
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/45 group-hover:text-slate-900 dark:group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* PROFILE FOOTPRINT SECTION */}
+          {/* Profile Footprint Section */}
           <FootprintSection
             userId={userId}
             isMe={isMe}
@@ -541,16 +959,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           />
 
           {/* Pins Section */}
-          <div className="border-t border-white/10 p-4 sm:p-6 bg-black/40 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+          <div className="border-t border-slate-900/8 dark:border-white/10 p-4 sm:p-6 bg-slate-900/[0.02] dark:bg-black/25 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
-                <Compass className="w-4 h-4 text-[#FF5F40]" />
+              <h3 className="font-heading text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 tabular-nums">
+                <Compass className="w-4 h-4 text-[var(--brand-primary)]" />
                 <span>Pins Created ({userPins.length})</span>
               </h3>
             </div>
 
             {userPins.length === 0 ? (
-              <div className="text-center py-8 text-white/40 text-xs">
+              <div className="text-center py-8 text-slate-500 dark:text-white/45 text-xs">
                 <p>No location pins created yet.</p>
               </div>
             ) : (
@@ -562,18 +980,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       onSelectPin(pin);
                       onClose();
                     }}
-                    className="bg-[#141414] rounded-2xl overflow-hidden border border-white/15 hover:border-[#FF5F40]/60 cursor-pointer transition group"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectPin(pin);
+                        onClose();
+                      }
+                    }}
+                    className="liquid-glass-card rounded-2xl overflow-hidden hover:border-[var(--brand-primary)]/55 cursor-pointer transition-all duration-150 group heyroq-focus-ring"
                   >
-                    <div className="h-28 bg-black relative overflow-hidden">
-                      <img
-                        src={
-                          pin.imageUrls?.[0] ||
-                          'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&auto=format&fit=crop&q=80'
-                        }
-                        alt={pin.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      />
+                    <div className="h-28 bg-slate-200/70 dark:bg-black/50 relative overflow-hidden">
+                      <ProfilePinImage src={pin.imageUrls?.[0]} alt={pin.title} />
                       <div className="absolute top-2 left-2">
                         <CategoryBadge category={pin.category} size="xs" />
                       </div>
@@ -582,15 +1001,69 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       </div>
                     </div>
                     <div className="p-3">
-                      <h4 className="font-black text-xs text-white uppercase tracking-tight truncate">
+                      <h4 className="font-heading font-semibold text-xs text-slate-900 dark:text-white tracking-tight truncate">
                         {pin.title}
                       </h4>
-                      <p className="text-[10px] text-white/40 truncate mt-0.5">
+                      <p className="text-[11px] text-slate-500 dark:text-white/50 truncate mt-0.5">
                         {pin.locationName || pin.category}
                       </p>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Profile Version, Operator Attribution & Legal Links Footer */}
+            {onOpenAbout && (
+              <div className="mt-6 pt-4 border-t border-slate-900/8 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 dark:text-white/55">
+                <div className="space-y-1">
+                  <div className="type-mono-meta text-slate-600 dark:text-white/60">
+                    {APP_VERSION.productName} {APP_VERSION.displayVersion} ·{' '}
+                    {APP_VERSION.releaseChannel} · Operated by {OPERATOR_IDENTITY.name}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-white/50">
+                    <AppLink
+                      to="/about"
+                      onBeforeNavigate={onClose}
+                      className="hover:text-slate-900 dark:hover:text-white underline-offset-4 hover:underline"
+                    >
+                      About
+                    </AppLink>
+                    <span aria-hidden="true">·</span>
+                    <AppLink
+                      to="/privacy"
+                      onBeforeNavigate={onClose}
+                      className="hover:text-slate-900 dark:hover:text-white underline-offset-4 hover:underline"
+                    >
+                      Privacy
+                    </AppLink>
+                    <span aria-hidden="true">·</span>
+                    <AppLink
+                      to="/terms"
+                      onBeforeNavigate={onClose}
+                      className="hover:text-slate-900 dark:hover:text-white underline-offset-4 hover:underline"
+                    >
+                      Terms
+                    </AppLink>
+                    <span aria-hidden="true">·</span>
+                    <AppLink
+                      to="/support"
+                      onBeforeNavigate={onClose}
+                      className="hover:text-slate-900 dark:hover:text-white underline-offset-4 hover:underline"
+                    >
+                      Support
+                    </AppLink>
+                  </div>
+                </div>
+                <button
+                  id="profile-footer-about-btn"
+                  type="button"
+                  onClick={onOpenAbout}
+                  className="min-h-[38px] self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-white/75 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap heyroq-focus-ring"
+                >
+                  <Info className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                  <span>About Heyroq</span>
+                </button>
               </div>
             )}
           </div>
@@ -638,6 +1111,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           userId={userId}
           displayName={profile?.displayName}
           onClose={() => setShowAchievementsModal(false)}
+        />
+      )}
+
+      {/* Account & Security Modal (Owner only) */}
+      {isMe && (
+        <AccountSecurityModal
+          isOpen={showAccountSecurityModal}
+          onClose={() => setShowAccountSecurityModal(false)}
+          onAccountDeleted={() => {
+            setShowAccountSecurityModal(false);
+            onClose();
+            onAccountDeleted?.();
+          }}
         />
       )}
     </div>

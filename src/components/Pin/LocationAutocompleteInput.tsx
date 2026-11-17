@@ -215,24 +215,25 @@ export const LocationAutocompleteInput: React.FC<LocationAutocompleteInputProps>
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
-          className="w-full px-3 py-2 pr-8 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:border-[#FF5F40] focus:ring-1 focus:ring-[#FF5F40] text-xs transition-colors"
+          className="liquid-glass-input w-full px-3 py-2 pr-8 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 text-xs transition-colors"
         />
 
         {/* Action icons inside input */}
         <div className="absolute right-2.5 flex items-center gap-1">
           {isLoading || isFetchingDetails ? (
-            <Loader2 className="w-3.5 h-3.5 text-[#FF5F40] animate-spin" />
+            <Loader2 className="w-3.5 h-3.5 text-[var(--brand-primary)] animate-spin" />
           ) : query ? (
             <button
               type="button"
               onClick={handleClear}
-              className="text-white/40 hover:text-white p-0.5 rounded transition cursor-pointer"
+              className="text-slate-400 dark:text-white/40 hover:text-slate-800 dark:hover:text-white p-0.5 rounded transition cursor-pointer"
               title="Clear location"
+              aria-label="Clear location"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           ) : (
-            <Search className="w-3.5 h-3.5 text-white/30 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-slate-400 dark:text-white/30 pointer-events-none" />
           )}
         </div>
       </div>
@@ -241,15 +242,15 @@ export const LocationAutocompleteInput: React.FC<LocationAutocompleteInputProps>
       {isOpen && (
         <div
           id="heyroq-places-dropdown"
-          className="absolute top-full left-0 mt-1.5 w-full sm:w-[190%] md:w-[220%] max-w-lg bg-[#121212] border border-white/20 rounded-2xl shadow-[0_16px_40px_rgba(0,0,0,0.95)] backdrop-blur-2xl z-50 overflow-hidden py-1.5 max-h-64 overflow-y-auto no-scrollbar"
+          className="liquid-glass-popover absolute top-full left-0 mt-1.5 w-full sm:w-[190%] md:w-[220%] max-w-[calc(100vw-3rem)] sm:max-w-lg rounded-2xl z-50 overflow-hidden py-1.5 max-h-64 overflow-y-auto subtle-glass-scrollbar"
         >
           {isLoading ? (
-            <div className="flex items-center gap-2.5 px-4 py-3 text-xs text-white/70">
-              <Loader2 className="w-4 h-4 animate-spin text-[#FF5F40]" />
+            <div className="flex items-center gap-2.5 px-4 py-3 text-xs text-slate-600 dark:text-white/70">
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--brand-primary)]" />
               <span>Searching places...</span>
             </div>
           ) : suggestions.length > 0 ? (
-            <ul className="divide-y divide-white/5" role="listbox">
+            <ul className="divide-y divide-[var(--heyroq-divider)]" role="listbox">
               {suggestions.map((s, index) => {
                 const isSelected = index === selectedIndex;
                 return (
@@ -263,19 +264,19 @@ export const LocationAutocompleteInput: React.FC<LocationAutocompleteInputProps>
                     }}
                     className={`flex items-start gap-3 px-3.5 py-2.5 cursor-pointer text-left transition-colors min-h-[44px] ${
                       isSelected
-                        ? 'bg-white/15 border-l-2 border-[#FF5F40]'
-                        : 'hover:bg-white/10'
+                        ? 'bg-[var(--brand-primary)]/12 dark:bg-white/12'
+                        : 'hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.07]'
                     }`}
                   >
-                    <div className="p-1 rounded-lg bg-black/40 text-[#FF5F40] mt-0.5 shrink-0 border border-white/10">
+                    <div className="p-1.5 rounded-lg bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] mt-0.5 shrink-0 border border-[var(--brand-primary)]/20">
                       <MapPin className="w-3.5 h-3.5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-white truncate">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
                         {s.mainText || s.fullText}
                       </div>
                       {s.secondaryText && (
-                        <div className="text-[10px] text-white/50 truncate mt-0.5">
+                        <div className="text-[11px] text-slate-500 dark:text-white/50 truncate mt-0.5">
                           {s.secondaryText}
                         </div>
                       )}
@@ -285,8 +286,8 @@ export const LocationAutocompleteInput: React.FC<LocationAutocompleteInputProps>
               })}
             </ul>
           ) : query.trim().length >= 2 ? (
-            <div className="px-4 py-3 text-xs text-white/40 italic flex items-center gap-2">
-              <MapPin className="w-3.5 h-3.5 text-white/30 shrink-0" />
+            <div className="px-4 py-3 text-xs text-slate-500 dark:text-white/45 flex items-center gap-2">
+              <MapPin className="w-3.5 h-3.5 text-slate-400 dark:text-white/30 shrink-0" />
               <span>No places found for &quot;{query.trim()}&quot;</span>
             </div>
           ) : null}

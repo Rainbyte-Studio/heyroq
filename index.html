@@ -3,17 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Heyroq — Social Location-Based Discovery Platform</title>
+    <title>Heyroq</title>
     <meta name="description" content="Modern social location-based discovery platform to explore places, hidden gems, and community pins on an interactive map." />
-    <meta property="og:title" content="Heyroq — Social Location-Based Discovery Platform" />
+    <meta property="og:title" content="Heyroq" />
     <meta property="og:description" content="Modern social location-based discovery platform to explore places, hidden gems, and community pins on an interactive map." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0A0A0C" />
+    <script>
+      (function () {
+        var key = 'heyroq-theme-preference';
+        var pref = 'system';
+        try {
+          var stored = window.localStorage.getItem(key);
+          if (stored === 'light' || stored === 'dark' || stored === 'system') {
+            pref = stored;
+          }
+        } catch (e) {}
+        var sysDark = true;
+        try {
+          sysDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        } catch (e) {}
+        var resolved = pref === 'system' ? (sysDark ? 'dark' : 'light') : pref;
+        var root = document.documentElement;
+        root.classList.toggle('dark', resolved === 'dark');
+        root.classList.toggle('light', resolved === 'light');
+        root.dataset.theme = resolved;
+        root.dataset.themePreference = pref;
+        root.style.colorScheme = resolved;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) {
+          meta.setAttribute('content', resolved === 'dark' ? '#0A0A0C' : '#F5F6F8');
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;0,900;1,800;1,900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Momo+Signature&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body class="h-full bg-[#0A0A0A] text-white antialiased overflow-hidden font-sans">
+  <body class="h-full bg-[var(--heyroq-bg-canvas)] text-[var(--heyroq-text-primary)] antialiased overflow-hidden font-sans">
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

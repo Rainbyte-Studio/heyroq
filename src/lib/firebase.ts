@@ -7,6 +7,7 @@ import {
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -35,6 +36,7 @@ try {
   firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 }
 export const db = firestoreDb;
+export const functions = getFunctions(app, 'europe-west2');
 export const storage = getStorage(app);
 // Cap max retry time to prevent indefinite hanging (default is 10 minutes)
 storage.maxUploadRetryTime = 10000;
@@ -55,8 +57,10 @@ export async function testConnection() {
     }
   }
 }
-// Validate connection on boot asynchronously
-testConnection().catch(() => {});
+// Validate connection on boot asynchronously in browser runtime
+if (typeof window !== 'undefined') {
+  testConnection().catch(() => {});
+}
 
 export enum OperationType {
   CREATE = 'create',

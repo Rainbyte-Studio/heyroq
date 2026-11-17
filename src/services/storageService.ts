@@ -1,5 +1,11 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage } from '../lib/firebase';
+import {
+  ref,
+  uploadBytes,
+  uploadBytesResumable,
+  getDownloadURL,
+  deleteObject,
+} from 'firebase/storage';
+import { auth, storage } from '../lib/firebase';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -30,12 +36,44 @@ export function validateImageFile(file: File): void {
   }
 
   // Validate File Size
+  if (file.size <= 0) {
+    throw new Error('The selected image file appears to be empty.');
+  }
   if (file.size > MAX_FILE_SIZE_BYTES) {
     const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
     throw new Error(
       `File "${file.name}" is too large (${sizeInMb}MB). The maximum allowed image size is 10MB.`
     );
   }
+}
+
+/**
+ * Checks whether a URL points to a Firebase Storage object owned by `userId` inside `profile-images/{userId}/`.
+ * Pure helper exported for deterministic security testing.
+ */
+export function isOwnedProfileStorageUrl(url: string | undefined | null, userId: string): boolean {
+  if (!url || !userId) return false;
+  const lower = url.toLowerCase();
+
+  if (
+    lower.includes('dicebear.com') ||
+    lower.includes('googleusercontent.com') ||
+    lower.includes('ggpht.com') ||
+    lower.includes('unsplash.com')
+  ) {
+    return false;
+  }
+
+  const isFirebaseStorage =
+    lower.includes('firebasestorage.googleapis.com') ||
+    lower.includes('.firebasestorage.app') ||
+    lower.includes('storage.googleapis.com');
+
+  if (!isFirebaseStorage) return false;
+
+  const expectedPrefix = `profile-images/${userId}/`;
+  const encodedPrefix = encodeURIComponent(expectedPrefix);
+  return url.includes(expectedPrefix) || url.includes(encodedPrefix);
 }
 
 /**
@@ -118,12 +156,20 @@ export async function uploadMultipleImages(files: File[], userId: string): Promi
 }
 
 /**
- * Uploads a user avatar image to Firebase Storage at profile-images/{userId}/{fileName}.
+ * Uploads a user avatar image to Firebase Storage at profile-images/{userId}/{fileName}
+ * with optional real-time progress reporting.
  * Enforces ownership matching authenticated userId and 10MB image limit.
  */
-export async function uploadProfileImage(file: File, userId: string): Promise<string> {
+export async function uploadProfileImageWithProgress(
+  file: File,
+  userId: string,
+  onProgress?: (percent: number) => void
+): Promise<string> {
   if (!userId) {
     throw new Error('Authentication required to upload profile avatar.');
+  }
+  if (auth.currentUser && auth.currentUser.uid !== userId) {
+    throw new Error('You can only upload a profile photo for your own account.');
   }
 
   validateImageFile(file);
@@ -132,67 +178,88 @@ export async function uploadProfileImage(file: File, userId: string): Promise<st
     const timestamp = Date.now();
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
     const storageRef = ref(storage, `profile-images/${userId}/${timestamp}_${cleanFileName}`);
+    const metadata = {
+      contentType: file.type || 'image/jpeg',
+      customMetadata: {
+        uploadedBy: userId,
+        uploadedAt: new Date().toISOString(),
+      },
+    };
 
-    const snapshot = await withTimeout(
-      uploadBytes(storageRef, file, {
-        contentType: file.type || 'image/jpeg',
-        customMetadata: {
-          uploadedBy: userId,
-          uploadedAt: new Date().toISOString(),
+    onProgress?.(5);
+
+    const uploadPromise = new Promise<typeof storageRef>((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, file, metadata);
+      task.on(
+        'state_changed',
+        (snap) => {
+          if (snap.totalBytes > 0) {
+            const pct = Math.min(95, Math.max(5, Math.round((snap.bytesTransferred / snap.totalBytes) * 95)));
+            onProgress?.(pct);
+          }
         },
-      }),
-      15000,
-      'Avatar upload timed out after 15 seconds. Storage bucket may not exist or be reachable.'
+        (err) => reject(err),
+        () => resolve(task.snapshot.ref)
+      );
+    });
+
+    const uploadedRef = await withTimeout(
+      uploadPromise,
+      20000,
+      'Avatar upload timed out after 20 seconds. Please check your connection and try again.'
     );
 
     const downloadUrl = await withTimeout(
-      getDownloadURL(snapshot.ref),
+      getDownloadURL(uploadedRef),
       10000,
       'Failed to retrieve avatar download URL.'
     );
+    onProgress?.(100);
     return downloadUrl;
   } catch (error: any) {
     console.error('Firebase Storage profile avatar upload failed:', error);
     let message = 'Failed to upload avatar image.';
     if (error?.code === 'storage/unauthorized') {
       message = 'Storage permission denied. Please verify your authentication status.';
+    } else if (error?.code === 'storage/canceled') {
+      message = 'Avatar upload was canceled.';
+    } else if (error?.code === 'storage/quota-exceeded') {
+      message = 'Storage quota exceeded. Please try again later.';
     } else if (error?.message) {
-      message = `Storage error: ${error.message}`;
+      message = error.message.startsWith('Storage error:')
+        ? error.message
+        : `Storage error: ${error.message}`;
     }
     throw new Error(message);
   }
 }
 
 /**
- * Safely deletes a previously uploaded avatar from Firebase Storage when replaced.
- * Verifies that the URL belongs to profile-images/{userId}/.
- * Never deletes default avatars, external photos, or DiceBear SVGs.
+ * Uploads a user avatar image to Firebase Storage at profile-images/{userId}/{fileName}.
+ * Enforces ownership matching authenticated userId and 10MB image limit.
+ */
+export async function uploadProfileImage(file: File, userId: string): Promise<string> {
+  return uploadProfileImageWithProgress(file, userId);
+}
+
+/**
+ * Safely deletes a previously uploaded avatar from Firebase Storage when replaced or removed.
+ * Verifies that the URL belongs strictly to profile-images/{userId}/.
+ * Never deletes default avatars, external photos, Google photos, or DiceBear SVGs.
  */
 export async function deletePreviousProfileImage(oldUrl: string | undefined, userId: string): Promise<boolean> {
   if (!oldUrl || !userId) return false;
-
-  // Skip external URLs, DiceBear SVGs, Google user avatars, or non-Firebase Storage URLs
-  if (
-    oldUrl.includes('dicebear.com') ||
-    oldUrl.includes('googleusercontent.com') ||
-    oldUrl.includes('unsplash.com') ||
-    !oldUrl.includes('firebasestorage.googleapis.com')
-  ) {
+  if (auth.currentUser && auth.currentUser.uid !== userId) {
     return false;
   }
 
-  // Ensure the file belongs strictly to this user's profile images folder
-  const expectedPrefix = `profile-images/${userId}/`;
-  const encodedPrefix = encodeURIComponent(expectedPrefix);
-  if (!oldUrl.includes(expectedPrefix) && !oldUrl.includes(encodedPrefix)) {
-    console.warn('Skipping deletion: Old avatar URL does not belong to user profile-images folder.');
+  if (!isOwnedProfileStorageUrl(oldUrl, userId)) {
     return false;
   }
 
   try {
     const fileRef = ref(storage, oldUrl);
     await deleteObject(fileRef);
-    console.log(`Cleaned up old avatar for user ${userId}`);
     return true;
   } catch (err: any) {
     if (err?.code === 'storage/object-not-found') {

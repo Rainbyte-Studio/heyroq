@@ -6,7 +6,6 @@ import { FootprintMap } from './FootprintMap';
 import { FootprintEmptyState } from './FootprintEmptyState';
 import { PlacesDiscovered } from './PlacesDiscovered';
 import {
-  fetchUserFootprint,
   subscribeToUserFootprint,
   buildFootprintFromPins,
   filterValidPublicPins,
@@ -81,7 +80,6 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
 
   const handleSelectCountry = (country: CountryFootprintGroup) => {
     if (activeCountry?.toLowerCase() === country.countryName.toLowerCase() && !activeCity) {
-      // Toggle off if already selected
       handleClearFilter();
       return;
     }
@@ -112,7 +110,6 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
       activeCity?.toLowerCase() === city.cityName.toLowerCase() &&
       activeCountry?.toLowerCase() === country.countryName.toLowerCase()
     ) {
-      // Toggle back to country level
       setActiveCity(null);
       setTargetView({
         center: country.center,
@@ -209,15 +206,18 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
   const activeLevel = activeCity ? 'spots' : activeCountry ? 'cities' : null;
 
   return (
-    <div id="footprint-section" className="border-t border-white/10 p-6 bg-black/20">
+    <div
+      id="footprint-section"
+      className="border-t border-slate-900/8 dark:border-white/10 p-4 sm:p-6 bg-slate-900/[0.015] dark:bg-black/15"
+    >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4">
         <div>
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
-            <Globe className="w-4 h-4 text-[#FF5F40]" />
+          <h3 className="font-heading text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-white/50 flex items-center gap-1.5">
+            <Globe className="w-4 h-4 text-[var(--brand-primary)]" />
             <span>My Footprint</span>
           </h3>
-          <p className="text-[11px] text-white/50 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-white/50 mt-0.5">
             {isMe
               ? 'Your geographic discoveries aggregated worldwide'
               : `${displayName || 'User'}'s geographic discoveries aggregated worldwide`}
@@ -238,21 +238,20 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
       {isLoading ? (
         <div
           id="footprint-loading-state"
-          className="w-full h-[300px] rounded-2xl bg-[#0F0F0F] border border-white/10 flex flex-col items-center justify-center text-white/40"
+          className="liquid-glass-card w-full h-[300px] rounded-2xl flex flex-col items-center justify-center text-slate-500 dark:text-white/45"
         >
-          <Loader2 className="w-6 h-6 animate-spin text-[#FF5F40] mb-2" />
-          <span className="text-xs uppercase tracking-wider font-semibold">Aggregating footprint...</span>
+          <Loader2 className="w-6 h-6 animate-spin text-[var(--brand-primary)] mb-2" />
+          <span className="text-xs font-medium">Aggregating footprint...</span>
         </div>
       ) : error ? (
         <div
           id="footprint-error-state"
-          className="w-full h-[200px] rounded-2xl bg-[#0F0F0F] border border-white/10 flex flex-col items-center justify-center text-white/50 p-4 text-center"
+          className="liquid-glass-card w-full h-[200px] rounded-2xl flex flex-col items-center justify-center text-slate-600 dark:text-white/55 p-4 text-center"
         >
-          <AlertCircle className="w-6 h-6 text-red-400 mb-2" />
+          <AlertCircle className="w-6 h-6 text-red-500 dark:text-red-400 mb-2" />
           <p className="text-xs">{error}</p>
         </div>
       ) : !hasSpots ? (
-        /* Empty State */
         <FootprintEmptyState
           isMe={isMe}
           displayName={displayName}
@@ -260,7 +259,6 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
         />
       ) : (
         <>
-          {/* Interactive Google Map with Dynamic Intelligent Zoom and Adaptive Hierarchical Clustering */}
           <FootprintMap
             clusters={clusters}
             countries={countries}
@@ -278,7 +276,6 @@ export const FootprintSection: React.FC<FootprintSectionProps> = ({
             onOpenPinDetails={handleOpenPinDetails}
           />
 
-          {/* Places Discovered Section below the map */}
           <PlacesDiscovered
             countries={countries}
             activeCountry={activeCountry}

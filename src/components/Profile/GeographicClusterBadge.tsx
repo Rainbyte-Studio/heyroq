@@ -1,5 +1,6 @@
 import React from 'react';
 import { GeographicCluster, MapDisplayCluster } from '../../utils/footprintUtils';
+import { useTheme } from '../../context/ThemeContext';
 
 interface GeographicClusterBadgeProps {
   cluster: GeographicCluster | MapDisplayCluster;
@@ -14,14 +15,25 @@ export const GeographicClusterBadge: React.FC<GeographicClusterBadgeProps> = ({
   onClick,
   displayMode,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+
   const isCountry =
     displayMode === 'country' || ('type' in cluster && cluster.type === 'country');
 
   const displayName = isCountry
-    ? (cluster.countryName || 'COUNTRY').toUpperCase()
-    : ((cluster as any).cityName || (cluster as any).displayName || 'SPOT').toUpperCase();
+    ? cluster.countryName || 'Country'
+    : (cluster as any).cityName || (cluster as any).displayName || 'Spot';
 
   const flag = 'flag' in cluster ? cluster.flag : undefined;
+
+  const containerClass = isSelected
+    ? isDark
+      ? 'bg-white text-slate-950 scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
+      : 'bg-slate-900 text-white scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
+    : isDark
+      ? 'bg-[#14161D]/92 hover:bg-[#1C1F29] text-white border border-white/20 hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]'
+      : 'bg-white/94 hover:bg-white text-slate-900 border border-slate-900/14 hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]';
 
   return (
     <button
@@ -31,49 +43,52 @@ export const GeographicClusterBadge: React.FC<GeographicClusterBadgeProps> = ({
         e.stopPropagation();
         onClick();
       }}
-      className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-all duration-200 select-none ${
-        isSelected
-          ? 'bg-white text-black scale-110 shadow-[0_0_25px_rgba(255,95,64,0.8)] ring-2 ring-[#FF5F40]'
-          : 'bg-[#121212]/95 hover:bg-neutral-900 text-white border border-white/20 hover:border-[#FF5F40]/80 shadow-xl backdrop-blur-md hover:scale-105'
-      }`}
-      title={isCountry ? `${displayName} (${cluster.count} spots)` : `${displayName} (${cluster.count} spots)`}
+      className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-all duration-150 select-none heyroq-focus-ring ${containerClass}`}
+      title={`${displayName} (${cluster.count} spots)`}
     >
-      {/* Flag or Coral pulse indicator */}
       {flag ? (
-        <span className="text-sm leading-none shrink-0 select-none mr-0.5" role="img" aria-label={displayName}>
+        <span
+          className="text-sm leading-none shrink-0 select-none mr-0.5"
+          role="img"
+          aria-label={displayName}
+        >
           {flag}
         </span>
       ) : (
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
-          <span
-            className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-              isSelected ? 'bg-black' : 'bg-[#FF5F40]'
-            }`}
-          />
-          <span
-            className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-              isSelected ? 'bg-black' : 'bg-[#FF5F40]'
-            }`}
-          />
-        </span>
+        <span
+          className="inline-flex rounded-full h-2 w-2 shrink-0 bg-[var(--brand-primary)]"
+        />
       )}
 
       {/* Cluster name */}
-      <span className="text-xs font-black uppercase tracking-tight truncate max-w-[130px]">
+      <span className="text-xs font-bold tracking-tight truncate max-w-[130px]">
         {displayName}
       </span>
 
       {/* Dot separator */}
-      <span className={`text-[10px] select-none font-bold ${isSelected ? 'text-black/40' : 'text-white/40'}`}>
+      <span
+        className={`text-[10px] select-none font-bold ${
+          isSelected
+            ? isDark
+              ? 'text-slate-900/40'
+              : 'text-white/45'
+            : isDark
+              ? 'text-white/40'
+              : 'text-slate-400'
+        }`}
+        aria-hidden="true"
+      >
         ·
       </span>
 
-      {/* Spots count badge */}
+      {/* Spots count */}
       <span
-        className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-bold ${
+        className={`text-[11px] tabular-nums font-bold ${
           isSelected
-            ? 'bg-[#FF5F40] text-white'
-            : 'bg-white/10 text-white/90 group-hover:bg-[#FF5F40] group-hover:text-white transition-colors'
+            ? isDark
+              ? 'text-[var(--brand-deep)]'
+              : 'text-[var(--brand-highlight)]'
+            : 'text-[var(--heyroq-accent-text)]'
         }`}
       >
         {cluster.count}
@@ -81,4 +96,3 @@ export const GeographicClusterBadge: React.FC<GeographicClusterBadgeProps> = ({
     </button>
   );
 };
-

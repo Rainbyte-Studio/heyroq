@@ -14,11 +14,23 @@ import {
 import { db } from '../lib/firebase';
 import { PublicUserProfile } from '../types';
 import { checkIfFollowing, toggleFollow } from './pinService';
+import { resolveCustomAvatarUrl } from '../utils/avatarUtils';
 
 const USERS_COLLECTION = 'users';
 
 // In-memory LRU-like profile cache to prevent N+1 Firestore reads
 const profileCache = new Map<string, PublicUserProfile>();
+
+/**
+ * Invalidates cached public profile(s) after profile or avatar updates.
+ */
+export function invalidateUserProfileCache(userId?: string): void {
+  if (userId) {
+    profileCache.delete(userId);
+  } else {
+    profileCache.clear();
+  }
+}
 
 /**
  * Strips private PII (email, role, admin flags) from user data
@@ -28,10 +40,7 @@ export function toPublicUserProfile(data: Record<string, any>, id: string): Publ
   const safeId = id || data.uid || data.id || '';
   const username = data.username || (data.email ? data.email.split('@')[0] : `user_${safeId.slice(0, 5)}`);
   const displayName = data.displayName || username || 'Explorer';
-  const avatar =
-    data.photoURL ||
-    data.avatarUrl ||
-    `https://api.dicebear.com/7.x/bottts/svg?seed=${safeId}`;
+  const avatar = resolveCustomAvatarUrl(data.avatarUrl, data.photoURL) || '';
 
   return {
     id: safeId,

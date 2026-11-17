@@ -2,7 +2,9 @@ import React from 'react';
 import { Pin } from '../../types';
 import { CategoryBadge } from '../Map/CategoryBadge';
 import { LikeButton } from './LikeButton';
-import { MessageCircle, MapPin, X, ArrowRight, User } from 'lucide-react';
+import { MessageCircle, MapPin, ArrowRight } from 'lucide-react';
+import { UserAvatar } from '../Common/UserAvatar';
+import { CloseButton } from '../Common/CloseButton';
 
 interface PinPreviewCardProps {
   pin: Pin;
@@ -28,29 +30,27 @@ export const PinPreviewCard: React.FC<PinPreviewCardProps> = ({
   return (
     <div
       id={`pin-preview-${pin.id}`}
-      className="bg-black/85 backdrop-blur-2xl border border-white/20 rounded-[28px] sm:rounded-[32px] overflow-hidden w-full max-w-[calc(100vw-24px)] sm:max-w-xs sm:w-80 transition-all duration-300 transform shadow-2xl p-4 sm:p-5 text-white animate-in fade-in slide-in-from-top-4"
+      className="liquid-glass-floating rounded-[26px] sm:rounded-[28px] overflow-hidden w-full max-w-[calc(100vw-24px)] sm:max-w-xs sm:w-80 transition-all duration-200 p-4 text-[var(--heyroq-text-primary)] animate-in fade-in slide-in-from-top-3"
     >
       {/* Cover Photo */}
-      <div className="relative h-40 sm:h-44 rounded-2xl overflow-hidden mb-3 sm:mb-3.5 border border-white/10 group bg-neutral-900">
+      <div className="relative h-40 sm:h-44 rounded-2xl overflow-hidden mb-3 border border-slate-900/10 dark:border-white/10 group bg-slate-200 dark:bg-neutral-900">
         <img
           src={mainImage}
           alt={pin.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/30 pointer-events-none" />
 
         {/* Close Button */}
-        <button
-          type="button"
+        <CloseButton
+          surface="floating"
           onClick={onClose}
-          className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center bg-black/60 hover:bg-black text-white rounded-full backdrop-blur-md transition border border-white/20 cursor-pointer z-10"
-          aria-label="Close spot preview"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+          ariaLabel="Close Spot Preview"
+          className="absolute top-2.5 right-2.5 z-10"
+        />
 
-        {/* Category Pill */}
+        {/* Category Badge */}
         <div className="absolute top-2.5 left-2.5">
           <CategoryBadge category={pin.category} size="xs" />
         </div>
@@ -66,10 +66,10 @@ export const PinPreviewCard: React.FC<PinPreviewCardProps> = ({
           />
         </div>
 
-        {/* Location chip */}
+        {/* Location overlay */}
         {pin.locationName && (
-          <div className="absolute bottom-2.5 left-2.5 text-white text-[10px] flex items-center gap-1 font-bold uppercase tracking-wider bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/10">
-            <MapPin className="w-3 h-3 text-[#FF5F40]" />
+          <div className="absolute bottom-2.5 left-2.5 text-white text-[11px] flex items-center gap-1 font-semibold bg-black/75 px-2.5 py-1 rounded-full border border-white/15">
+            <MapPin className="w-3 h-3 text-[var(--brand-primary)] shrink-0" />
             <span className="truncate max-w-[140px]">{pin.locationName}</span>
           </div>
         )}
@@ -80,48 +80,40 @@ export const PinPreviewCard: React.FC<PinPreviewCardProps> = ({
         {/* Creator Info */}
         <div
           onClick={() => pin.userId && onOpenProfile(pin.userId)}
-          className="flex items-center justify-between gap-2 mb-2 cursor-pointer group"
+          className="flex items-center justify-between gap-2 mb-1.5 cursor-pointer group"
         >
           <div className="flex items-center gap-2 min-w-0">
-            {pin.userAvatar ? (
-              <img
-                src={pin.userAvatar}
-                alt={pin.userName}
-                referrerPolicy="no-referrer"
-                className="w-5 h-5 rounded-full object-cover ring-1 ring-[#FF5F40]"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-[#FF5F40] flex items-center justify-center text-white text-[9px] font-black">
-                {pin.userName?.slice(0, 1).toUpperCase()}
-              </div>
-            )}
-            <span className="text-[11px] font-bold text-white/50 group-hover:text-white uppercase tracking-wider truncate transition">
+            <UserAvatar
+              uid={pin.userId}
+              displayName={pin.userName}
+              imageUrl={pin.userAvatar}
+              size="xs"
+            />
+            <span className="text-xs font-semibold text-slate-600 dark:text-white/55 group-hover:text-slate-950 dark:group-hover:text-white truncate transition">
               @{pin.userName}
             </span>
           </div>
-          <div className="flex items-center gap-1 text-[11px] font-bold text-white/40">
-            <MessageCircle className="w-3 h-3" />
+          <div className="flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-white/45 tabular-nums">
+            <MessageCircle className="w-3.5 h-3.5" />
             <span>{pin.commentCount || 0}</span>
           </div>
         </div>
 
-        <h4 className="text-xl font-black uppercase tracking-tight mb-1.5 leading-tight text-white line-clamp-1">
+        <h4 className="font-heading text-lg font-bold tracking-tight mb-1 leading-snug text-slate-900 dark:text-white line-clamp-1">
           {pin.title}
         </h4>
-        <p className="text-xs text-white/60 mb-3 line-clamp-2 leading-relaxed">
+        <p className="text-xs text-slate-600 dark:text-white/65 mb-3 line-clamp-2 leading-relaxed">
           {pin.description}
         </p>
 
-        {/* Tags */}
+        {/* Quiet inline tags metadata */}
         {pin.tags && pin.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-3.5">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3.5 text-[11px] font-medium text-slate-500 dark:text-white/50">
             {pin.tags.slice(0, 3).map((tag, idx) => (
-              <span
-                key={idx}
-                className="text-[9px] font-black uppercase tracking-wider bg-white/10 text-white/80 px-2 py-0.5 rounded border border-white/10"
-              >
-                #{tag}
-              </span>
+              <React.Fragment key={idx}>
+                {idx > 0 && <span aria-hidden="true">·</span>}
+                <span>#{tag}</span>
+              </React.Fragment>
             ))}
           </div>
         )}
@@ -130,7 +122,7 @@ export const PinPreviewCard: React.FC<PinPreviewCardProps> = ({
         <button
           type="button"
           onClick={() => onOpenDetails(pin)}
-          className="w-full py-3 bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-[#FF5F40] hover:text-white transition-colors cursor-pointer shadow-xl flex items-center justify-center gap-1.5"
+          className="heyroq-btn-primary w-full min-h-[42px] py-2.5 px-4 font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5"
         >
           <span>View Spot Details</span>
           <ArrowRight className="w-3.5 h-3.5" />

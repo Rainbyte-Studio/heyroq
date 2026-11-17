@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { Pin, LatLngBounds, LatLngPoint, PinCategory, DiscoveryFilter } from './types';
 import { normalizeCategory, matchesCategoryFilter } from './utils/categoryUtils';
 import { Navbar } from './components/Navigation/Navbar';
@@ -8,12 +9,21 @@ import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
 import { CreatePinModal, CreatePinDraft } from './components/Pin/CreatePinModal';
 import { UserProfileModal } from './components/Profile/UserProfileModal';
+import { AccountSecurityModal } from './components/Profile/AccountSecurityModal';
 import { AchievementsModal } from './components/Profile/AchievementsModal';
 import { AdminModal } from './components/Admin/AdminModal';
 import { AuthModal } from './components/Auth/AuthModal';
 import { ReportModal } from './components/Report/ReportModal';
 import { DiscoverPeopleModal } from './components/Discovery/DiscoverPeopleModal';
+import { AboutHeyroqModal } from './components/Common/AboutHeyroqModal';
+import { AboutPage } from './components/Legal/AboutPage';
+import { PrivacyPolicyPage } from './components/Legal/PrivacyPolicyPage';
+import { TermsOfServicePage } from './components/Legal/TermsOfServicePage';
+import { HelpSupportPage } from './components/Legal/HelpSupportPage';
 import { PinFeedList } from './components/Pin/PinFeedList';
+import { APP_VERSION } from './config/version';
+import { OPERATOR_IDENTITY } from './config/brandConfig';
+import { AppLink, useAppRoute } from './utils/appRoutes';
 import { APIProvider } from '@vis.gl/react-google-maps';
 import { reverseGeocodeCoordinates } from './services/placesService';
 import {
@@ -46,6 +56,7 @@ function HeyroqMainApp() {
     }
     if (!user) {
       setIsProgressionOpen(false);
+      setIsAccountSecurityOpen(false);
     }
   }, [user]);
 
@@ -124,7 +135,9 @@ function HeyroqMainApp() {
   const [newPinLocation, setNewPinLocation] = useState<LatLngPoint | null>(null);
   const [pickedLocationName, setPickedLocationName] = useState<string>('');
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [isAccountSecurityOpen, setIsAccountSecurityOpen] = useState(false);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isDiscoverPeopleOpen, setIsDiscoverPeopleOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{
@@ -272,6 +285,40 @@ function HeyroqMainApp() {
     );
     // 3. Keep memory cache updated so subsequent queries do not regress
     updateCachedPinLikeCount(pinId, newCount);
+  }, []);
+
+  // Propagate custom avatar upload/remove immediately to any loaded pins authored by the user
+  const handleUserAvatarUpdated = useCallback((updatedUid: string, nextAvatarUrl: string) => {
+    setPins((prev) =>
+      prev.map((p) => (p.userId === updatedUid ? { ...p, userAvatar: nextAvatarUrl } : p))
+    );
+    setSelectedPinFallback((prev) =>
+      prev && prev.userId === updatedUid ? { ...prev, userAvatar: nextAvatarUrl } : prev
+    );
+    setDetailPinFallback((prev) =>
+      prev && prev.userId === updatedUid ? { ...prev, userAvatar: nextAvatarUrl } : prev
+    );
+  }, []);
+
+  // Cleanly reset UI state & purge departed user's in-memory pins after confirmed account deletion
+  const handleAccountDeletedCleanRedirect = useCallback((deletedUid?: string) => {
+    setProfileUserId(null);
+    setIsAccountSecurityOpen(false);
+    setIsProgressionOpen(false);
+    setIsCreateOpen(false);
+    setIsAdminOpen(false);
+    setIsDiscoverPeopleOpen(false);
+    setSelectedPinId(null);
+    setSelectedPinFallback(null);
+    setDetailPinId(null);
+    setDetailPinFallback(null);
+    if (deletedUid) {
+      setPins((prev) => prev.filter((p) => p.userId !== deletedUid));
+    }
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   }, []);
 
   // Real-time synchronization of discovery pins (reads pin.commentCount directly from Pin doc without redundant count aggregations)
@@ -540,7 +587,7 @@ function HeyroqMainApp() {
   }, [isPickingLocationOnMap, selectedPinId]);
 
   return (
-    <div id="heyroq-app-root" className="h-screen h-[100dvh] w-full flex flex-col bg-[#0A0A0A] text-white font-sans selection:bg-[#FF5F40] selection:text-white overflow-hidden">
+    <div id="heyroq-app-root" className="h-screen h-[100dvh] w-full flex flex-col bg-[var(--heyroq-bg-canvas)] text-[var(--heyroq-text-primary)] font-sans selection:bg-[var(--brand-primary)] selection:text-white overflow-hidden">
       {/* Top Navigation */}
       <Navbar
         discoveryFilter={discoveryFilter}
@@ -564,12 +611,18 @@ function HeyroqMainApp() {
         onOpenProfile={(uid) => {
           if (uid) setProfileUserId(uid);
         }}
+        onOpenAccountSecurity={() => {
+          if (user) {
+            setIsAccountSecurityOpen(true);
+          }
+        }}
         onOpenProgression={() => {
           if (user) {
             setProfileUserId(null);
             setIsProgressionOpen(true);
           }
         }}
+        onOpenAbout={() => setIsAboutOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
         onOpenDiscoverPeople={() => setIsDiscoverPeopleOpen(true)}
         onSelectSpot={(pin) => {
@@ -589,7 +642,7 @@ function HeyroqMainApp() {
       />
 
       {/* Main Map & Discovery Feed Workspace */}
-      <main className="flex-1 min-h-0 w-full flex flex-col lg:flex-row relative overflow-hidden bg-[#0A0A0A]">
+      <main className="flex-1 min-h-0 w-full flex flex-col lg:flex-row relative overflow-hidden bg-[var(--heyroq-bg-canvas)]">
         {/* The Interactive Social Map */}
         <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden">
           <HeyroqMap
@@ -670,18 +723,64 @@ function HeyroqMainApp() {
             feedScrollTopRef.current = top;
           }}
           isDesktop={isDesktop}
+          isLive={!isDiscoveryError && searchQuery.trim().length <= 1}
           isError={isDiscoveryError && displayedPins.length === 0}
           onRetry={handleRetryDiscovery}
         />
       </main>
 
-      {/* Discovery Coordinates Footer */}
-      <footer className="h-8 bg-black border-t border-white/10 px-4 sm:px-8 flex items-center justify-between z-40 text-[10px] font-bold text-white/30 uppercase tracking-widest shrink-0">
-        <div className="flex gap-4">
-          <span>Lat: {mapCenter.lat.toFixed(4)}° {mapCenter.lat >= 0 ? 'N' : 'S'}</span>
-          <span>Lon: {Math.abs(mapCenter.lng).toFixed(4)}° {mapCenter.lng >= 0 ? 'E' : 'W'}</span>
+      {/* Discovery Coordinates, Legal Navigation & Rainbyte Studio Attribution Footer */}
+      <footer className="h-9 bg-[var(--heyroq-bg-surface)] border-t border-[var(--heyroq-border-subtle)] px-3.5 sm:px-5 lg:px-6 flex items-center justify-between gap-3 z-40 text-xs font-medium text-[var(--heyroq-text-muted)] shrink-0">
+        <div className="hidden md:flex items-center gap-3 font-mono tabular-nums text-[11px] text-[var(--heyroq-text-muted)] shrink-0">
+          <span>
+            {Math.abs(mapCenter.lat).toFixed(4)}° {mapCenter.lat >= 0 ? 'N' : 'S'},{' '}
+            {Math.abs(mapCenter.lng).toFixed(4)}° {mapCenter.lng >= 0 ? 'E' : 'W'}
+          </span>
         </div>
-        <p className="hidden sm:block">Heyroq Discovery Engine v1.0.4</p>
+
+        <nav
+          aria-label="Footer legal and support navigation"
+          className="flex items-center gap-2.5 sm:gap-3.5 text-xs font-medium text-[var(--heyroq-text-secondary)] overflow-x-auto no-scrollbar"
+        >
+          <AppLink to="/about" className="hover:text-[var(--heyroq-text-primary)] transition-colors whitespace-nowrap">
+            About
+          </AppLink>
+          <span aria-hidden="true" className="text-[var(--heyroq-text-muted)] opacity-40">·</span>
+          <AppLink to="/privacy" className="hover:text-[var(--heyroq-text-primary)] transition-colors whitespace-nowrap">
+            Privacy
+          </AppLink>
+          <span aria-hidden="true" className="text-[var(--heyroq-text-muted)] opacity-40">·</span>
+          <AppLink to="/terms" className="hover:text-[var(--heyroq-text-primary)] transition-colors whitespace-nowrap">
+            Terms
+          </AppLink>
+          <span aria-hidden="true" className="text-[var(--heyroq-text-muted)] opacity-40">·</span>
+          <AppLink to="/support" className="hover:text-[var(--heyroq-text-primary)] transition-colors whitespace-nowrap">
+            Support
+          </AppLink>
+          <span aria-hidden="true" className="hidden lg:inline text-[var(--heyroq-text-muted)] opacity-40">·</span>
+          <a
+            href={OPERATOR_IDENTITY.websiteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden lg:inline text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] transition-colors whitespace-nowrap"
+          >
+            by {OPERATOR_IDENTITY.name}
+          </a>
+        </nav>
+
+        <button
+          id="footer-about-version-btn"
+          type="button"
+          onClick={() => setIsAboutOpen(true)}
+          aria-label={`About ${APP_VERSION.productName} ${APP_VERSION.displayVersion}`}
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] transition-colors cursor-pointer font-mono tabular-nums heyroq-focus-ring rounded px-1.5 py-0.5 shrink-0"
+        >
+          <span className="hidden sm:inline">{APP_VERSION.productName}</span>
+          <span aria-hidden="true" className="hidden sm:inline opacity-45">·</span>
+          <span>{APP_VERSION.displayVersion}</span>
+          <span aria-hidden="true" className="hidden sm:inline opacity-45">·</span>
+          <span className="hidden sm:inline">{APP_VERSION.releaseChannel}</span>
+        </button>
       </footer>
 
       {/* MODALS */}
@@ -776,6 +875,18 @@ function HeyroqMainApp() {
           onOpenOtherProfile={(uid) => {
             setProfileUserId(uid);
           }}
+          onOpenAbout={() => setIsAboutOpen(true)}
+          onAvatarUpdated={handleUserAvatarUpdated}
+          onAccountDeleted={() => handleAccountDeletedCleanRedirect(profileUserId)}
+        />
+      )}
+
+      {/* 3b. Standalone Account & Security Modal (opened from Navbar menu) */}
+      {isAccountSecurityOpen && user && (
+        <AccountSecurityModal
+          isOpen={isAccountSecurityOpen}
+          onClose={() => setIsAccountSecurityOpen(false)}
+          onAccountDeleted={() => handleAccountDeletedCleanRedirect(user.uid)}
         />
       )}
 
@@ -829,17 +940,43 @@ function HeyroqMainApp() {
           onClose={() => setIsProgressionOpen(false)}
         />
       )}
+
+      {/* 9. About Heyroq Modal */}
+      <AboutHeyroqModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
     </div>
   );
 }
 
 const GOOGLE_MAPS_API_KEY = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
 
+function AppRouterSwitch() {
+  const activeRoute = useAppRoute();
+
+  switch (activeRoute) {
+    case '/about':
+      return <AboutPage />;
+    case '/privacy':
+      return <PrivacyPolicyPage />;
+    case '/terms':
+      return <TermsOfServicePage />;
+    case '/support':
+      return <HelpSupportPage />;
+    case '/':
+    default:
+      return <HeyroqMainApp />;
+  }
+}
+
 export default function App() {
   const content = (
-    <AuthProvider>
-      <HeyroqMainApp />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppRouterSwitch />
+      </AuthProvider>
+    </ThemeProvider>
   );
 
   if (GOOGLE_MAPS_API_KEY) {
