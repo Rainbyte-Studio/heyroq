@@ -111,3 +111,20 @@ describe('Account deletion lock', () => {
     }));
   });
 });
+
+describe('Canonical comment identity', () => {
+  it('rejects a forged author display name', async () => {
+    await seedAlice();
+    await assertFails(setDoc(doc(alice(), 'pins/spot1/comments/forged'), {
+      userId: 'alice', userName: 'Someone Else', userAvatar: '',
+      text: 'Test', createdAt: '2026-01-01T00:00:00.000Z',
+    }));
+  });
+  it('accepts the authenticated profile display name', async () => {
+    await seedAlice();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1/comments/real'), {
+      userId: 'alice', userName: 'Alice', userAvatar: '',
+      text: 'Test', createdAt: '2026-01-01T00:00:00.000Z',
+    }));
+  });
+});

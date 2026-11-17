@@ -727,13 +727,29 @@ export async function addComment(
     throw new Error('Comment cannot exceed 1000 characters.');
   }
 
+  // Resolve the authenticated author's identity from Firestore, not caller input.
+  const authorUid = auth.currentUser?.uid;
+  if (!authorUid || authorUid !== userId) {
+    throw new Error('Comment author must match the signed-in account.');
+  }
+  const authorSnap = await getDoc(doc(db, 'users', authorUid));
+  if (!authorSnap.exists()) throw new Error('Complete your profile before commenting.');
+  const authorData = authorSnap.data();
+  const canonicalName = authorData.displayName;
+  if (typeof canonicalName !== 'string' || !canonicalName.trim()) {
+    throw new Error('A profile display name is required to comment.');
+  }
+  const canonicalAvatar = typeof authorData.avatarUrl === 'string'
+    ? authorData.avatarUrl
+    : typeof authorData.photoURL === 'string' ? authorData.photoURL : '';
+
   const now = new Date().toISOString();
 
   const commentPayload = {
     pinId,
     userId,
-    userName: userName || 'Explorer',
-    userAvatar: userAvatar || '',
+    userName: canonicalName,
+    userAvatar: canonicalAvatar,
     text: cleanText,
     createdAt: serverTimestamp(),
   };

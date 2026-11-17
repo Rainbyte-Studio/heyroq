@@ -97,6 +97,13 @@ service cloud.firestore {
       );
     }
 
+    // Comment display identity must match the server-readable author profile.
+    function hasCanonicalCommentIdentity(data) {
+      let author = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return data.userName == author.displayName &&
+             data.userAvatar == author.get('avatarUrl', author.get('photoURL', ''));
+    }
+
     // Report validation
     function isValidReport(data) {
       return (
@@ -232,14 +239,16 @@ service cloud.firestore {
         allow create: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
                          request.resource.data.userId == request.auth.uid &&
                          (!('pinId' in request.resource.data) || request.resource.data.pinId == pinId) &&
-                         isValidComment(request.resource.data);
+                         isValidComment(request.resource.data) &&
+                         hasCanonicalCommentIdentity(request.resource.data);
 
         // Only comment author can edit comment; author UID and createdAt cannot be changed
         allow update: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
                          isOwner(resource.data.userId) &&
                          request.resource.data.userId == resource.data.userId &&
                          request.resource.data.createdAt == resource.data.createdAt &&
-                         isValidComment(request.resource.data);
+                         isValidComment(request.resource.data) &&
+                         hasCanonicalCommentIdentity(request.resource.data);
 
         // Only comment author or admin can delete. Users cannot delete comments belonging to other users
         allow delete: if isNonAnonymous() &&
