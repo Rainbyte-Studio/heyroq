@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
+exports.deleteUserAccount = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.pinImageUpload = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
 exports.updateUserProgressionServer = updateUserProgressionServer;
 exports.cleanAccountReports = cleanAccountReports;
 const app_1 = require("firebase-admin/app");
@@ -11,6 +11,7 @@ const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const pinImageCleanup_1 = require("./pinImageCleanup");
+const pinImageUpload_1 = require("./pinImageUpload");
 const progressionLocation_1 = require("./progressionLocation");
 const progressionConfig_1 = require("./progressionConfig");
 // Initialize Firebase Admin SDK
@@ -19,6 +20,7 @@ exports.FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-
 const db = (0, firestore_1.getFirestore)(exports.FIRESTORE_DATABASE_ID);
 const storage = (0, storage_1.getStorage)();
 exports.FUNCTION_REGION = 'europe-west2';
+exports.pinImageUpload = (0, https_1.onCall)({ region: exports.FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 }, request => (0, pinImageUpload_1.handlePinImageUpload)(db, () => storage.bucket(), request.auth, request.data));
 function isActivePin(data) {
     return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
 }
@@ -754,9 +756,8 @@ exports.deleteUserAccount = (0, https_1.onCall)({
         await storage.bucket().deleteFiles({
             prefix: `profile-images/${userId}/`,
         });
-        // Remove the user's remaining pin images, including uploads not attached to a pin.
-        // A missing bucket or transient Storage error must not silently be reported as success.
-        await storage.bucket().deleteFiles({ prefix: `pins/${userId}/` });
+        // Pin delete events and reconciliation remove server-owned images by generation.
+        // Legacy pin images can still be referenced by other pins.
         const userRef = db.collection('users').doc(userId);
         await db.recursiveDelete(userRef);
         // Revoke access last, after the primary data cleanup has succeeded.

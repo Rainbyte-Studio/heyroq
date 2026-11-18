@@ -1,13 +1,12 @@
+import { httpsCallable } from 'firebase/functions';
 import { uploadBatch } from './uploadBatch';
 import {
   ref,
-  uploadBytes,
   uploadBytesResumable,
   getDownloadURL,
   deleteObject,
 } from 'firebase/storage';
-import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db, storage } from '../lib/firebase';
+import { auth, functions, storage } from '../lib/firebase';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -94,75 +93,47 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
 
 export const MAX_PIN_IMAGES = 20;
 
-export interface PinImageUpload {
-  uploadId: string;
-  generation: string;
-  downloadUrl: string;
+interface PinImageClaim {
+  protocol: 'server-v1';
+  userId: string;
+  pinId: string;
+  images: { uploadId: string; generation: string }[];
+  imageUrls: string[];
 }
 
-async function uploadPinImageObject(
-  file: File, userId: string, pinId: string, incarnation: string, uploadId: string
-): Promise<PinImageUpload> {
-  if (!userId) {
-    throw new Error('Authentication required to upload photos.');
-  }
+const pinImageUpload = httpsCallable(functions, 'pinImageUpload', { timeout: 65_000 });
 
-  // Enforce strict client-side validation first
-  validateImageFile(file);
+function pinImageType(file: File): string {
+  if (ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())) return file.type.toLowerCase();
+  const ext = file.name.split('.').at(-1)?.toLowerCase();
+  return 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+}
 
-  const storageRef = ref(storage, "pin-images/" + userId + "/" + pinId + "/" + incarnation + "/" + uploadId);
-  const upload = uploadBytes(storageRef, file, {
-    contentType: file.type || 'image/jpeg',
-    customMetadata: { uploadedBy: userId, pinId, incarnation, uploadId },
+function encodePinImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the selected image.'));
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.readAsDataURL(file);
   });
-
-  try {
-    const snapshot = await withTimeout(
-      upload,
-      15000,
-      'Photo upload timed out after 15 seconds. Storage bucket may not exist or be reachable.'
-    );
-
-    await setDoc(doc(db, 'pinImageUploadIntents', incarnation, 'receipts', uploadId), {
-      generation: snapshot.metadata.generation,
-    });
-    const downloadUrl = await withTimeout(
-      getDownloadURL(snapshot.ref),
-      10000,
-      'Failed to retrieve photo download URL.'
-    );
-    return { downloadUrl, uploadId, generation: snapshot.metadata.generation };
-  } catch (error: any) {
-    console.error('Firebase Storage upload failed:', error);
-    let message = 'Failed to upload photo to Firebase Storage.';
-    if (error?.code === 'storage/unauthorized') {
-      message = 'Storage permission denied. Please verify your authentication status.';
-    } else if (error?.code === 'storage/canceled') {
-      message = 'Upload was canceled.';
-    } else if (error?.code === 'storage/quota-exceeded') {
-      message = 'Storage quota exceeded. Please try again later.';
-    } else if (error?.code === 'storage/retry-limit-exceeded' || error?.message?.includes('timed out')) {
-      message = 'Upload timed out. The storage server or bucket was unreachable.';
-    } else if (error?.status === 404 || error?.code === 'storage/unknown' || error?.message?.includes('404')) {
-      message = 'Firebase Storage bucket not found or not initialized in the Firebase project.';
-    } else if (error?.message) {
-      message = `Storage error: ${error.message}`;
-    }
-    throw new Error(message);
-  }
 }
 
-export async function uploadMultipleImages(
-  files: File[], userId: string, pinId: string, incarnation: string
-): Promise<PinImageUpload[]> {
-  if (files.length > MAX_PIN_IMAGES) throw new Error("You can upload up to " + MAX_PIN_IMAGES + " photos.");
+export async function uploadMultipleImages(files: File[], pinId: string) {
+  if (files.length > MAX_PIN_IMAGES) throw new Error('You can upload up to ' + MAX_PIN_IMAGES + ' photos.');
   files.forEach(validateImageFile);
-  if (!files.length) return [];
-  const uploads = files.map(file => ({ file, uploadId: crypto.randomUUID() }));
-  await setDoc(doc(collection(db, 'pinImageUploadIntents'), incarnation), {
-    userId, pinId, createdAt: serverTimestamp(), uploadIds: uploads.map(upload => upload.uploadId),
+  const begin = await pinImageUpload({
+    action: 'begin', pinId, images: files.map(file => ({ size: file.size, type: pinImageType(file) })),
   });
-  return uploadBatch(uploads, ({ file, uploadId }) => uploadPinImageObject(file, userId, pinId, incarnation, uploadId));
+  const { incarnation, uploadIds } = begin.data as { incarnation: string; uploadIds: string[] };
+  // Limit simultaneous encodes and requests, especially on mobile.
+  for (let index = 0; index < files.length; index += 2) {
+    const pair = files.slice(index, index + 2).map((file, offset) => ({ file, uploadId: uploadIds[index + offset] }));
+    await uploadBatch(pair, async ({ file, uploadId }) => pinImageUpload({
+      action: 'upload', incarnation, uploadId, content: await encodePinImage(file),
+    }));
+  }
+  const { data } = await pinImageUpload({ action: 'finish', incarnation });
+  return { incarnation, claim: data as PinImageClaim };
 }
 
 /**

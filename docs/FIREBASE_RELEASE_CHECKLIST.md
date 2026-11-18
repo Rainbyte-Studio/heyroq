@@ -10,12 +10,12 @@ The frontend is hosted by **Google AI Studio**, not Firebase Hosting. Do not dep
 ## Before any production write
 1. Confirm the latest GitHub Actions checks (frontend, rules emulator, functions emulator) pass.
 2. Confirm Google AI Studio's published frontend is compatible with the backend changes; GitHub merges do not publish the AI Studio frontend automatically.
-3. Review current production Firebase rules, indexes, deployed Functions, IAM access, and available backups/rollback plan. For the geographic XP freeze, follow the [scoped 11-Function release and recovery plan](GEOGRAPHY_XP_RELEASE.md).
+3. Review current production Firebase rules, indexes, deployed Functions, IAM access, and available backups/rollback plan. For the geographic XP freeze, follow the [Functions release and recovery plan](GEOGRAPHY_XP_RELEASE.md).
 4. Run locally: `node --test tests/firestoreDeployTarget.test.cjs tests/publicProfileBlueprint.test.cjs`, `npm run lint`, `npm run build`, `npm test`, and `npm --prefix functions run build`.
 5. Confirm Firebase CLI identity and target with `firebase login`, `firebase projects:list`, and `firebase use rainbyte-studio`.
 
 ## Operator-approved deployment
-Run from the repository root only after explicit authorization, reviewing CLI output and any unexpected changes:
+For the pin image cutover, use the [ordered Rules, Functions and AI Studio release sequence](GEOGRAPHY_XP_RELEASE.md#pin-image-release-sequence). For other approved deployments, run from the repository root and review CLI output for unexpected changes:
 
 ```sh
 firebase deploy --project rainbyte-studio --only firestore:rules,firestore:indexes

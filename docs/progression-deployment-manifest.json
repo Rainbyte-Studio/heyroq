@@ -27,6 +27,13 @@
     "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com"
   },
   "functions": {
+    "pinImageUpload": {
+      "trigger": { "type": "httpsCallable" },
+      "desiredTimeoutSeconds": 60,
+      "memoryMiB": 512,
+      "concurrency": 2,
+      "maxInstances": 8
+    },
     "reconcilePinImageCleanup": {
       "trigger": {
         "type": "schedule",

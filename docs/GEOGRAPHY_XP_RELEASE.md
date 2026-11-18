@@ -11,8 +11,8 @@ deletion still removes the departing account's data.
 ## Scope and evidence
 
 See [the machine-readable manifest](progression-deployment-manifest.json) for all
-11 endpoints, trigger selectors, intended retries, and the production preflight
-snapshot. The snapshot is historical. The two unknown Functions API retry
+11 existing endpoints plus the image upload callable and reconciliation
+scheduler, their triggers, intended retries, and the production preflight snapshot. The snapshot is historical. The two unknown Functions API retry
 values must be checked before approval.
 
 The follow-up Cloud Run view showed the three additional endpoints at 100% on
@@ -62,11 +62,11 @@ Eventarc scheduling, redelivery timing, or service IAM.
    Callables have no event retry policy. Pub/Sub subscription backoff is a
    separate setting. Also review the account deletion timeout change from the
    preflight's 60 seconds to the approved code's 540 seconds.
-3. After production approval, deploy the 11 named Functions from the same
-   immutable package. The Firebase CLI selector is the comma-separated list
-   of manifest keys, each prefixed with `functions:`. Use the explicit project
-   `rainbyte-studio` and the verified CLI identity. This scope covers Functions
-   only. Review any CLI proposal for enabling APIs or changing IAM separately.
+3. Follow the [pin image cutover](#pin-image-release-sequence) for the order of
+   Rules, Functions and the AI Studio frontend. After production approval,
+   deploy explicitly selected Functions from the same immutable package. Use
+   the explicit project `rainbyte-studio` and the verified CLI identity. Review
+   any CLI proposal for enabling APIs or changing IAM separately.
 4. Function updates are non-atomic. Treat the interval as a mixed-version
    window. Existing requests, deliveries and cascades may still reach an old
    revision. A freeze from the first instant requires a separately approved
@@ -198,55 +198,119 @@ adapter. Seek custom licensing from Google Maps Platform Sales if required.
   widening the allowlist. Monitor request rates, failures, award rates and
   spend without recording precise coordinates or lookup content.
 
-### Pin image cleanup and recovery
+## Pin image authorization and recovery
 
-New uploads use a unique object path under the owner, pin ID and image
-incarnation. The frontend publishes the pin and its immutable claim in one
-Firestore batch. A claim retains the upload IDs and original Storage
-generations. Keep these claims to prohibit reuse of an old incarnation.
-A delete event verifies the create time shared by the pin and its claim, then
-records a server-only job. Each job handles at most 20 objects from the
-configured bucket, verifies ownership metadata, and passes generation and
-metageneration preconditions to the delete. A replay can continue after a
-partial failure. Missing objects count as already complete. Mismatches are
-recorded as unresolved. Legacy image URLs are reported in logs without their
-download tokens and do not schedule Storage requests.
+The authenticated `pinImageUpload` callable creates an intent in the named
+Firestore database. The server-generated incarnation and slot IDs expire after
+10 minutes and require the same authenticated UID and an active profile.
+Authorization counts every requested slot, including abandoned or failed
+attempts. The fixed UTC hourly budgets are 100 slots per UID and 200 for the
+project across this endpoint, with up to 20 slots per pin and 10 MiB per image.
+This permits at most 2,000 MiB of authorized image bytes per hour. Allow for a
+burst across the hour boundary. The callable has 8 maximum instances, concurrency
+2 and a 60-second timeout. It proxies bytes as base64 to preserve the existing
+file size and MIME envelope without issuing direct Storage write credentials.
 
-The delete trigger retains its manifest retry policy. The scheduled Function
-pages through claims and upload intents every five minutes. It recovers jobs
-even when the delete event was lost and resumes pending work up to the durable
-attempt limit of eight. The sweep is paginated, so revisit time grows with
-collection size.
+A Firestore transaction reserves each slot once before touching Storage.
+The server checks decoded size and file signature against the declared MIME
+type, writes with `ifGenerationMatch: 0` to its reserved object path,
+verifies the stored size, MIME, generation and server metadata, and writes
+the receipt. Validation checks format signatures. It does not decode images,
+scan their contents, or validate dimensions. The server never fetches a
+client-provided URL or accepts a client-provided object path or generation.
+A failure after slot reservation requires a fresh publish attempt. A
+successful finalization can be retried within the authorization window.
 
-The normal frontend records an intent before upload and an immutable receipt
-before retrieving the download URL. After the one-hour publication window,
-the scheduler can clean up an unpublished upload only with a matching receipt,
-object identity, generation and metageneration. A successful upload can outlive
-a timeout or lost receipt write. Retaining that object is an accepted limitation
-of automatic cleanup. It is recorded as missing-upload-generation without a
-Storage delete. A job can be complete and still contain unresolved objects.
+Firestore Rules match the complete URL list and immutable claim against the
+server approval and require the pin and claim to be created in the same commit.
+The claim binds the owner, ID and incarnation, is consumed once, and persists
+for cleanup. Rules forbid later URL changes or copying a managed URL to
+another pin's image list. Public image views use the stored Firebase download
+URLs. Keep their bearer tokens out of logs. New objects deny client Storage
+SDK access and use tokenized reads. Legacy prefixes stay readable, and the
+final Storage Rules prohibit all client mutations in all three pin prefixes.
+Profile picture Storage access is separate.
 
-In demo or separately approved staging, validate alerts for reconciliation
-errors, unresolved warnings, growing pending-job age, and retry-limit jobs.
-Check both jobs with status unresolved and jobs with unresolved entries. Track
-Storage object count, bytes, request volume and spend separately. Direct uploads
-without an intent are invisible to reconciliation. During authorized manual
-triage, record the job, pin, incarnation, upload ID and reason without download
-tokens. Check current references and establish the original object generation
-from independent evidence. If ownership, generation or absence of live references
-is ambiguous, retain the object. Any separately approved manual deletion must
-match the verified generation and metageneration. Do not use age-based or
-prefix-wide deletion.
+A delete event verifies the shared pin/claim create time. The scheduler
+pages claims every five minutes for lost delete events and processes due
+orphan intents separately. An abandoned intent enters reconciliation an hour
+after creation, well after upload authorization closes. Zero writes require
+no deletion. If an upload succeeded before its receipt was completed, the
+original server reservation nonce and pristine matching Storage metadata can
+establish identity. Otherwise preserve the object when identity is ambiguous.
+Delete checks the generation and current metageneration and guards both with
+preconditions. Replacement objects and precondition failures stay in Storage.
+Partial failures resume against the same claim or intent with at most eight
+durable attempts. Published claims are scanned in pages of 20, so recovery for
+missed delete events can lag as the collection grows.
 
-Merge remains blocked on direct client uploads. Storage Rules permit
-authenticated creates in the caller's managed prefix with matching metadata
-without proving an intent or applying an aggregate quota. The legacy upload
-path also accepts direct owner uploads. Storage Rules support Firestore lookups
-only in the default database, while Heyroq uses a named database. The per-file
-limit does not bound aggregate writes, retained bytes or public read costs.
-Firestore also accepts image URLs independently of a managed claim, so arbitrary
-cross-pin URL reuse is outside the active-incarnation protection. Confirm both
-unknown live retry settings separately before rollout.
+Keep legacy URL-only pins, objects from the prior client-managed protocol, and
+unknown references. This includes account deletion, which leaves legacy pin
+images for separate reference and retention review. The delete trigger and
+scheduler manage server-owned generations only. Account deletion still removes
+profile images and the pin documents. Never use age-based or prefix-wide deletion
+for pin images. A job can be complete while containing unresolved objects.
+For manual triage record the job, pin, incarnation, slot and reason without
+tokens. Delete manually only with separate approval, proven original generation,
+proven lack of active references and generation/metageneration preconditions.
+
+The budgets cap admitted Storage bytes, not rejected callable traffic, public
+download traffic, cumulative stored bytes, or per-account fairness. Multiple
+accounts can exhaust the shared quota. Monitor request volumes, quota rejects,
+instance load, old jobs, unresolved entries even on completed jobs, retained
+bytes and network spend. Watch these separately from Firestore ledger alerts.
+No App Check registration or enforcement is assumed by this release.
+
+### Pin image release sequence
+
+Rehearse using the actual currently published AI Studio build and the pinned
+replacement in a disposable environment. Confirm that old-client image URLs
+match the tested legacy URL format and that old clients support the expected
+image count. Confirm the endpoint origin, callable authentication, runtime
+service account and bucket permissions, tokenized public reads, and named
+Firestore rules. Record checksums of transitional and final Rules and the
+frontend archive. Generate the transitional Rules locally in a release
+worktree, without overwriting the canonical Rules:
+
+```sh
+node scripts/pin-image-transition-rules.mjs firestore > firestore.pin-transition.rules
+node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rules
+```
+
+1. With explicit approval, deploy the transitional named Firestore Rules and
+   transitional Storage Rules using a release-only Firebase config pointing to
+   those generated files. Firestore accepts old URLs only in the same owner's
+   exact legacy bucket and prefix, and the new flow only via server approval.
+   Transitional Storage gives old clients create-only access in their legacy
+   prefix and no client writes to either managed prefix.
+   With index approval, apply the sparse orphan-queue index in
+   `firestore.indexes.json` to the named Enterprise database and confirm it is
+   ready before activating the scheduler and callable.
+2. Deploy the approved Functions from the pinned artifact using explicit
+   selectors. Confirm safety of pin deletion and account deletion and drain
+   old revisions that could delete legacy images. Verify the reconciliation
+   scheduler and deploy/enable the new upload callable only after the
+   transitional Firestore Rules are confirmed active. A wholesale deployment
+   of the 11 existing handlers must wait for separate decisions on the
+   timeout and retry deltas identified above.
+3. Publish the pinned AI Studio frontend. During the overlap, current clients
+   can still publish through the legacy path. Verified new clients can publish
+   image and imageless pins, and read legacy pins. Confirm the real published
+   assets and client adoption. With separate test-write approval, publish/read/
+   delete both kinds of new pin and check cleanup and ordinary XP.
+4. Drain in-flight legacy image publishes and communicate the reload deadline
+   for stale tabs. Apply final named Firestore Rules first, then final Storage
+   Rules immediately afterward. This order closes legacy pin references
+   before closing direct uploads. New clients retain photo publishing
+   throughout. Old tabs after the deadline need a refresh to attach images.
+   Verify both final rulesets and the deployed frontend/Functions SHA and
+   revisions before declaring cutover complete.
+5. On failure before final enforcement, pause in the restricted transitional
+   state. After final enforcement, recover forward with a compatible frontend,
+   callable and ruleset that continue enforcing managed claims. Do not restore
+   arbitrary image references, direct managed writes, or legacy code that
+   automatically deletes ambiguous objects. Review any temporary reopening
+   of the legacy create-only path separately.
 
 Firestore child cleanup checks parent absence and child versions together.
 Legacy children updated after the deleted parent remain ambiguous and are

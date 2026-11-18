@@ -6,6 +6,7 @@ import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebas
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
+import { handlePinImageUpload } from './pinImageUpload';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -32,6 +33,11 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
+
+export const pinImageUpload = onCall(
+  { region: FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 },
+  request => handlePinImageUpload(db, () => storage.bucket(), request.auth, request.data),
+);
 
 function isActivePin(data: FirebaseFirestore.DocumentData): boolean {
   return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
@@ -839,9 +845,8 @@ export const deleteUserAccount = onCall(
         prefix: `profile-images/${userId}/`,
       });
 
-      // Remove the user's remaining pin images, including uploads not attached to a pin.
-      // A missing bucket or transient Storage error must not silently be reported as success.
-      await storage.bucket().deleteFiles({ prefix: `pins/${userId}/` });
+      // Pin delete events and reconciliation remove server-owned images by generation.
+      // Legacy pin images can still be referenced by other pins.
 
       const userRef = db.collection('users').doc(userId);
       await db.recursiveDelete(userRef);

@@ -21,36 +21,12 @@ service firebase.storage {
              request.resource.size <= 10 * 1024 * 1024; // 10 MB maximum
     }
 
-    // Pin images uploaded by users
-    // Path: pins/{userId}/{fileName}
+    // Preserve existing pin images. New objects use a backend-only prefix.
     match /pins/{userId}/{fileName} {
-      // Public read allowed for pin pictures
       allow read: if true;
-
-      // Only the authenticated user can upload to their own folder, enforcing 10MB limit and image MIME types
-      allow create: if isOwner(userId) && isValidImage();
-
-      // Only the owner can update their own image
-      allow update: if isOwner(userId) && isValidImage();
-
-      // Only the owner can delete their own image
-      allow delete: if isOwner(userId);
     }
-
-    function isUploadId(value) {
-      return value.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
-    }
-
-    // Managed pin uploads are immutable for clients. Server deletion is conditional.
     match /pin-images/{userId}/{pinId}/{incarnation}/{uploadId} {
       allow read: if true;
-      allow create: if resource == null && isOwner(userId) && isValidImage() &&
-                    pinId.matches("[A-Za-z0-9]{20}") &&
-                    isUploadId(incarnation) && isUploadId(uploadId) &&
-                    request.resource.metadata.uploadedBy == userId &&
-                    request.resource.metadata.pinId == pinId &&
-                    request.resource.metadata.incarnation == incarnation &&
-                    request.resource.metadata.uploadId == uploadId;
     }
 
     // Profile and Avatar images

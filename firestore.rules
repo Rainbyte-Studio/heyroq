@@ -217,60 +217,35 @@ service cloud.firestore {
     function hasNewPinImageClaim(pinId, data) {
       let incarnation = data.imageIncarnation;
       let claim = /databases/$(database)/documents/pinImageClaims/$(incarnation);
-      return incarnation is string && incarnation.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
-             !exists(claim) && getAfter(claim).data.pinId == pinId &&
-             getAfter(claim).data.userId == data.userId;
+      let authorized = getAfter(claim).data;
+      return validIncarnation(incarnation) && !exists(claim) &&
+             authorized.pinId == pinId && authorized.userId == data.userId &&
+             authorized.imageUrls == data.get('imageUrls', []);
     }
 
-    function intentIsOpen(intent) {
-      return request.time < intent.createdAt + duration.value(1, "h");
+    function validIncarnation(value) {
+      return value is string && value.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     }
 
-    function canPublishImageIntent(incarnation, data) {
-      let intent = /databases/$(database)/documents/pinImageUploadIntents/$(incarnation);
-      return !exists(intent) ||
-             (get(intent).data.userId == data.userId && get(intent).data.pinId == data.pinId &&
-              intentIsOpen(get(intent).data) &&
-              !exists(/databases/$(database)/documents/pinImageCleanupJobs/$(incarnation)));
+    function canPublishWithoutClaim(data) {
+      return data.get('imageUrls', []) == [];
     }
 
-    match /pinImageUploadIntents/{incarnation} {
-      allow create: if isSignedIn() &&
-                    incarnation.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
-                    request.resource.data.keys().hasOnly(["pinId", "userId", "createdAt", "uploadIds"]) &&
-                    request.resource.data.userId == request.auth.uid &&
-                    request.resource.data.pinId.matches("[A-Za-z0-9]{20}") &&
-                    request.resource.data.createdAt == request.time &&
-                    request.resource.data.uploadIds is list && request.resource.data.uploadIds.size() > 0 &&
-                    request.resource.data.uploadIds.size() <= 20 &&
-                    !exists(/databases/$(database)/documents/pinImageClaims/$(incarnation));
-
-      match /receipts/{uploadId} {
-        allow create: if isSignedIn() &&
-                      uploadId.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
-                      request.resource.data.keys().hasOnly(["generation"]) &&
-                      request.resource.data.generation.matches("[1-9][0-9]{0,19}") &&
-                      mayRecordReceipt(incarnation, uploadId);
-      }
-    }
-
-    function mayRecordReceipt(incarnation, uploadId) {
-      let intent = get(/databases/$(database)/documents/pinImageUploadIntents/$(incarnation)).data;
-      return intent.userId == request.auth.uid && uploadId in intent.uploadIds && intentIsOpen(intent);
-    }
-
-    // Retain claims permanently so a later pin cannot reuse this incarnation.
+    // Only the server may produce an approval or upload receipt. The claim consumes it once.
     match /pinImageClaims/{incarnation} {
-      allow create: if isSignedIn() &&
-                    incarnation.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
-                    request.resource.data.keys().hasOnly(["pinId", "userId", "images"]) &&
-                    request.resource.data.userId == request.auth.uid &&
-                    request.resource.data.pinId.matches("[A-Za-z0-9]{20}") &&
-                    request.resource.data.images is list &&
-                    request.resource.data.images.size() > 0 && request.resource.data.images.size() <= 20 &&
-                    canPublishImageIntent(incarnation, request.resource.data) &&
-                    !exists(/databases/$(database)/documents/pins/$(request.resource.data.pinId)) &&
-                    getAfter(/databases/$(database)/documents/pins/$(request.resource.data.pinId)).data.imageIncarnation == incarnation;
+      allow create: if isNonAnonymous() && request.auth.token.firebase.get('tenant', '') == '' &&
+                    validIncarnation(incarnation) &&
+                    matchesImageApproval(incarnation, request.resource.data);
+    }
+
+    function matchesImageApproval(incarnation, data) {
+      let approved = get(/databases/$(database)/documents/pinImageApprovals/$(incarnation)).data;
+      let pin = /databases/$(database)/documents/pins/$(data.pinId);
+      return data == approved.claim && data.protocol == 'server-v1' &&
+             data.userId == request.auth.uid && request.time < approved.expiresAt &&
+             !exists(/databases/$(database)/documents/pinImageCleanupJobs/$(incarnation)) &&
+             !exists(pin) && getAfter(pin).data.imageIncarnation == incarnation &&
+             getAfter(pin).data.imageUrls == data.imageUrls;
     }
 
     match /pins/{pinId} {
@@ -282,7 +257,9 @@ service cloud.firestore {
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
-                       (!("imageIncarnation" in request.resource.data) || hasNewPinImageClaim(pinId, request.resource.data)) &&
+                       (("imageIncarnation" in request.resource.data)
+                         ? hasNewPinImageClaim(pinId, request.resource.data)
+                         : canPublishWithoutClaim(request.resource.data)) &&
                        (!('likeCount' in request.resource.data) || request.resource.data.likeCount == 0) &&
                        (!('commentCount' in request.resource.data) || request.resource.data.commentCount == 0);
 
@@ -290,7 +267,7 @@ service cloud.firestore {
       // Owner UID, createdAt, counters and location fields cannot be modified by the client.
       // Author name/avatar may only change to the author's current canonical profile values.
       allow update: if isSignedIn() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation"]) && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls"]) && (
         (
           isOwner(resource.data.userId) && isActiveUser(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&

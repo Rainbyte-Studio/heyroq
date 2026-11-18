@@ -187,11 +187,14 @@ test('all compiled endpoints match the deployment manifest, including retry poli
   const manifest = require('../../docs/progression-deployment-manifest.json');
   const names = Object.keys(functions).filter(name => functions[name].__endpoint);
   assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
-  for (const [name, { trigger, desiredTimeoutSeconds }] of Object.entries(manifest.functions)) {
+  for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances }] of Object.entries(manifest.functions)) {
     const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
     assert.deepEqual(endpoint.region, [manifest.region], name);
     assert.equal(endpoint.platform, manifest.platform, name);
     assert.equal(endpoint.timeoutSeconds ?? 60, desiredTimeoutSeconds, name);
+    if (memoryMiB != null) assert.equal(endpoint.availableMemoryMb, memoryMiB, name);
+    if (concurrency != null) assert.equal(endpoint.concurrency, concurrency, name);
+    if (maxInstances != null) assert.equal(endpoint.maxInstances, maxInstances, name);
     if (trigger.type === 'schedule') {
       assert.equal(endpoint.scheduleTrigger.schedule, trigger.schedule, name);
       assert.equal(endpoint.scheduleTrigger.timeZone, trigger.timeZone, name);
@@ -220,6 +223,8 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   const like = pin.collection('likes').doc(uid);
   const comment = pin.collection('comments').doc('matrix-comment');
   const follower = survivor.collection('followers').doc(uid);
+  const legacyImage = require('firebase-admin/storage').getStorage().bucket().file('pins/' + uid + '/legacy.png');
+  await legacyImage.save('referenced legacy image');
   await db.batch().set(departing, {}).set(survivor, { followersCount: 1 })
     .set(pin, { userId: survivorId, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR' })
     .set(like, { userId: uid }).set(comment, { userId: uid }).set(follower, { followerId: uid })
@@ -230,6 +235,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   let previousEvents;
   for (let delivery = 0; delivery < 2; delivery++) {
     assert.equal((await functions.deleteUserAccount.run(request)).success, true);
+    assert.equal((await legacyImage.exists())[0], true);
     for (const ref of [departing, like, comment, follower]) assert.equal((await ref.get()).exists, false);
     await Promise.all([
       functions.onPinLikeDeleted.run({ params: { pinId: pin.id } }),
@@ -418,15 +424,15 @@ test('managed pin cleanup keeps a replacement pin and mismatched object generati
     const incarnation = randomUUID();
     const objects = await Promise.all([0, 1].map(async () => {
       const uploadId = randomUUID();
-      const file = bucket.file('pin-images/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
-      const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+      const file = bucket.file('pin-images-v2/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+      const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
       await file.save('original', { metadata });
       return { file, metadata, uploadId, generation: String((await file.getMetadata())[0].generation) };
     }));
     const batch = db.batch();
     batch.create(pin, { userId, imageIncarnation: incarnation });
     batch.create(db.collection('pinImageClaims').doc(incarnation), {
-      pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+      protocol: 'server-v1', pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
     });
     await batch.commit();
     return { incarnation, objects, snapshot: await pin.get() };
@@ -461,15 +467,15 @@ test('managed partial failure leaves a recorded job that resumes with the origin
   const incarnation = randomUUID();
   const objects = await Promise.all([0, 1].map(async () => {
     const uploadId = randomUUID();
-    const file = bucket.file('pin-images/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
-    const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    const file = bucket.file('pin-images-v2/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+    const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
     await file.save('original', { metadata });
     return { file, uploadId, generation: String((await file.getMetadata())[0].generation) };
   }));
   const batch = db.batch();
   batch.create(pin, { userId, imageIncarnation: incarnation });
   batch.create(db.collection('pinImageClaims').doc(incarnation), {
-    pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+    protocol: 'server-v1', pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
   });
   await batch.commit();
   const snapshot = await pin.get();
@@ -505,14 +511,14 @@ test('claim reconciliation recovers a missing delete event and preserves a live 
   const publish = async () => {
     const incarnation = randomUUID();
     const uploadId = randomUUID();
-    const file = bucket.file(['pin-images', userId, pin.id, incarnation, uploadId].join('/'));
-    const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    const file = bucket.file(['pin-images-v2', userId, pin.id, incarnation, uploadId].join('/'));
+    const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
     await file.save('original', { metadata });
     const [{ generation }] = await file.getMetadata();
     const batch = db.batch();
     batch.create(pin, { userId, imageIncarnation: incarnation });
     batch.create(db.collection('pinImageClaims').doc(incarnation), {
-      pinId: pin.id, userId, images: [{ uploadId, generation: String(generation) }],
+      protocol: 'server-v1', pinId: pin.id, userId, images: [{ uploadId, generation: String(generation) }],
     });
     await batch.commit();
     return { incarnation, file };
@@ -545,13 +551,22 @@ test('expired upload intents recover verified uploads and preserve unknown or re
   const incarnation = randomUUID();
   const intent = db.collection('pinImageUploadIntents').doc(incarnation);
   const job = db.collection('pinImageCleanupJobs').doc(incarnation);
-  const uploadIds = Array.from({ length: 3 }, () => randomUUID());
-  await intent.create({ pinId, userId, uploadIds, createdAt: Timestamp.now() });
+  const uploadIds = Array.from({ length: 5 }, () => randomUUID());
+  await intent.create({ protocol: 'server-v1', pinId, userId, uploadIds, createdAt: Timestamp.now(),
+    specs: uploadIds.map(() => ({ size: 6, type: 'image/png' })),
+    cleanupAfter: Timestamp.fromMillis(Date.now() + 60 * 60_000) });
   const objects = await Promise.all(uploadIds.map(async (uploadId, index) => {
-    const file = bucket.file(['pin-images', userId, pinId, incarnation, uploadId].join('/'));
-    const metadata = { metadata: { uploadedBy: userId, pinId, incarnation, uploadId } };
+    const file = bucket.file(['pin-images-v2', userId, pinId, incarnation, uploadId].join('/'));
+    const metadata = { contentType: 'image/png',
+      metadata: { protocol: 'server-v1', uploadedBy: userId, pinId, incarnation, uploadId } };
+    if (index === 4) return file; // No request ever reached Storage.
+    const nonce = randomUUID();
+    if (index === 1) {
+      metadata.metadata.nonce = nonce;
+      await intent.collection('receipts').doc(uploadId).create({ nonce });
+    }
     await file.save('upload', { metadata });
-    if (index !== 1) {
+    if (index === 0 || index === 2) {
       const [{ generation }] = await file.getMetadata();
       await intent.collection('receipts').doc(uploadId).create({ generation: String(generation) });
     }
@@ -561,17 +576,19 @@ test('expired upload intents recover verified uploads and preserve unknown or re
 
   await functions.reconcilePinImageCleanup.run({});
   assert.equal((await job.get()).exists, false);
-  await intent.update({ createdAt: Timestamp.fromMillis(Date.now() - 61 * 60_000) });
+  await intent.update({ cleanupAfter: Timestamp.fromMillis(Date.now() - 1) });
   await functions.reconcilePinImageCleanup.run({});
   await functions.reconcilePinImageCleanup.run({});
   const result = await job.get();
   assert.equal(result.get('status'), 'complete');
   assert.deepEqual(result.get('unresolved'), [
-    { uploadId: uploadIds[1], reason: 'missing-upload-generation' },
     { uploadId: uploadIds[2], reason: 'object-identity-mismatch' },
+    { uploadId: uploadIds[3], reason: 'object-identity-mismatch' },
   ]);
   assert.equal((await objects[0].exists())[0], false);
-  assert.equal((await objects[1].download())[0].toString(), 'upload');
+  assert.equal((await objects[1].exists())[0], false);
+  assert.equal((await objects[3].download())[0].toString(), 'upload');
+  assert.equal((await objects[4].exists())[0], false);
   assert.equal((await objects[2].download())[0].toString(), 'new generation');
 });
 
@@ -584,14 +601,14 @@ test('cleanup stops retrying after the durable attempt limit', async () => {
   const claim = db.collection('pinImageClaims').doc(incarnation);
   const job = db.collection('pinImageCleanupJobs').doc(incarnation);
   const { writeTime } = await claim.create({
-    pinId, userId, images: [{ uploadId: randomUUID(), generation: '1' }],
+    protocol: 'server-v1', pinId, userId, images: [{ uploadId: randomUUID(), generation: '1' }],
   });
   await job.create({ pinId, userId, claimCreatedAt: writeTime, status: 'pending', attempts: 8 });
   await resumePinImageCleanup(db, () => assert.fail('retry limit must prevent Storage access'), incarnation);
   assert.equal((await job.get()).get('reason'), 'retry-limit');
 });
 
-test('Storage SDK sends exact delete preconditions and a stale DELETE preserves the replacement', async () => {
+test('Storage SDK sends create-only and exact delete preconditions to the Storage API', async () => {
   const { createServer } = require('node:http');
   const { once } = require('node:events');
   const { getStorage } = require('firebase-admin/storage');
@@ -602,13 +619,16 @@ test('Storage SDK sends exact delete preconditions and a stale DELETE preserves 
   await file.save('new generation');
   const [replacement] = await file.getMetadata();
 
-  // The Storage emulator ignores DELETE preconditions. Capture the pinned SDK
-  // request on loopback and model the documented GCS 412 response here.
+  // The Storage emulator ignores these preconditions. Capture the pinned SDK
+  // requests on loopback and model GCS's 412 response for an occupied object.
   const requests = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url, 'http://localhost');
     requests.push({ method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams) });
-    const stale = url.searchParams.get('ifGenerationMatch') !== String(replacement.generation);
+    request.resume();
+    const stale = request.method === 'POST'
+      ? url.searchParams.get('ifGenerationMatch') === '0'
+      : url.searchParams.get('ifGenerationMatch') !== String(replacement.generation);
     response.writeHead(stale ? 412 : 204, { 'content-type': 'application/json' });
     response.end(stale ? JSON.stringify({ error: { code: 412, message: 'Precondition Failed' } }) : undefined);
   });
@@ -628,13 +648,168 @@ test('Storage SDK sends exact delete preconditions and a stale DELETE preserves 
       ifGenerationMatch: String(checked.generation),
       ifMetagenerationMatch: String(checked.metageneration),
     }), { code: 412 });
-    assert.equal(requests.length, 1);
+    await assert.rejects(client.bucket(file.bucket.name).file(file.name).save('would overwrite', {
+      resumable: false, preconditionOpts: { ifGenerationMatch: 0 },
+    }), { code: 412 });
+    assert.equal(requests.length, 2);
     assert.equal(requests[0].method, 'DELETE');
     assert.ok(requests[0].pathname.endsWith("/o/" + encodeURIComponent(file.name)));
     assert.equal(requests[0].query.ifGenerationMatch, String(checked.generation));
     assert.equal(requests[0].query.ifMetagenerationMatch, String(checked.metageneration));
+    assert.equal(requests[1].method, 'POST');
+    assert.equal(requests[1].query.name, file.name);
+    assert.equal(requests[1].query.ifGenerationMatch, '0');
     assert.equal((await file.download())[0].toString(), 'new generation');
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
+});
+
+test('server upload binds an authenticated owner, reserves each slot once and verifies the real stored generation', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { Timestamp } = require('firebase-admin/firestore');
+  const { getStorage } = require('firebase-admin/storage');
+  const { handlePinImageUpload, pinImagePath } = require('../lib/pinImageUpload.js');
+  const { pinImageUpload } = require('../lib/index.js');
+  const bucket = getStorage().bucket();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+  const uid = 'image-owner-' + randomUUID();
+  const foreign = 'image-foreign-' + randomUUID();
+  const pinId = pins.doc().id;
+  const image = { size: png.length, type: 'image/png' };
+  const auth = (uid, provider = 'password') => ({ uid, token: { firebase: { sign_in_provider: provider } } });
+  const call = (data, credentials = auth(uid)) => pinImageUpload.run({ data, auth: credentials });
+  await db.collection('users').doc(uid).set({ displayName: 'Owner' });
+  await db.collection('users').doc(foreign).set({ displayName: 'Foreign' });
+  const begin = { action: 'begin', pinId, images: [image] };
+  await assert.rejects(pinImageUpload.run({ data: begin }), { code: 'unauthenticated' });
+  await assert.rejects(call(begin, auth(uid, 'anonymous')), { code: 'unauthenticated' });
+  await assert.rejects(call(begin, auth('missing-profile')), { code: 'permission-denied' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, size: 0 }] }), { code: 'invalid-argument' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, size: 10 * 1024 * 1024 + 1 }] }), { code: 'invalid-argument' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, type: 'text/html' }] }), { code: 'invalid-argument' });
+
+  const { incarnation, uploadIds: [uploadId] } = await call(begin);
+  const finish = { action: 'finish', incarnation };
+  const upload = { action: 'upload', incarnation, uploadId, content: png.toString('base64') };
+  const intent = db.collection('pinImageUploadIntents').doc(incarnation);
+  const file = bucket.file(pinImagePath(uid, pinId, incarnation, uploadId));
+  await assert.rejects(call(upload, auth(foreign)), { code: 'permission-denied' });
+  await assert.rejects(call(finish, auth(foreign)), { code: 'permission-denied' });
+  await assert.rejects(call(finish), { code: 'failed-precondition' });
+  await assert.rejects(call({ ...upload, uploadId: randomUUID() }), { code: 'invalid-argument' });
+  const responses = await Promise.allSettled([call(upload), call(upload)]);
+  assert.equal(responses.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(responses.find(result => result.status === 'rejected').reason.code, 'already-exists');
+  const claim = await call(finish);
+  assert.deepEqual(await call(finish), claim);
+  const [metadata] = await file.getMetadata();
+  assert.deepEqual(claim.images, [{ uploadId, generation: String(metadata.generation) }]);
+  assert.equal(claim.userId, uid);
+  assert.deepEqual((await file.download())[0], png);
+  assert.equal(new URL(claim.imageUrls[0]).searchParams.get('token'), metadata.metadata.firebaseStorageDownloadTokens);
+  assert.equal((await db.collection('pinImageApprovals').doc(incarnation).get()).get('claim.pinId'), pinId);
+  await intent.update({ expiresAt: Timestamp.fromMillis(Date.now() - 1) });
+  await assert.rejects(call(upload), { code: 'deadline-exceeded' });
+  await assert.rejects(call(finish), { code: 'deadline-exceeded' });
+
+  const invalidContent = await call(begin);
+  const invalidUpload = { action: 'upload', incarnation: invalidContent.incarnation,
+    uploadId: invalidContent.uploadIds[0], content: Buffer.alloc(png.length).toString('base64') };
+  await assert.rejects(call(invalidUpload), { code: 'invalid-argument' });
+  await assert.rejects(call(invalidUpload), { code: 'already-exists' });
+  await assert.rejects(call({ action: 'finish', incarnation: invalidContent.incarnation }), { code: 'failed-precondition' });
+  assert.equal((await bucket.file(pinImagePath(uid, pinId, invalidContent.incarnation, invalidUpload.uploadId)).exists())[0], false);
+
+  const collision = await call(begin);
+  const occupied = bucket.file(pinImagePath(uid, pinId, collision.incarnation, collision.uploadIds[0]));
+  await occupied.save('existing object');
+  const [beforeCollision] = await occupied.getMetadata();
+  const storageWithCollision = { name: bucket.name, file(path) {
+    assert.equal(path, occupied.name);
+    return { async save(_bytes, options) {
+      assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
+      throw Object.assign(new Error('Precondition failed'), { code: 412 });
+    } };
+  } };
+  await assert.rejects(handlePinImageUpload(db, () => storageWithCollision, auth(uid), {
+    ...upload, incarnation: collision.incarnation, uploadId: collision.uploadIds[0],
+  }), { code: 'failed-precondition' });
+  assert.equal((await occupied.getMetadata())[0].generation, beforeCollision.generation);
+  assert.equal((await occupied.download())[0].toString(), 'existing object');
+
+  const globalQuota = db.collection('pinImageUploadQuotas').doc('global').collection('capacity').doc('hourly');
+  const globalBefore = await globalQuota.get();
+  await globalQuota.set({ hour: Math.floor(Date.now() / 3_600_000), count: 200 });
+  await assert.rejects(call(begin, auth(foreign)), { code: 'resource-exhausted' });
+  await globalQuota.set(globalBefore.data());
+
+  const quota = db.collection('pinImageUploadQuotas').doc(uid);
+  await quota.set({ hour: Math.floor(Date.now() / 3_600_000), count: 100 });
+  await assert.rejects(call(begin), { code: 'resource-exhausted' });
+  await db.collection('accountDeletionLocks').doc(uid).create({ status: 'deleting' });
+  await assert.rejects(call(begin), { code: 'permission-denied' });
+});
+
+test('the named database applies the pin-image rules to an authenticated client', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { pinImageUpload } = require('../lib/index.js');
+  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+  assert.match(authHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const signup = await fetch('http://' + authHost + '/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-key', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: randomUUID() + '@example.test', password: randomUUID(), returnSecureToken: true }),
+  });
+  assert.equal(signup.ok, true);
+  const { localId: uid, idToken } = await signup.json();
+  const auth = { uid, token: { firebase: { sign_in_provider: 'password' } } };
+  const call = data => pinImageUpload.run({ data, auth });
+  const pinId = pins.doc().id;
+  await db.collection('users').doc(uid).set({ displayName: 'Local publisher' });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+
+  const begin = await call({ action: 'begin', pinId, images: [{ size: png.length, type: 'image/png' }] });
+  await call({ action: 'upload', incarnation: begin.incarnation, uploadId: begin.uploadIds[0], content: png.toString('base64') });
+  const claim = await call({ action: 'finish', incarnation: begin.incarnation });
+  const download = new URL(claim.imageUrls[0]);
+  const storageHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+  assert.match(storageHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const publicDownload = await fetch('http://' + storageHost + download.pathname + download.search);
+  assert.equal(publicDownload.status, 200);
+  assert.deepEqual(Buffer.from(await publicDownload.arrayBuffer()), png);
+  const withoutToken = await fetch('http://' + storageHost + download.pathname + '?alt=media');
+  assert.equal(withoutToken.status, 403);
+
+  const database = 'projects/demo-heyroq/databases/' + FIRESTORE_DATABASE_ID;
+  const url = 'http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents:commit';
+  const encode = value => {
+    if (typeof value === 'string') return { stringValue: value };
+    if (typeof value === 'number') return { doubleValue: value };
+    if (Array.isArray(value)) return { arrayValue: { values: value.map(encode) } };
+    return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)])) } };
+  };
+  const write = (path, data) => ({ update: { name: database + '/documents/' + path, fields: encode(data).mapValue.fields } });
+  const commit = writes => fetch(url, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + idToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes }),
+  });
+  const pin = { userId: uid, title: 'Local spot', latitude: 37, longitude: 23, category: 'Other',
+    createdAt: new Date().toISOString(), imageUrls: claim.imageUrls };
+  const pinWrite = write('pins/' + pinId, { ...pin, imageIncarnation: begin.incarnation });
+  const claimWrite = write('pinImageClaims/' + begin.incarnation, claim);
+  assert.equal((await commit([claimWrite])).status, 403);
+  assert.equal((await commit([write('pins/' + pinId, pin)])).status, 403);
+  const published = await commit([pinWrite, claimWrite]);
+  assert.equal(published.status, 200, await published.text());
+  assert.deepEqual((await pins.doc(pinId).get()).get('imageUrls'), claim.imageUrls);
+  assert.equal((await commit([write('pins/' + pins.doc().id, pin)])).status, 403);
+
+  const snapshot = await pins.doc(pinId).get();
+  await pins.doc(pinId).delete();
+  await require('../lib/index.js').onPinDeleted.run({ id: randomUUID(), params: { pinId }, data: snapshot });
+  const bucket = require('firebase-admin/storage').getStorage().bucket();
+  const path = decodeURIComponent(download.pathname.split('/o/')[1]);
+  assert.equal((await bucket.file(path).exists())[0], false);
+  const gone = await fetch('http://' + storageHost + download.pathname + download.search);
+  assert.equal(gone.ok, false);
 });

@@ -9,6 +9,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'tests/firestoreCounters.rules.test.mjs'
+      - 'scripts/pin-image-transition-rules.mjs'
+      - 'firebase-applet-config.json'
       - '.github/workflows/firestore-rules.yml'
   workflow_dispatch:
 

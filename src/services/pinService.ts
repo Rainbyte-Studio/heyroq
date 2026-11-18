@@ -395,7 +395,7 @@ async function resolveCanonicalAuthorIdentity(
 
 // 5. Create Pin directly in Firestore
 export async function createPin(
-  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt'>,
+  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt' | 'imageUrls'>,
   files: File[] = [],
 ): Promise<string> {
   const geohash = computeGeohash(pinData.latitude, pinData.longitude);
@@ -405,8 +405,7 @@ export async function createPin(
   const { userName, userAvatar } = await resolveCanonicalAuthorIdentity(pinData.userId, 'publish a spot');
 
   const pinRef = doc(collection(db, PINS_COLLECTION));
-  const incarnation = crypto.randomUUID();
-  const uploads = files.length ? await uploadMultipleImages(files, pinData.userId, pinRef.id, incarnation) : [];
+  const upload = files.length ? await uploadMultipleImages(files, pinRef.id) : undefined;
   const firestorePin = {
     userId: pinData.userId,
     userName,
@@ -422,8 +421,8 @@ export async function createPin(
     countryName: pinData.countryName || '',
     category: pinData.category,
     tags: pinData.tags || [],
-    imageUrls: uploads.length ? uploads.map(upload => upload.downloadUrl) : pinData.imageUrls || [],
-    ...(uploads.length ? { imageIncarnation: incarnation } : {}),
+    imageUrls: upload?.claim.imageUrls ?? [],
+    ...(upload ? { imageIncarnation: upload.incarnation } : {}),
     likeCount: 0,
     commentCount: 0,
     createdAt: now,
@@ -433,13 +432,7 @@ export async function createPin(
   try {
     const batch = writeBatch(db);
     batch.set(pinRef, firestorePin);
-    if (uploads.length) {
-      batch.set(doc(db, 'pinImageClaims', incarnation), {
-        pinId: pinRef.id,
-        userId: pinData.userId,
-        images: uploads.map(({ uploadId, generation }) => ({ uploadId, generation })),
-      });
-    }
+    if (upload) batch.set(doc(db, 'pinImageClaims', upload.incarnation), upload.claim);
     await batch.commit();
     searchPinRead.invalidate();
     return pinRef.id;

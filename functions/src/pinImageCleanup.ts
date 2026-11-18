@@ -1,5 +1,6 @@
 import { FieldPath, FieldValue, Timestamp, type Firestore, type DocumentSnapshot } from 'firebase-admin/firestore';
 import type { Bucket } from '@google-cloud/storage';
+import { IMAGE_PROTOCOL, pinImagePath } from './pinImageUpload';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const generationPattern = /^[1-9][0-9]{0,19}$/;
@@ -7,7 +8,7 @@ const MAX_PIN_IMAGES = 20;
 const MAX_CLEANUP_ATTEMPTS = 8;
 const RETRY_LEASE_MS = 5 * 60_000;
 const CLAIMS_PER_SWEEP = 20;
-const UPLOAD_INTENT_MS = 60 * 60_000;
+const UPLOAD_INTENTS_PER_SWEEP = 40;
 
 function validPinIdentity(pinId: unknown, userId: unknown): pinId is string {
   return typeof userId === 'string' && !!userId && !userId.includes('/') &&
@@ -39,7 +40,7 @@ export async function cleanupPinImages(
   const job = db.collection('pinImageCleanupJobs').doc(imageIncarnation);
   const claim = await db.collection('pinImageClaims').doc(imageIncarnation).get();
   const data = claim.data();
-  if (!data || !deletedPin.createTime || !claim.createTime?.isEqual(deletedPin.createTime) ||
+  if (data?.protocol !== IMAGE_PROTOCOL || !deletedPin.createTime || !claim.createTime?.isEqual(deletedPin.createTime) ||
       data.userId !== userId || data.pinId !== pinId ||
       !Array.isArray(data.images) || !data.images.length || data.images.length > MAX_PIN_IMAGES) {
     unresolved('invalid-image-claim');
@@ -69,7 +70,7 @@ export async function resumePinImageCleanup(
     const source = orphan ? intentSnapshot : claimSnapshot;
     const data = source.data();
     const entries = orphan ? data?.uploadIds : data?.images;
-    if (!validPinIdentity(pinId, userId) || !data || !(claimCreatedAt instanceof Timestamp) ||
+    if (!validPinIdentity(pinId, userId) || data?.protocol !== IMAGE_PROTOCOL || !(claimCreatedAt instanceof Timestamp) ||
         !source.createTime?.isEqual(claimCreatedAt) || data.pinId !== pinId || data.userId !== userId ||
         !Array.isArray(entries) || !entries.length || entries.length > MAX_PIN_IMAGES ||
         (orphan && claimSnapshot.exists)) {
@@ -89,38 +90,44 @@ export async function resumePinImageCleanup(
       attempts: attemptNumber,
       leaseUntil: Timestamp.fromMillis(now + RETRY_LEASE_MS),
     });
-    return { pinId, userId, eventId: record.eventId, entries, orphan, attemptNumber };
+    return { pinId, userId, eventId: record.eventId, entries, specs: data.specs, orphan, attemptNumber };
   });
   if (!attempt) return;
-  const { pinId, userId, eventId, entries, orphan, attemptNumber } = attempt;
+  const { pinId, userId, eventId, entries, specs, orphan, attemptNumber } = attempt;
 
   const unresolved = (reason: string, uploadId?: string) => {
     console.warn('Unresolved pin image cleanup', { eventId, pinId, reason, uploadId });
     return { reason, ...(uploadId ? { uploadId } : {}) };
   };
-  const results = await Promise.allSettled(entries.map(async entry => {
+  const results = await Promise.allSettled(entries.map(async (entry, index) => {
     const uploadId = orphan ? entry : entry?.uploadId;
     if (typeof uploadId !== 'string' || !uuidPattern.test(uploadId)) return unresolved('invalid-upload-id');
-    const generation = orphan
-      ? (await intent.collection('receipts').doc(uploadId).get()).get('generation')
-      : entry?.generation;
-    if (typeof generation !== 'string' || !generationPattern.test(generation)) {
-      return unresolved(orphan ? 'missing-upload-generation' : 'invalid-object-claim', uploadId);
+    const receipt = orphan ? (await intent.collection('receipts').doc(uploadId).get()).data() : undefined;
+    const generation = orphan ? receipt?.generation : entry?.generation;
+    const hasGeneration = typeof generation === 'string' && generationPattern.test(generation);
+    if (!orphan && !hasGeneration) {
+      return unresolved('invalid-object-claim', uploadId);
     }
 
-    const path = 'pin-images/' + userId + '/' + pinId + '/' + imageIncarnation + '/' + uploadId;
-    const file = getBucket().file(path);
+    const file = getBucket().file(pinImagePath(userId, pinId, imageIncarnation, uploadId));
     try {
       const [metadata] = await file.getMetadata();
       const owner = metadata.metadata;
-      if (String(metadata.generation) !== generation || !owner || owner.uploadedBy !== userId ||
+      const storedGeneration = String(metadata.generation);
+      const spec = specs?.[index];
+      const originalGeneration = hasGeneration ? storedGeneration === generation :
+        generation === undefined && typeof receipt?.nonce === 'string' && uuidPattern.test(receipt.nonce) &&
+        owner?.nonce === receipt.nonce && String(metadata.metageneration) === '1' &&
+        Number(metadata.size) === spec?.size && metadata.contentType === spec?.type;
+      if (!generationPattern.test(storedGeneration) || owner?.protocol !== IMAGE_PROTOCOL || !originalGeneration ||
+          !owner || owner.uploadedBy !== userId ||
           owner.pinId !== pinId || owner.incarnation !== imageIncarnation || owner.uploadId !== uploadId ||
           !generationPattern.test(String(metadata.metageneration))) {
         return unresolved('object-identity-mismatch', uploadId);
       }
 
       await file.delete({
-        ifGenerationMatch: generation,
+        ifGenerationMatch: storedGeneration,
         ifMetagenerationMatch: String(metadata.metageneration),
       });
     } catch (error) {
@@ -150,33 +157,31 @@ export async function resumePinImageCleanup(
 }
 
 export async function reconcilePinImages(db: Firestore, getBucket: () => Bucket): Promise<void> {
-  await sweepPinImages(db, getBucket, false);
-  await sweepPinImages(db, getBucket, true);
+  // Independent sweeps keep a failure in one queue from blocking the other.
+  const results = await Promise.allSettled([sweepClaims(db, getBucket), sweepExpiredUploads(db, getBucket)]);
+  const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw new AggregateError(failures, 'Pin image reconciliation failed');
 }
 
-async function sweepPinImages(db: Firestore, getBucket: () => Bucket, orphan: boolean): Promise<void> {
-  const cursor = db.collection('pinImageCleanupState').doc(orphan ? 'upload-intents' : 'claims');
+async function sweepClaims(db: Firestore, getBucket: () => Bucket): Promise<void> {
+  const cursor = db.collection('pinImageCleanupState').doc('claims');
   const position = await cursor.get();
   const after = position.get('after');
-  const ordered = db.collection(orphan ? 'pinImageUploadIntents' : 'pinImageClaims')
+  const ordered = db.collection('pinImageClaims')
     .orderBy(FieldPath.documentId()).limit(CLAIMS_PER_SWEEP);
   const page = await (after ? ordered.startAfter(after) : ordered).get();
   await Promise.all(page.docs.map(async source => {
     try {
-      const { pinId, userId, createdAt } = source.data();
-      if (!uuidPattern.test(source.id) || !validPinIdentity(pinId, userId)) return;
-      if (orphan && (!(createdAt instanceof Timestamp) ||
-          createdAt.toMillis() + UPLOAD_INTENT_MS > source.readTime.toMillis())) return;
+      const { pinId, userId, protocol } = source.data();
+      if (protocol !== IMAGE_PROTOCOL || !uuidPattern.test(source.id) || !validPinIdentity(pinId, userId)) return;
       const job = db.collection('pinImageCleanupJobs').doc(source.id);
       const pin = db.collection('pins').doc(pinId);
       const pending = await db.runTransaction(async transaction => {
         const [current, existing] = await transaction.getAll(pin, job);
         if (current.get('imageIncarnation') === source.id) return false;
-        if (orphan && (await transaction.get(db.collection('pinImageClaims').doc(source.id))).exists) return false;
         if (existing.exists) return existing.get('status') === 'pending';
         transaction.create(job, {
           pinId, userId, eventId: 'reconciliation', claimCreatedAt: source.createTime, status: 'pending',
-          ...(orphan ? { source: 'upload-intent' } : {}),
         });
         return true;
       });
@@ -190,4 +195,33 @@ async function sweepPinImages(db: Firestore, getBucket: () => Bucket, orphan: bo
     if (position.exists ? !current.updateTime?.isEqual(position.updateTime!) : current.exists) return;
     transaction.set(cursor, { after: page.size === CLAIMS_PER_SWEEP ? page.docs.at(-1)!.id : null });
   });
+}
+
+async function sweepExpiredUploads(db: Firestore, getBucket: () => Bucket): Promise<void> {
+  const page = await db.collection('pinImageUploadIntents')
+    .where('cleanupAfter', '<=', Timestamp.now()).orderBy('cleanupAfter').orderBy(FieldPath.documentId())
+    .limit(UPLOAD_INTENTS_PER_SWEEP).get();
+  await Promise.all(page.docs.map(async source => {
+    const { pinId, userId, protocol } = source.data();
+    if (protocol !== IMAGE_PROTOCOL || !uuidPattern.test(source.id) || !validPinIdentity(pinId, userId)) return;
+    const job = db.collection('pinImageCleanupJobs').doc(source.id);
+    const claim = db.collection('pinImageClaims').doc(source.id);
+    try {
+      const pending = await db.runTransaction(async tx => {
+        const [existing, published] = await tx.getAll(job, claim);
+        if (published.exists || (existing.exists && existing.get('status') !== 'pending')) {
+          tx.update(source.ref, { cleanupAfter: FieldValue.delete() });
+          return false;
+        }
+        if (!existing.exists) {
+          tx.create(job, { pinId, userId, eventId: 'reconciliation', claimCreatedAt: source.createTime,
+            status: 'pending', source: 'upload-intent' });
+        }
+        return true;
+      });
+      if (pending) await resumePinImageCleanup(db, getBucket, source.id);
+    } catch (error) {
+      console.error('Pin image orphan reconciliation failed', { incarnation: source.id, error });
+    }
+  }));
 }

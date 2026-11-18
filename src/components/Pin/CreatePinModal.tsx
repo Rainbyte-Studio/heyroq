@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { LatLngPoint, PinCategory, Pin } from '../../types';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { createPin } from '../../services/pinService';
+import { MAX_PIN_IMAGES } from '../../services/storageService';
 import { extractCityAndCountry } from '../../utils/footprintUtils';
 import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
 import { LocationAutocompleteInput } from './LocationAutocompleteInput';
@@ -143,6 +144,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const selected = Array.from(e.target.files) as File[];
+      e.target.value = '';
+      if (files.length + selected.length > MAX_PIN_IMAGES) {
+        setErrorMsg(`You can attach up to ${MAX_PIN_IMAGES} photos per pin.`);
+        return;
+      }
+      setErrorMsg(null);
       setFiles((prev) => [...prev, ...selected]);
 
       const newUrls = selected.map((file) => URL.createObjectURL(file));
@@ -207,7 +214,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         city: geo.city,
         category,
         tags,
-        imageUrls: [],
       }, files);
       console.log('[CreatePinModal] Step 2 Complete: Pin document created with ID:', newPinId);
 

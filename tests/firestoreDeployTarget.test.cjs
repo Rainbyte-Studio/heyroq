@@ -13,8 +13,16 @@ test('Firebase deploy configuration targets the exact Heyroq named database', ()
 test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () => {
   const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../firestore.indexes.json'), 'utf8'));
   assert.deepEqual(config.fieldOverrides || [], []);
-  assert.equal(config.indexes.length, 4);
-  for (const index of config.indexes) assert.equal(index.density, 'DENSE');
+  assert.equal(config.indexes.length, 5);
+  const orphanQueue = config.indexes.find(index => index.collectionGroup === 'pinImageUploadIntents');
+  assert.deepEqual(orphanQueue, {
+    collectionGroup: 'pinImageUploadIntents', queryScope: 'COLLECTION', density: 'SPARSE_ALL',
+    fields: [
+      { fieldPath: 'cleanupAfter', order: 'ASCENDING' },
+      { fieldPath: '__name__', order: 'ASCENDING' },
+    ],
+  });
+  for (const index of config.indexes.filter(index => index !== orphanQueue)) assert.equal(index.density, 'DENSE');
   for (const collectionGroup of ['likes', 'comments']) {
     assert.ok(config.indexes.some((index) => index.collectionGroup === collectionGroup &&
       index.queryScope === 'COLLECTION_GROUP' && index.fields.length === 1 &&
