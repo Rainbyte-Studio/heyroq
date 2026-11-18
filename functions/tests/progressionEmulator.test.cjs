@@ -50,3 +50,39 @@ test('concurrent progression updates produce a consistent, idempotent XP ledger'
   assert.equal(await updateUserProgressionServer(userId), null);
   await lock.delete();
 });
+
+test('geography XP and lifetime counts come from earned history', async () => {
+  const legacyUserId = 'integration-legacy-geography-user';
+  const legacyProfile = db.collection('users').doc(legacyUserId);
+  const legacyEvents = legacyProfile.collection('xpEvents');
+  const legacySummary = legacyProfile.collection('progression').doc('summary');
+  const earnedCity = {
+    action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25,
+  };
+  const earnedCountry = {
+    action: 'UNIQUE_COUNTRY', referenceId: 'GR', xpEarned: 150,
+  };
+
+  await legacyProfile.set({ displayName: 'Legacy Explorer' });
+  await legacySummary.set({ xp: 175, citiesCount: 2, countriesCount: 2 });
+  await legacyEvents.doc('city_first:athens:GR').set(earnedCity);
+  await legacyEvents.doc('country_first:GR').set(earnedCountry);
+  await pins.doc('integration-geography-pin').set({
+    userId: legacyUserId, title: 'Athens', latitude: 37.98381, longitude: 23.72754,
+    city: 'Paris', countryCode: 'FR', locationName: 'Paris, France',
+    category: 'nature', description: 'Short', tags: [],
+  });
+
+  await updateUserProgressionServer(legacyUserId);
+
+  const geographyEvents = (await legacyEvents.get()).docs.filter(doc =>
+    ['UNIQUE_CITY', 'UNIQUE_COUNTRY'].includes(doc.data().action));
+  assert.deepEqual(geographyEvents.map(doc => [doc.id, doc.data()]), [
+    ['city_first:athens:GR', earnedCity],
+    ['country_first:GR', earnedCountry],
+  ]);
+  const updated = (await legacySummary.get()).data();
+  assert.equal(updated.citiesCount, 2);
+  assert.equal(updated.countriesCount, 2);
+  assert.ok(updated.xp > 175, 'ordinary discovery XP still advances');
+});

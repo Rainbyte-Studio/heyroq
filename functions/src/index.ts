@@ -13,8 +13,6 @@ import {
   getProgressForXp,
   getPinCreatedEventId,
   getFirstDiscoveryEventId,
-  getCityFirstEventId,
-  getCountryFirstEventId,
   getRichDiscoveryEventId,
   getAchievementEventId,
   getLikeMilestoneEventId,
@@ -32,129 +30,6 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
-
-/**
- * Normalizes city strings with diacritic removal and canonical mapping.
- */
-function normalizeCityName(rawCity: string): string {
-  if (!rawCity) return 'Exploration Spot';
-  const trimmed = rawCity.trim();
-  const lowerNoAccents = trimmed
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  const CANONICAL_CITIES: Record<string, string> = {
-    tromso: 'Tromsø',
-    oslo: 'Oslo',
-    bergen: 'Bergen',
-    trondheim: 'Trondheim',
-    stavanger: 'Stavanger',
-    zakynthos: 'Zakynthos',
-    zante: 'Zakynthos',
-    athens: 'Athens',
-    athina: 'Athens',
-    santorini: 'Santorini',
-    thira: 'Santorini',
-    mykonos: 'Mykonos',
-    corfu: 'Corfu',
-    kerkyra: 'Corfu',
-    paris: 'Paris',
-    london: 'London',
-    rome: 'Rome',
-    roma: 'Rome',
-    barcelona: 'Barcelona',
-    madrid: 'Madrid',
-    berlin: 'Berlin',
-    tokyo: 'Tokyo',
-    newyork: 'New York',
-    'new york': 'New York',
-    sanfrancisco: 'San Francisco',
-    'san francisco': 'San Francisco',
-    bali: 'Bali',
-    sydney: 'Sydney',
-  };
-
-  if (CANONICAL_CITIES[lowerNoAccents]) {
-    return CANONICAL_CITIES[lowerNoAccents];
-  }
-
-  return trimmed
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
-}
-
-/**
- * Normalizes country strings with ISO alpha-2/alpha-3 canonical mapping.
- */
-function resolveCountry(rawCountry: string): { code: string; name: string } {
-  if (!rawCountry) return { code: 'GL', name: 'Global' };
-  const trimmed = rawCountry.trim();
-  const lower = trimmed.toLowerCase();
-
-  const CANONICAL_MAP: Record<string, { code: string; name: string }> = {
-    norway: { code: 'NO', name: 'Norway' },
-    no: { code: 'NO', name: 'Norway' },
-    nor: { code: 'NO', name: 'Norway' },
-    norge: { code: 'NO', name: 'Norway' },
-    greece: { code: 'GR', name: 'Greece' },
-    gr: { code: 'GR', name: 'Greece' },
-    grc: { code: 'GR', name: 'Greece' },
-    hellas: { code: 'GR', name: 'Greece' },
-    'united states': { code: 'US', name: 'United States' },
-    us: { code: 'US', name: 'United States' },
-    usa: { code: 'US', name: 'United States' },
-    'united kingdom': { code: 'GB', name: 'United Kingdom' },
-    uk: { code: 'GB', name: 'United Kingdom' },
-    gb: { code: 'GB', name: 'United Kingdom' },
-    gbr: { code: 'GB', name: 'United Kingdom' },
-    france: { code: 'FR', name: 'France' },
-    fr: { code: 'FR', name: 'France' },
-    germany: { code: 'DE', name: 'Germany' },
-    de: { code: 'DE', name: 'Germany' },
-    italy: { code: 'IT', name: 'Italy' },
-    it: { code: 'IT', name: 'Italy' },
-    spain: { code: 'ES', name: 'Spain' },
-    es: { code: 'ES', name: 'Spain' },
-    japan: { code: 'JP', name: 'Japan' },
-    jp: { code: 'JP', name: 'Japan' },
-    australia: { code: 'AU', name: 'Australia' },
-    au: { code: 'AU', name: 'Australia' },
-    canada: { code: 'CA', name: 'Canada' },
-    ca: { code: 'CA', name: 'Canada' },
-    netherlands: { code: 'NL', name: 'Netherlands' },
-    nl: { code: 'NL', name: 'Netherlands' },
-    sweden: { code: 'SE', name: 'Sweden' },
-    se: { code: 'SE', name: 'Sweden' },
-    denmark: { code: 'DK', name: 'Denmark' },
-    dk: { code: 'DK', name: 'Denmark' },
-    finland: { code: 'FI', name: 'Finland' },
-    fi: { code: 'FI', name: 'Finland' },
-    iceland: { code: 'IS', name: 'Iceland' },
-    is: { code: 'IS', name: 'Iceland' },
-    indonesia: { code: 'ID', name: 'Indonesia' },
-    id: { code: 'ID', name: 'Indonesia' },
-    singapore: { code: 'SG', name: 'Singapore' },
-    sg: { code: 'SG', name: 'Singapore' },
-  };
-
-  if (CANONICAL_MAP[lower]) {
-    return CANONICAL_MAP[lower];
-  }
-
-  if (trimmed.length === 2 && /^[A-Za-z]{2}$/.test(trimmed)) {
-    const code = trimmed.toUpperCase();
-    return { code, name: code };
-  }
-
-  const name = trimmed
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
-  const code = name.slice(0, 2).toUpperCase();
-  return { code, name };
-}
 
 /**
  * Server-Authoritative Progression Calculation and Update Engine
@@ -196,27 +71,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
 
   const activeSpotsCount = validPins.length; // DYNAMIC: Current non-deleted pins
 
-  // 2. Extract active geographic footprint with ISO normalization
-  const activeCitiesSet = new Set<string>();
-  const activeCountriesSet = new Set<string>();
-  const cityToCountryMap = new Map<string, string>();
-
-  validPins.forEach((pin) => {
-    const country = resolveCountry(pin.countryCode || pin.countryName || pin.country || pin.locationName || '');
-    const city = normalizeCityName(pin.city || pin.locationName || '');
-    if (city && city !== 'Exploration Spot') {
-      const c = city.toLowerCase().trim();
-      activeCitiesSet.add(c);
-      if (country.code && country.code !== 'GL') {
-        cityToCountryMap.set(c, country.code.toUpperCase().trim());
-      }
-    }
-    if (country.code && country.code !== 'GL') {
-      activeCountriesSet.add(country.code.toUpperCase());
-    }
-  });
-
-  // 3. Fetch user profile for followers & completeness
+  // 2. Fetch user profile for followers & completeness
   const userDoc = await db.collection('users').doc(userId).get();
   const userData = userDoc.exists ? userDoc.data() : null;
   const followersCount = Number(userData?.followersCount) || 0; // DYNAMIC: Current followers
@@ -249,7 +104,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
   if (userData?.avatarUrl || userData?.photoURL) profileCompletePoints++;
   if (userData?.bio && userData.bio.trim().length >= 10) profileCompletePoints++;
 
-  // 4. Read Existing State to Enforce Monotonic Historical Invariants
+  // 3. Read Existing State to Enforce Monotonic Historical Invariants
   const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
   const summarySnap = await summaryRef.get();
   const existingSummary = summarySnap.exists ? summarySnap.data() : null;
@@ -278,25 +133,22 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
   });
 
-  // Union active cities/countries into historical sets
-  activeCitiesSet.forEach((c) => historicalCitiesSet.add(c));
-  activeCountriesSet.forEach((c) => historicalCountriesSet.add(c));
-
+  // Preserve earned geography milestones. New awards require server-verified geography.
   // HISTORICAL MONOTONIC METRICS: Must never decrease!
   const prevSpots = Number(existingSummary?.totalSpotsCount) || 0;
   const lifetimeSpotsCount = Math.max(prevSpots, historicalSpotsCount, activeSpotsCount);
 
   const prevCities = Number(existingSummary?.citiesCount) || 0;
-  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size, activeCitiesSet.size);
+  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size);
 
   const prevCountries = Number(existingSummary?.countriesCount) || 0;
-  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size, activeCountriesSet.size);
+  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size);
 
   if (lifetimeSpotsCount >= 1) {
     profileCompletePoints++;
   }
 
-  // 5. Calculate New Pending XP Events (Idempotent: Only award if not already in existingEventIds)
+  // 4. Calculate New Pending XP Events (Idempotent: Only award if not already in existingEventIds)
   const pendingXpEvents: { id: string; event: any }[] = [];
 
   // First discovery bonus (+100 XP)
@@ -345,45 +197,6 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
           xpEarned: PROGRESSION_CONSTANTS.BASE_DISCOVERY_XP,
           description: `Discovered: ${pin.title || 'Spot'}`,
           createdAt: pin.createdAt || new Date().toISOString(),
-        },
-      });
-    }
-  });
-
-  // Unique Cities (+25 XP each)
-  activeCitiesSet.forEach((canonicalCity) => {
-    const countryCode = cityToCountryMap.get(canonicalCity);
-    const eventId = getCityFirstEventId(canonicalCity, countryCode);
-    if (!existingEventIds.has(eventId)) {
-      pendingXpEvents.push({
-        id: eventId,
-        event: {
-          id: eventId,
-          userId,
-          action: 'UNIQUE_CITY',
-          referenceId: canonicalCity,
-          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
-          description: `Discovered new city: ${canonicalCity}`,
-          createdAt: new Date().toISOString(),
-        },
-      });
-    }
-  });
-
-  // Unique Countries (+150 XP each)
-  activeCountriesSet.forEach((countryCode) => {
-    const eventId = getCountryFirstEventId(countryCode);
-    if (!existingEventIds.has(eventId)) {
-      pendingXpEvents.push({
-        id: eventId,
-        event: {
-          id: eventId,
-          userId,
-          action: 'UNIQUE_COUNTRY',
-          referenceId: countryCode,
-          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-          description: `Discovered new country: ${countryCode}`,
-          createdAt: new Date().toISOString(),
         },
       });
     }
@@ -450,7 +263,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
   });
 
-  // 6. Read Existing Achievements to PRESERVE permanent unlocked state!
+  // 5. Read Existing Achievements to PRESERVE permanent unlocked state!
   const achievementsCol = db.collection('users').doc(userId).collection('achievements');
   const existingAchSnap = await achievementsCol.get();
   const existingMap = new Map<string, any>();
@@ -566,7 +379,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
   }
 
-  // 7. Final Monotonic XP Calculation
+  // 6. Final Monotonic XP Calculation
   const totalNewXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
   const ledgerTotalXp = historicalLedgerXp + totalNewXp;
   const previousXp = Number(existingSummary?.xp) || 0;
