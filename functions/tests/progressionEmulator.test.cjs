@@ -510,7 +510,7 @@ test('Storage SDK sends exact delete preconditions and a stale DELETE preserves 
     requests.push({ method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams) });
     const stale = url.searchParams.get('ifGenerationMatch') !== String(replacement.generation);
     response.writeHead(stale ? 412 : 204, { 'content-type': 'application/json' });
-    response.end(stale ? JSON.stringify({ error: { message: 'Precondition Failed' } }) : undefined);
+    response.end(stale ? JSON.stringify({ error: { code: 412, message: 'Precondition Failed' } }) : undefined);
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
