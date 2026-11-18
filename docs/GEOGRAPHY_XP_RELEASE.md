@@ -12,7 +12,13 @@ deletion still removes the departing account's data.
 
 See [the machine-readable manifest](progression-deployment-manifest.json) for all
 11 endpoints, trigger selectors, intended retries, and the production preflight
-snapshot. The snapshot is historical. A null field is pending a fresh read.
+snapshot. The snapshot is historical. The two unknown Functions API retry
+values must be checked before approval.
+
+The follow-up Cloud Run view showed the three additional endpoints at 100% on
+the recorded revisions. They shared pin-create's legacy source generation and
+image digest. The Eventarc details confirmed the two bindings, named database,
+namespace and document filters.
 
 - The legacy engine can directly award from current pin labels when called by
   pin create, both like handlers, both follower handlers, pin delete, a bio or
@@ -46,9 +52,9 @@ Eventarc scheduling, redelivery timing, or service IAM.
    each Eventarc trigger in the manifest. Attach the source generation or image
    and build identity, runtime and trigger service accounts, Cloud Run traffic,
    timeout, resources, settings, filters and retries. Compare the manifest to
-   this snapshot and stop on drift or unresolved identity. For the three added
-   endpoints, retrieve the source generation, trigger IDs where applicable, and
-   actual API retry policy before approving the change.
+   this snapshot and stop on drift or unresolved identity. Verify the
+   Functions API retry values for the two added Eventarc endpoints, along
+   with the Functions API configuration for all 11.
 2. Explicitly approve the retry change for pin create, both likes, both
    comments, and both followers from observed `RETRY_POLICY_DO_NOT_RETRY` to
    `RETRY_POLICY_RETRY`. Preserve the approved SDK defaults for pin delete and
@@ -81,7 +87,8 @@ Eventarc scheduling, redelivery timing, or service IAM.
 ## Progression recovery
 
 Before the first cutover, preserve the locally tested release source as the
-recovery baseline. Package the pinned revision with `git archive`, record its
+recovery baseline. Package the pinned revision with
+`git -c core.autocrlf=false archive`, record its
 commit and SHA-256, and test from a clean extraction with the same locked
 dependencies, compiled runtime comparison, and emulator commands. Use the same
 manifest to redeploy this package for partial or failed deployment recovery.

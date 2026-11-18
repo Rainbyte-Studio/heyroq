@@ -12,12 +12,19 @@
     "location": "us-west1",
     "namespace": "(default)"
   },
-  "preflightOriginalEight": {
+  "observedServiceDefaults": {
     "cpu": 1,
     "memoryMiB": 256,
     "concurrency": 80,
     "timeoutSeconds": 60,
-    "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+    "serviceAccountForOriginalEight": "856895300361-compute@developer.gserviceaccount.com"
+  },
+  "additionalEndpointsConsoleSnapshot": {
+    "sourceObject": "gs://gcf-v2-sources-856895300361-europe-west2/onPinCreatedProgression/function-source.zip",
+    "sourceGeneration": "1794935874000125",
+    "imageDigest": "sha256:602c534df93c8a3cb36c108fe79802abcbffa7e773fb3f2da006d8e105e58449",
+    "activeRevisionTrafficPercent": 100,
+    "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com"
   },
   "functions": {
     "onPinCreatedProgression": {
@@ -156,8 +163,8 @@
       "legacyGeography": "direct",
       "preflight": {
         "revision": "onpindeleted-00002-baw",
-        "sourceGeneration": null,
-        "eventarcTrigger": null,
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onpindeleted-858893",
         "retryPolicy": null
       }
     },
@@ -172,8 +179,8 @@
       "legacyGeography": "direct",
       "preflight": {
         "revision": "onuserprofileupdatedprogression-00001-guv",
-        "sourceGeneration": null,
-        "eventarcTrigger": null,
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onuserprofileupdatedprogression-614944",
         "retryPolicy": null
       }
     },
@@ -185,7 +192,7 @@
       "legacyGeography": "direct",
       "preflight": {
         "revision": "recalculateprogression-00001-hex",
-        "sourceGeneration": null,
+        "sourceGeneration": "1794935874000125",
         "eventarcTrigger": null,
         "retryPolicy": null
       }
