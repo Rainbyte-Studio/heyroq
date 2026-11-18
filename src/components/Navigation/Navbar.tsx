@@ -89,6 +89,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { user, profile, isAdmin, signOut } = useAuth();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  function closeMobileSearch() {
+    setMobileSearchOpen(false);
+    setIsSearchFocused(false);
+    mobileSearchToggleRef.current?.focus();
+  }
   const [userProgression, setUserProgression] = useState<UserProgressionSummary | null>(null);
 
   useEffect(() => {
@@ -116,6 +121,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const globalSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const globalSearchSeqRef = useRef(0);
+  const mobileSearchToggleRef = useRef<HTMLButtonElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Global Search Debounce & Stale Request Guard
@@ -437,6 +443,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   setIsSearchFocused(false);
                 }
               }}
+              aria-label="Search Heyroq"
+              aria-controls={isSearchFocused && searchQuery.trim() ? "desktop-search-results" : undefined}
               placeholder="Search spots, coffee, tags, cities..."
               className="liquid-glass-input w-full h-10 text-[13px] pl-10 pr-24 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/20 transition-colors"
             />
@@ -474,6 +482,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Categorized Global Search Dropdown (Desktop) */}
           <GlobalSearchDropdown
+            id="desktop-search-results"
             isOpen={isSearchFocused && searchQuery.trim().length > 0}
             onClose={() => setIsSearchFocused(false)}
             query={searchQuery}
@@ -507,6 +516,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             id="mobile-search-toggle-btn"
+            ref={mobileSearchToggleRef}
+            aria-expanded={mobileSearchOpen}
+            aria-controls={mobileSearchOpen ? "mobile-search-panel" : undefined}
             onClick={() => {
               setMobileSearchOpen((prev) => !prev);
               if (!mobileSearchOpen) {
@@ -779,12 +791,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Expandable Search Bar (shown when toggled or active) */}
       {mobileSearchOpen && (
-        <div className="md:hidden px-3 pb-3 pt-2 border-t border-[var(--heyroq-border-subtle)] bg-[var(--heyroq-bg-surface)]/95 relative animate-in fade-in slide-in-from-top-1">
+        <div
+          id="mobile-search-panel"
+          onKeyDown={event => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeMobileSearch();
+            }
+          }}
+          className="md:hidden px-3 pb-3 pt-2 border-t border-[var(--heyroq-border-subtle)] bg-[var(--heyroq-bg-surface)]/95 relative animate-in fade-in slide-in-from-top-1">
           <div className="relative flex items-center">
             <Search className="w-4 h-4 text-[var(--heyroq-text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               autoFocus
+              aria-label="Search Heyroq"
+              aria-controls={isSearchFocused && searchQuery.trim() ? "mobile-search-results" : undefined}
               value={searchQuery}
               onChange={(e) => {
                 onSearchChange(e.target.value);
@@ -809,10 +831,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
               <button
                 type="button"
-                onClick={() => {
-                  setMobileSearchOpen(false);
-                  setIsSearchFocused(false);
-                }}
+                onClick={closeMobileSearch}
                 className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer"
                 aria-label="Close search"
               >
@@ -823,6 +842,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Mobile Global Search Dropdown */}
           <GlobalSearchDropdown
+            id="mobile-search-results"
             isOpen={isSearchFocused && searchQuery.trim().length > 0}
             onClose={() => setIsSearchFocused(false)}
             query={searchQuery}

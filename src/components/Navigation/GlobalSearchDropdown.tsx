@@ -12,6 +12,7 @@ import { Pin } from '../../types';
 import { UserAvatar } from '../Common/UserAvatar';
 
 interface GlobalSearchDropdownProps {
+  id: string;
   isOpen: boolean;
   onClose: () => void;
   query: string;
@@ -24,6 +25,7 @@ interface GlobalSearchDropdownProps {
 }
 
 export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
+  id,
   isOpen,
   onClose,
   query,
@@ -42,9 +44,14 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
 
   return (
     <div
-      id="global-search-dropdown"
-      className="liquid-glass-popover absolute left-0 right-0 top-full mt-2 w-full max-h-[75vh] overflow-y-auto rounded-2xl z-50 text-[var(--heyroq-text-primary)] divide-y divide-[var(--heyroq-border-subtle)] no-scrollbar animate-in fade-in zoom-in-95 duration-150"
+      id={id}
+      role="region"
+      aria-label="Search results"
+      className="liquid-glass-popover absolute left-0 right-0 top-full mt-2 w-full max-h-[min(60dvh,32rem)] overscroll-contain overflow-y-auto rounded-2xl z-50 text-[var(--heyroq-text-primary)] divide-y divide-[var(--heyroq-border-subtle)] no-scrollbar animate-in fade-in zoom-in-95 duration-150"
     >
+      <span role="status" className="sr-only">
+        {hasMinLength && (isLoading ? 'Searching' : `${results.totalCount} search results`)}
+      </span>
       {/* Search Header / Status Bar */}
       <div className="px-3.5 py-2.5 bg-slate-900/[0.03] dark:bg-black/30 flex items-center justify-between text-[11px] text-[var(--heyroq-text-muted)]">
         <span className="font-semibold flex items-center gap-1.5">
