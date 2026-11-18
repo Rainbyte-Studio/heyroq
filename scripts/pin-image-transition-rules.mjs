@@ -9,24 +9,31 @@ export function makePinImageTransitionRules(finalRules) {
   }
   const maxImages = 20;
   const checks = Array.from({ length: maxImages }, (_, index) =>
-    `             (count <= ${index} || isLegacyPinImage(urls[${index}], prefix, prefixLength))`);
+    `             (count <= ${index} || urls[${index}].size() < 1024)`);
+  const bucket = config.storageBucket.replaceAll('.', '[.]');
+  const backslashPattern = JSON.stringify(String.raw`[\\]`);
+  const quotedBackslash = JSON.stringify(String.raw`\E\\\Q`);
+  const quoteStart = JSON.stringify(String.raw`\Q`);
+  const quoteEnd = JSON.stringify(String.raw`\E`);
   return finalRules.replace(strict + '\n    }', `let urls = data.get('imageUrls', []);
       return urls is list && (urls.size() == 0 || hasLegacyPinImages(urls, data.userId));
     }
 
     function hasLegacyPinImages(urls, uid) {
       let count = urls.size();
-      let prefix = 'https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/pins%2F' + uid + '%2F';
-      let prefixLength = prefix.size();
+      // Quote the UID as a regex literal, including any embedded backslashes.
+      let owner = ${quoteStart} + uid.split(${backslashPattern}).join(${quotedBackslash}) + ${quoteEnd};
+      let pattern = 'https://firebasestorage[.]googleapis[.]com/v0/b/${bucket}/o/pins%2F' + owner +
+                    '%2F[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}';
       return count <= ${maxImages} && uid.matches('[^%/?#]+') &&
+             matchesLegacyPinImageList(urls, pattern) &&
 ${checks.join(' &&\n')};
     }
 
-    // Accept the published timestamp-only filename and the later UUID variant.
-    function isLegacyPinImage(url, prefix, prefixLength) {
-      return url is string && url.size() < 1024 &&
-             url[0:prefixLength] == prefix &&
-             url[prefixLength:].matches('[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}');
+    function matchesLegacyPinImageList(urls, pattern) {
+      let joined = urls.join('#');
+      // Round-tripping rejects embedded separators and non-string elements.
+      return joined.split('#') == urls && joined.matches(pattern + '(#' + pattern + ')*');
     }`);
 }
 

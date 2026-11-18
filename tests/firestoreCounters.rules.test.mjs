@@ -374,6 +374,9 @@ it('transitional rules accept published legacy filenames and keep managed public
     const publishedClientUrls = Array.from({ length: 20 }, (_, index) =>
       legacyUrl.replace(`123_${incarnation}_example.png`, `123_photo_${index}.png`));
     await assertFails(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls, legacyUrl] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [publishedClientUrls.slice(0, 2).join('#')] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [publishedClientUrls[0], 42] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [legacyUrl.replace('example.png', 'a'.repeat(1024) + '.png')] })));
     await assertSucceeds(setDoc(doc(client, 'pins', 'publishedClientPin01'), pin({ imageUrls: publishedClientUrls })));
     await assertSucceeds(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls.slice(0, 19), legacyUrl] })));
     await assertSucceeds(publish(client));
