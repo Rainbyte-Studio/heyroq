@@ -167,9 +167,11 @@ service cloud.firestore {
                                  request.auth.uid == followerId &&
                                  request.auth.uid != userId &&
                                  request.resource.data.followerId == request.auth.uid &&
+                                 existsAfter(/databases/$(database)/documents/users/$(followerId)/following/$(userId)) &&
                                  (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp);
         // Only follower or admin can unfollow (delete)
-        allow delete: if isSignedIn() && (request.auth.uid == followerId || isAdmin());
+        allow delete: if isAdmin() || (isOwner(followerId) &&
+          !existsAfter(/databases/$(database)/documents/users/$(followerId)/following/$(userId)));
       }
 
       // Following Subcollection: users/{userId}/following/{targetUserId}
@@ -180,9 +182,11 @@ service cloud.firestore {
                                  isNonAnonymous() &&
                                  request.auth.uid != targetUserId &&
                                  request.resource.data.targetUserId == targetUserId &&
+                                  existsAfter(/databases/$(database)/documents/users/$(targetUserId)/followers/$(userId)) &&
                                  (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp);
         // Only user or admin can remove from following list
-        allow delete: if isOwner(userId) || isAdmin();
+        allow delete: if isAdmin() || (isOwner(userId) &&
+          !existsAfter(/databases/$(database)/documents/users/$(targetUserId)/followers/$(userId)));
       }
 
       // Explorer Progression Summary: users/{userId}/progression/{docId}
