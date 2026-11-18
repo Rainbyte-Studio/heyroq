@@ -24,7 +24,7 @@ import {
   getCategoryQueryVariants,
 } from '../utils/categoryUtils';
 import { createSearchReadCache } from './searchReadCache';
-import { deletePinImages } from './storageService';
+import { uploadMultipleImages } from './storageService';
 import {
   computeGeohash,
   getBoundsCenterAndRadius,
@@ -395,7 +395,8 @@ async function resolveCanonicalAuthorIdentity(
 
 // 5. Create Pin directly in Firestore
 export async function createPin(
-  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt'>
+  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt'>,
+  files: File[] = [],
 ): Promise<string> {
   const geohash = computeGeohash(pinData.latitude, pinData.longitude);
   const now = new Date().toISOString();
@@ -403,6 +404,9 @@ export async function createPin(
   // Author name/avatar come from the authenticated profile, never from caller input.
   const { userName, userAvatar } = await resolveCanonicalAuthorIdentity(pinData.userId, 'publish a spot');
 
+  const pinRef = doc(collection(db, PINS_COLLECTION));
+  const incarnation = crypto.randomUUID();
+  const uploads = files.length ? await uploadMultipleImages(files, pinData.userId, pinRef.id, incarnation) : [];
   const firestorePin = {
     userId: pinData.userId,
     userName,
@@ -418,7 +422,8 @@ export async function createPin(
     countryName: pinData.countryName || '',
     category: pinData.category,
     tags: pinData.tags || [],
-    imageUrls: pinData.imageUrls || [],
+    imageUrls: uploads.length ? uploads.map(upload => upload.downloadUrl) : pinData.imageUrls || [],
+    ...(uploads.length ? { imageIncarnation: incarnation } : {}),
     likeCount: 0,
     commentCount: 0,
     createdAt: now,
@@ -426,9 +431,18 @@ export async function createPin(
   };
 
   try {
-    const docRef = await addDoc(collection(db, PINS_COLLECTION), firestorePin);
+    const batch = writeBatch(db);
+    batch.set(pinRef, firestorePin);
+    if (uploads.length) {
+      batch.set(doc(db, 'pinImageClaims', incarnation), {
+        pinId: pinRef.id,
+        userId: pinData.userId,
+        images: uploads.map(({ uploadId, generation }) => ({ uploadId, generation })),
+      });
+    }
+    await batch.commit();
     searchPinRead.invalidate();
-    return docRef.id;
+    return pinRef.id;
   } catch (err) {
     console.error('Firestore createPin error:', err);
     handleFirestoreError(err, OperationType.CREATE, PINS_COLLECTION);

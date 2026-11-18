@@ -198,24 +198,35 @@ adapter. Seek custom licensing from Google Maps Platform Sales if required.
   widening the allowlist. Monitor request rates, failures, award rates and
   spend without recording precise coordinates or lookup content.
 
-### Open pin-deletion release blocker
+### Pin image cleanup and recovery
 
-The draft retains Storage objects on spot deletion. Existing image URLs record
-a bucket and path and can be reused by a recreated pin. An owner-path check or
-a generation fetched during delivery cannot establish that the deleted pin
-owned that generation exclusively. Require an authoritative, immutable pin
-incarnation binding and the originally attached object generation before
-enabling deletion. A generation mismatch or missing object must preserve any
-replacement. Recovery must handle partial failures without falling back to
-an unconditional delete. Coordinate the hosted frontend because legacy
-clients can still delete from their Storage namespace directly.
+New uploads use a unique object path under the owner, pin ID and image
+incarnation. The frontend publishes the pin and its immutable claim in one
+Firestore batch. A claim retains the upload IDs and original Storage
+generations. Keep these claims to prohibit reuse of an old incarnation.
+A delete event verifies the create time shared by the pin and its claim, then
+records a server-only job. Each job handles at most 20 objects from the
+configured bucket, verifies ownership metadata, and passes generation and
+metageneration preconditions to the delete. A replay can continue after a
+partial failure. Missing objects count as already complete. Mismatches are
+recorded as unresolved. Legacy image URLs are reported in logs without their
+download tokens and do not schedule Storage requests.
 
-Firestore cleanup checks parent absence and each child version in the same
-transaction. Legacy children updated after the deleted parent's last update
-remain ambiguous and are retained. A complete cascade needs incarnation data
-for those children. Confirm the two unknown live retry settings before
-rollout. Keep automatic retries off for the delete trigger until the complete
-cascade can safely resume, and verify error monitoring and manual recovery.
+The delete trigger retains its manifest retry policy. A failed invocation with
+a recorded job leaves its status pending. A replay of the original event or
+the internal resumePinImageCleanup helper can resume that single incarnation.
+In a demo or separately approved staging environment, verify monitoring for
+failed invocations and pending jobs, including failure before the job is
+recorded. Confirm both unknown live retry settings separately before rollout.
+
+Managed uploads that never reach publication have no claim. They remain
+unresolved by pin deletion. A cleanup design for abandoned uploads requires
+generation-conditional deletion and its own recovery path.
+
+Firestore child cleanup checks parent absence and child versions together.
+Legacy children updated after the deleted parent remain ambiguous and are
+retained. A complete cascade for those children needs incarnation data.
+
 For the account-deletion callable, treat 540 seconds as a candidate ceiling.
 The frontend allows 550 seconds, leaving 10 seconds of nominal headroom.
 Before approval, measure representative large accounts in staging and

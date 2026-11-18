@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'firestore.rules'
+      - 'storage.rules'
       - 'firestore.indexes.json'
       - 'firebase.json'
       - 'package.json'
@@ -31,4 +32,4 @@ jobs:
         run: npm ci
       - name: Test rules against local Firestore emulator
         run: |
-          npx --yes firebase-tools@14.27.0 emulators:exec --only firestore --project demo-heyroq-counter-rules 'node --test tests/firestoreCounters.rules.test.mjs'
+          npx --yes firebase-tools@14.27.0 emulators:exec --only firestore,storage --project demo-heyroq-counter-rules 'node --test tests/firestoreCounters.rules.test.mjs'

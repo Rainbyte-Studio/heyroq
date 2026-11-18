@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { LatLngPoint, PinCategory, Pin } from '../../types';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
-import { uploadMultipleImages } from '../../services/storageService';
 import { createPin } from '../../services/pinService';
 import { extractCityAndCountry } from '../../utils/footprintUtils';
 import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
@@ -174,13 +173,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     setIsSubmitting(true);
     console.log('[CreatePinModal] Starting pin publish flow. Files count:', files.length);
     try {
-      let uploadedUrls: string[] = [];
-      if (files.length > 0) {
-        console.log('[CreatePinModal] Step 1: Uploading photos to Firebase Storage...');
-        uploadedUrls = await uploadMultipleImages(files, user.uid);
-        console.log('[CreatePinModal] Step 1 Complete: Photos uploaded successfully:', uploadedUrls);
-      }
-
       // Extract structured geographic metadata for normalization
       const geo = extractCityAndCountry({
         id: '',
@@ -193,7 +185,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         locationName: locationName.trim() || undefined,
         category,
         tags,
-        imageUrls: uploadedUrls,
+        imageUrls: [],
         likeCount: 0,
         commentCount: 0,
         createdAt: new Date().toISOString(),
@@ -215,8 +207,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         city: geo.city,
         category,
         tags,
-        imageUrls: uploadedUrls,
-      });
+        imageUrls: [],
+      }, files);
       console.log('[CreatePinModal] Step 2 Complete: Pin document created with ID:', newPinId);
 
       onPinCreated(newPinId);

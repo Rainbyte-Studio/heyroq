@@ -5,7 +5,6 @@ import {
   uploadBytesResumable,
   getDownloadURL,
   deleteObject,
-  type StorageReference,
 } from 'firebase/storage';
 import { auth, storage } from '../lib/firebase';
 
@@ -92,25 +91,17 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
   ]);
 }
 
-/**
- * Uploads a validated pin image directly to Firebase Storage and returns the public download URL.
- * Does NOT fallback to Base64 or local storage.
- */
-export async function uploadPinImage(file: File, userId: string): Promise<string> {
-  return (await uploadPinImageObject(file, userId)).downloadUrl;
+export const MAX_PIN_IMAGES = 20;
+
+export interface PinImageUpload {
+  uploadId: string;
+  generation: string;
+  downloadUrl: string;
 }
 
-async function discardPinUpload(object: StorageReference): Promise<void> {
-  try {
-    await deleteObject(object);
-  } catch (error) {
-    if ((error as { code?: string } | null)?.code !== 'storage/object-not-found') {
-      console.warn('Pin upload cleanup failed:', error);
-    }
-  }
-}
-
-async function uploadPinImageObject(file: File, userId: string) {
+async function uploadPinImageObject(
+  file: File, userId: string, pinId: string, incarnation: string
+): Promise<PinImageUpload> {
   if (!userId) {
     throw new Error('Authentication required to upload photos.');
   }
@@ -118,11 +109,11 @@ async function uploadPinImageObject(file: File, userId: string) {
   // Enforce strict client-side validation first
   validateImageFile(file);
 
-  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-  const storageRef = ref(storage, `pins/${userId}/${Date.now()}_${crypto.randomUUID()}_${cleanFileName}`);
+  const uploadId = crypto.randomUUID();
+  const storageRef = ref(storage, "pin-images/" + userId + "/" + pinId + "/" + incarnation + "/" + uploadId);
   const upload = uploadBytes(storageRef, file, {
     contentType: file.type || 'image/jpeg',
-    customMetadata: { uploadedBy: userId, uploadedAt: new Date().toISOString() },
+    customMetadata: { uploadedBy: userId, pinId, incarnation, uploadId },
   });
 
   try {
@@ -137,10 +128,8 @@ async function uploadPinImageObject(file: File, userId: string) {
       10000,
       'Failed to retrieve photo download URL.'
     );
-    return { downloadUrl, object: snapshot.ref };
+    return { downloadUrl, uploadId, generation: snapshot.metadata.generation };
   } catch (error: any) {
-    // A timed-out upload can still finish. Clean up its unique object once it does.
-    void upload.then(snapshot => discardPinUpload(snapshot.ref), () => undefined);
     console.error('Firebase Storage upload failed:', error);
     let message = 'Failed to upload photo to Firebase Storage.';
     if (error?.code === 'storage/unauthorized') {
@@ -160,16 +149,13 @@ async function uploadPinImageObject(file: File, userId: string) {
   }
 }
 
-export async function uploadMultipleImages(files: File[], userId: string): Promise<string[]> {
-  // Validate all files prior to beginning uploads
-  for (const file of files) {
-    validateImageFile(file);
-  }
-
-  const uploads = await uploadBatch(files, file => uploadPinImageObject(file, userId), async completed => {
-    await Promise.all(completed.map(({ object }) => discardPinUpload(object)));
-  });
-  return uploads.map(({ downloadUrl }) => downloadUrl);
+export async function uploadMultipleImages(
+  files: File[], userId: string, pinId: string, incarnation: string
+): Promise<PinImageUpload[]> {
+  if (files.length > MAX_PIN_IMAGES) throw new Error("You can upload up to " + MAX_PIN_IMAGES + " photos.");
+  files.forEach(validateImageFile);
+  // Failed publication leaves unclaimed objects. Client deletes cannot enforce generation preconditions.
+  return uploadBatch(files, file => uploadPinImageObject(file, userId, pinId, incarnation));
 }
 
 /**
@@ -286,35 +272,3 @@ export async function deletePreviousProfileImage(oldUrl: string | undefined, use
     return false;
   }
 }
-
-/**
- * Safely deletes an array of pin images belonging to a user from Firebase Storage.
- */
-export async function deletePinImages(imageUrls: string[], userId: string): Promise<void> {
-  if (!imageUrls || !imageUrls.length || !userId) return;
-
-  const expectedPrefix = `pins/${userId}/`;
-  const encodedPrefix = encodeURIComponent(expectedPrefix);
-
-  for (const url of imageUrls) {
-    if (
-      !url ||
-      !url.includes('firebasestorage.googleapis.com') ||
-      (!url.includes(expectedPrefix) && !url.includes(encodedPrefix))
-    ) {
-      continue;
-    }
-
-    try {
-      const fileRef = ref(storage, url);
-      await deleteObject(fileRef);
-      console.log(`Deleted pin image file from storage: ${url}`);
-    } catch (err: any) {
-      if (err?.code !== 'storage/object-not-found') {
-        console.warn(`Notice deleting pin image from storage: ${err?.message || err}`);
-      }
-    }
-  }
-}
-
-

@@ -9,6 +9,7 @@ const storage_1 = require("firebase-admin/storage");
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const pinImageCleanup_1 = require("./pinImageCleanup");
 const progressionLocation_1 = require("./progressionLocation");
 const progressionConfig_1 = require("./progressionConfig");
 // Initialize Firebase Admin SDK
@@ -532,10 +533,9 @@ exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
             }
         }
     };
-    // Legacy URLs can be shared by a replacement pin and omit a generation.
-    // Retain these objects until their exclusive ownership can be established.
     const results = await Promise.allSettled([
         cleanup(),
+        deletedPin ? (0, pinImageCleanup_1.cleanupPinImages)(db, () => storage.bucket(), deletedPin, event.id) : Promise.resolve(),
         typeof authorId === 'string' ? updateUserProgressionServer(authorId) : Promise.resolve(),
     ]);
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);

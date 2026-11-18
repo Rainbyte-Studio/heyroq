@@ -4,6 +4,7 @@ on:
     paths:
       - 'firebase.json'
       - 'firestore.rules'
+      - 'storage.rules'
       - 'firestore.indexes.json'
       - 'functions/src/**'
       - 'functions/lib/**'

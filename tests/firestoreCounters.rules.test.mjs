@@ -1,6 +1,7 @@
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import { deleteObject, ref, uploadBytes } from 'firebase/storage';
 import { deleteDoc, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const projectId = 'demo-heyroq-counter-rules';
@@ -10,6 +11,7 @@ before(async () => {
   env = await initializeTestEnvironment({
     projectId,
     firestore: { rules: readFileSync('firestore.rules', 'utf8') },
+    ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync('storage.rules', 'utf8') } } : {}),
   });
 });
 beforeEach(async () => { await env.clearFirestore(); });
@@ -250,3 +252,43 @@ describe('Server geography verification receipts', () => {
     }));
   });
 });
+
+it('pins claim a fresh image incarnation atomically and cannot reassign or reuse it', async () => {
+  await seedAlice();
+  const client = alice();
+  const pinId = 'abcdefghij0123456789';
+  const incarnation = '00112233-4455-6677-8899-aabbccddeeff';
+  const pinRef = doc(client, 'pins', pinId);
+  const claimRef = doc(client, 'pinImageClaims', incarnation);
+  const pinData = pin({ imageIncarnation: incarnation, imageUrls: ['photo'] });
+  const claimData = { pinId, userId: 'alice', images: [{ uploadId: incarnation, generation: '123' }] };
+  await assertFails(setDoc(pinRef, pinData));
+  await assertFails(setDoc(claimRef, claimData));
+  await assertSucceeds(writeBatch(client).set(pinRef, pinData).set(claimRef, claimData).commit());
+  await assertFails(updateDoc(pinRef, { imageIncarnation: '00112233-4455-6677-8899-aabbccddee00' }));
+  await assertFails(updateDoc(claimRef, { images: [] }));
+  await assertFails(deleteDoc(claimRef));
+  await assertSucceeds(deleteDoc(pinRef));
+  await assertFails(setDoc(pinRef, pinData));
+  await assertSucceeds(setDoc(pinRef, pin({ imageUrls: ['legacy'] })));
+});
+
+it('Storage clients can only create managed objects with matching ownership metadata',
+  { skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST }, async () => {
+    const pinId = 'abcdefghij0123456789';
+    const incarnation = '00112233-4455-6677-8899-aabbccddeeff';
+    const uploadId = incarnation;
+    const path = ['pin-images', 'alice', pinId, incarnation, uploadId].join('/');
+    const own = ref(env.authenticatedContext('alice').storage(), path);
+    const other = ref(env.authenticatedContext('bob').storage(), path);
+    const bytes = new Uint8Array([1]);
+    const metadata = {
+      contentType: 'image/png',
+      customMetadata: { uploadedBy: 'alice', pinId, incarnation, uploadId },
+    };
+    await assertFails(uploadBytes(other, bytes, metadata));
+    await assertFails(uploadBytes(own, bytes, { ...metadata, customMetadata: { ...metadata.customMetadata, pinId: "wrong" } }));
+    await assertSucceeds(uploadBytes(own, bytes, metadata));
+    await assertFails(uploadBytes(own, bytes, metadata));
+    await assertFails(deleteObject(own));
+  });

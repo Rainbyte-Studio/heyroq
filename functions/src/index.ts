@@ -4,6 +4,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { cleanupPinImages } from './pinImageCleanup';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -583,10 +584,9 @@ export const onPinDeleted = onDocumentDeleted(
       }
     };
 
-    // Legacy URLs can be shared by a replacement pin and omit a generation.
-    // Retain these objects until their exclusive ownership can be established.
     const results = await Promise.allSettled([
       cleanup(),
+      deletedPin ? cleanupPinImages(db, () => storage.bucket(), deletedPin, event.id) : Promise.resolve(),
       typeof authorId === 'string' ? updateUserProgressionServer(authorId) : Promise.resolve(),
     ]);
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);

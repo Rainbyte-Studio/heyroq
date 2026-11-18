@@ -402,3 +402,139 @@ test('pin deletion removes children known to belong to the deleted snapshot and 
   assert.equal((await like.get()).exists, false);
   assert.equal((await comment.get()).exists, false);
 });
+
+test('managed pin cleanup keeps a replacement pin and mismatched object generation on delay and replay', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'managed-images-owner';
+  const publish = async () => {
+    const incarnation = randomUUID();
+    const objects = await Promise.all([0, 1].map(async () => {
+      const uploadId = randomUUID();
+      const file = bucket.file('pin-images/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+      const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+      await file.save('original', { metadata });
+      return { file, metadata, uploadId, generation: String((await file.getMetadata())[0].generation) };
+    }));
+    const batch = db.batch();
+    batch.create(pin, { userId, imageIncarnation: incarnation });
+    batch.create(db.collection('pinImageClaims').doc(incarnation), {
+      pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+    });
+    await batch.commit();
+    return { incarnation, objects, snapshot: await pin.get() };
+  };
+
+  const oldPin = await publish();
+  await pin.delete();
+  const newPin = await publish();
+  const [removed, replaced] = oldPin.objects;
+  await replaced.file.save('replacement generation', { metadata: replaced.metadata });
+  assert.notEqual(String((await replaced.file.getMetadata())[0].generation), replaced.generation);
+
+  const event = { id: 'managed-pin-delay', params: { pinId: pin.id }, data: oldPin.snapshot };
+  await functions.onPinDeleted.run(event);
+  await functions.onPinDeleted.run(event);
+  assert.equal((await removed.file.exists())[0], false);
+  assert.equal((await replaced.file.download())[0].toString(), 'replacement generation');
+  assert.equal((await pin.get()).get('imageIncarnation'), newPin.incarnation);
+  for (const object of newPin.objects) assert.equal((await object.file.exists())[0], true);
+  const job = await db.collection('pinImageCleanupJobs').doc(oldPin.incarnation).get();
+  assert.equal(job.get('status'), 'complete');
+  assert.deepEqual(job.get('unresolved'), [{ uploadId: replaced.uploadId, reason: 'object-identity-mismatch' }]);
+});
+
+test('managed partial failure leaves a recorded job that resumes with the original generations', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const { cleanupPinImages, resumePinImageCleanup } = require('../lib/pinImageCleanup.js');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'partial-image-cleanup';
+  const incarnation = randomUUID();
+  const objects = await Promise.all([0, 1].map(async () => {
+    const uploadId = randomUUID();
+    const file = bucket.file('pin-images/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+    const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    await file.save('original', { metadata });
+    return { file, uploadId, generation: String((await file.getMetadata())[0].generation) };
+  }));
+  const batch = db.batch();
+  batch.create(pin, { userId, imageIncarnation: incarnation });
+  batch.create(db.collection('pinImageClaims').doc(incarnation), {
+    pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+  });
+  await batch.commit();
+  const snapshot = await pin.get();
+  await pin.delete();
+
+  const [first, second] = objects;
+  const faultyBucket = { file(path) {
+    const file = bucket.file(path);
+    if (path === second.file.name) return {
+      getMetadata: () => file.getMetadata(),
+      delete: async () => { throw Object.assign(new Error('transient'), { code: 503 }); },
+    };
+    return file;
+  } };
+  await assert.rejects(cleanupPinImages(db, () => faultyBucket, snapshot, 'partial-image-event'), AggregateError);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  assert.equal((await job.get()).get('status'), 'pending');
+  assert.equal((await first.file.exists())[0], false);
+  assert.equal((await second.file.exists())[0], true);
+
+  await resumePinImageCleanup(db, () => bucket, incarnation);
+  await cleanupPinImages(db, () => bucket, snapshot, 'partial-image-event');
+  assert.equal((await job.get()).get('status'), 'complete');
+  assert.equal((await second.file.exists())[0], false);
+});
+
+test('Storage SDK sends exact delete preconditions and a stale DELETE preserves the replacement', async () => {
+  const { createServer } = require('node:http');
+  const { once } = require('node:events');
+  const { getStorage } = require('firebase-admin/storage');
+  const { Storage } = require('../node_modules/@google-cloud/storage');
+  const file = getStorage().bucket().file('pin-images/conditional-delete-regression');
+  await file.save('checked');
+  const [checked] = await file.getMetadata();
+  await file.save('new generation');
+  const [replacement] = await file.getMetadata();
+
+  // The Storage emulator ignores DELETE preconditions. Capture the pinned SDK
+  // request on loopback and model the documented GCS 412 response here.
+  const requests = [];
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://localhost');
+    requests.push({ method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams) });
+    const stale = url.searchParams.get('ifGenerationMatch') !== String(replacement.generation);
+    response.writeHead(stale ? 412 : 204, { 'content-type': 'application/json' });
+    response.end(stale ? JSON.stringify({ error: { message: 'Precondition Failed' } }) : undefined);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
+    process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:' + server.address().port;
+    let client;
+    try {
+      client = new Storage({ projectId: 'demo-heyroq' });
+    } finally {
+      if (emulatorHost === undefined) delete process.env.STORAGE_EMULATOR_HOST;
+      else process.env.STORAGE_EMULATOR_HOST = emulatorHost;
+    }
+    await assert.rejects(client.bucket(file.bucket.name).file(file.name).delete({
+      ifGenerationMatch: String(checked.generation),
+      ifMetagenerationMatch: String(checked.metageneration),
+    }), { code: 412 });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'DELETE');
+    assert.ok(requests[0].pathname.endsWith("/o/" + encodeURIComponent(file.name)));
+    assert.equal(requests[0].query.ifGenerationMatch, String(checked.generation));
+    assert.equal(requests[0].query.ifMetagenerationMatch, String(checked.metageneration));
+    assert.equal((await file.download())[0].toString(), 'new generation');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
