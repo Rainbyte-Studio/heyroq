@@ -1,39 +1,50 @@
 # Server-verified geography XP release
 
-Provider and activation require explicit operator approval. The server sends
-only pin coordinates to the [Geoapify Boundaries API](https://apidocs.geoapify.com/docs/boundaries/).
-It uses containing administrative/place boundaries. Geoapify is separate from
-the Google Maps and Google AI Studio setup. Review the provider agreement,
-coordinate processing, attribution, plan quota and overage behavior before
-creating credentials or enabling traffic. Use a plan with an approved spend
-limit. No paid Google API is required. No external calls run during CI.
-See [Geoapify pricing](https://www.geoapify.com/pricing/) and
-[storage and attribution terms](https://www.geoapify.com/geocoding-api/).
+The server sends pin coordinates without account identifiers to the
+[Geoapify Boundaries API](https://apidocs.geoapify.com/docs/boundaries/)
+at `api-eu.geoapify.com`. See the [EU endpoint documentation](https://www.geoapify.com/european-alternative-to-google-maps/)
+and [DPA](https://www.geoapify.com/data-processing-agreement/).
+CI uses stubbed provider responses.
 
-## Activation
+## Production rollout
 
-1. Merge the dependency patch before the geography change. Build with Node 22
-   and verify the named database in the release checklist.
-2. In an approved staging Google Cloud project, set up Firebase Secret Manager
-   and store the API key as `GEOAPIFY_BOUNDARIES_KEY` with
-   `firebase functions:secrets:set GEOAPIFY_BOUNDARIES_KEY --project <project-id>`.
-   Give the pin-create function's execution identity access to that secret.
-   Secret Manager and Functions have their own Google Cloud billing.
-3. Set `GEOGRAPHY_XP_START_AT` in `functions/.env.<project-id>` to a future UTC
-   instant using `YYYY-MM-DDTHH:mm:ssZ`. Set it after the intended rollout time
-   and set it once per rollout. An omitted or invalid value pauses new geography
-   awards. The secret binding must still exist for this version to deploy.
-4. After approval, deploy the Functions in `europe-west2` using the existing
-   named Firestore database. For production the exact target is
-   `firebase deploy --project rainbyte-studio --only functions`. No Firestore
-   rules, indexes, data migration, or Firebase Hosting deployment is needed.
-   Publish the help-page attribution and privacy disclosure with the existing Google AI Studio
-   republish workflow before enabling production geography XP.
-5. In staging, validate city and country results for representative locations,
-   border and water locations, quotas, timeouts, and attribution. After production
-   approval, repeat a small smoke test with a disposable account and confirm
-   ledger totals. To pause new geographic awards, remove the start setting,
-   redeploy the pin-create function, and retain all history.
+1. Build with Node 22 and run CI. Confirm the project is `rainbyte-studio`
+   and both the Admin SDK and Eventarc database filter target
+   `ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`.
+   Compare the functions in source with deployed functions before choosing
+   a deployment scope. The Functions region is `europe-west2` and the
+   Firestore database and its Eventarc trigger are in `us-west1`.
+2. In Geoapify MyProjects, create a key on the Free plan. Check the account's
+   quota and overage terms before using the key. The advertised Free limits
+   are 3,000 credits/day and 5 requests/second. A point response costs one
+   credit per group of up to 20 boundaries. Retries consume quota. Treat the
+   provider's soft limits as usage thresholds and confirm overage terms with
+   Geoapify before activation. See [pricing](https://www.geoapify.com/pricing/)
+   and [terms](https://www.geoapify.com/terms-and-conditions/).
+3. After approval to enable Secret Manager, set the secret via the private
+   prompt from `firebase functions:secrets:set GEOAPIFY_BOUNDARIES_KEY --project rainbyte-studio`.
+   Verify that an enabled version exists and that the pin-create runtime
+   identity can access it. Secret Manager and Functions are billed separately
+   from Geoapify. Keep the key out of command arguments, repository files,
+   frontend configuration and logs.
+4. Use the key for a small provider smoke test with public coordinates for a
+   city, both sides of a land border and open sea. Check boundary parsing and
+   attribution with the production endpoint and request parameters. This
+   check requires no Firestore writes.
+5. After deployment approval, deploy the reviewed Functions scope with
+   `GEOGRAPHY_XP_START_AT` unset so geographic awards remain paused.
+   Verify the deployed runtime, named database and trigger without modifying
+   records. Stop if the CLI proposes unexpected deletions or other resources.
+6. Pull the reviewed `main` in AI Studio's GitHub settings. Preview Help and
+   Privacy, then use Republish to publish the attribution and disclosure.
+   Verify both on the live app before approval to activate.
+7. After activation and deployment approval, set `GEOGRAPHY_XP_START_AT` to
+   the agreed future UTC instant in `functions/.env.rainbyte-studio` using
+   `YYYY-MM-DDTHH:mm:ssZ`. Redeploy only `functions:onPinCreatedProgression`.
+   Verify awards and receipts with an agreed test pin. To pause new awards,
+   remove the start setting and redeploy the same function. Existing history
+   stays in place. This rollout requires no migration, backfill, rules,
+   indexes or Firebase Hosting deployment.
 
 ## Historical behavior
 

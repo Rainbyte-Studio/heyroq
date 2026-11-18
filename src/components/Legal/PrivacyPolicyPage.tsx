@@ -229,8 +229,9 @@ export const PrivacyPolicyPage: React.FC = () => {
           </p>
           <p className={`${TYPOGRAPHY_TOKENS.body} text-[var(--heyroq-text-secondary)]`}>
             When geography XP verification is enabled, Heyroq sends the coordinates of a newly
-            published pin to Geoapify to identify its containing city and country. The request includes
-            only the pin&apos;s latitude and longitude. See the{' '}
+            published pin to Geoapify&apos;s EU endpoint to identify its containing city and country.
+            Heyroq does not send account identifiers with the coordinates. Geoapify may log request
+            metadata. See the{' '}
             <a className="underline" href="https://www.geoapify.com/privacy-policy/">Geoapify Privacy Policy</a>.
           </p>
         </section>

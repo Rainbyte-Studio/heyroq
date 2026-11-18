@@ -109,7 +109,7 @@ test('new pins use server boundaries and geography awards are idempotent under c
   let requests = 0;
   const resolve = (latitude, longitude) => resolvePinGeography(latitude, longitude, 'test-key', async (url) => {
     requests++;
-    assert.equal(url.origin, 'https://api.geoapify.com');
+    assert.equal(url.origin, 'https://api-eu.geoapify.com');
     assert.equal(url.searchParams.get('lat'), String(latitude));
     assert.equal(url.searchParams.get('lon'), '23.72754');
     assert.equal(url.searchParams.has('geohash'), false);

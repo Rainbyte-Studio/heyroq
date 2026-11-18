@@ -89,7 +89,7 @@ function parseBoundaries(body: unknown): ResolvedGeography | null {
 export async function resolvePinGeography(
   latitude: number, longitude: number, apiKey: string, request: typeof fetch = fetch,
 ): Promise<ResolvedGeography | null> {
-  const url = new URL('https://api.geoapify.com/v1/boundaries/part-of');
+  const url = new URL('https://api-eu.geoapify.com/v1/boundaries/part-of');
   url.search = new URLSearchParams({
     lat: String(latitude), lon: String(longitude), boundaries: 'administrative,place',
     geometry: 'point', lang: 'en', apiKey,
