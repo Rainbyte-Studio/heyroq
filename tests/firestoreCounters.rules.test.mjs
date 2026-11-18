@@ -31,7 +31,7 @@ const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
   await setDoc(doc(context.firestore(), 'users/alice'), profile());
 });
 
-test('follow and unfollow preserve both records in the same batch', async () => {
+it('follow and unfollow preserve both records in the same batch', async () => {
   await seedAlice();
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users/bob'), profile({ uid: 'bob', username: 'bob' }));
