@@ -274,6 +274,10 @@ export function subscribeToDiscoveryPins(
 
 // 3. Search pins by keyword, tags, or location
 export async function getAllKnownPins(): Promise<Pin[]> {
+  const snap = await searchPinRead.read().catch(err => {
+    console.warn('getAllKnownPins notice:', err);
+    return undefined;
+  });
   const combinedMap = new Map<string, Pin>();
 
   // 1. Memory cache if present
@@ -285,8 +289,7 @@ export async function getAllKnownPins(): Promise<Pin[]> {
 
   // 2. Live Firestore pins
   try {
-    const snap = await searchPinRead.read();
-    snap.docs.forEach((d) => {
+    snap?.docs.forEach((d) => {
       const data = d.data() as Record<string, any>;
       combinedMap.set(d.id, {
         id: d.id,
