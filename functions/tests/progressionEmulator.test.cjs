@@ -232,3 +232,50 @@ test('unresolved pins and pins edited during lookup do not create geographic awa
 function geographyFixture(countryCode, city, cityBoundaryId = 'first-city') {
   return { countryCode, city, cityBoundaryId, attribution: 'Synthetic fixture' };
 }
+
+const { onPinLikeCreated, onPinLikeDeleted, onPinCommentCreated, onPinCommentDeleted,
+  onUserFollowerCreated, onUserFollowerDeleted } = require('../lib/index.js');
+
+test('social counters converge on current documents after concurrent and replayed deliveries', async () => {
+  const targetUserId = 'counter-target';
+  const followerId = 'counter-follower';
+  const target = db.collection('users').doc(targetUserId);
+  const follower = db.collection('users').doc(followerId);
+  await Promise.all([target.set({ followersCount: 42 }), follower.set({ followingCount: 99 })]);
+
+  const edge = target.collection('followers').doc(followerId);
+  const mirror = follower.collection('following').doc(targetUserId);
+  const event = { params: { targetUserId, followerId } };
+  await db.batch().set(edge, { followerId }).set(mirror, { targetUserId }).commit();
+  await Promise.all([onUserFollowerDeleted.run(event), onUserFollowerCreated.run(event)]);
+  assert.equal((await target.get()).get('followersCount'), 1);
+  assert.equal((await follower.get()).get('followingCount'), 1);
+
+  await db.batch().delete(edge).delete(mirror).commit();
+  await Promise.all([onUserFollowerCreated.run(event), onUserFollowerDeleted.run(event)]);
+  assert.equal((await target.get()).get('followersCount'), 0);
+  assert.equal((await follower.get()).get('followingCount'), 0);
+
+  const pin = pins.doc('counter-pin');
+  await pin.set({ userId: targetUserId, likeCount: 30, commentCount: 40 });
+  const like = pin.collection('likes').doc(followerId);
+  const comment = pin.collection('comments').doc('comment');
+  const pinEvent = { params: { pinId: pin.id } };
+  await Promise.all([like.set({}), comment.set({})]);
+  await Promise.all([onPinLikeDeleted.run(pinEvent), onPinLikeCreated.run(pinEvent),
+    onPinCommentDeleted.run(pinEvent), onPinCommentCreated.run(pinEvent)]);
+  const added = await pin.get();
+  assert.equal(added.get('likeCount'), 1);
+  assert.equal(added.get('commentCount'), 1);
+  await onPinCommentCreated.run(pinEvent);
+  assert.ok((await pin.get()).updateTime.isEqual(added.updateTime));
+
+  await Promise.all([like.delete(), comment.delete()]);
+  await Promise.all([onPinLikeCreated.run(pinEvent), onPinCommentCreated.run(pinEvent)]);
+  const removed = await pin.get();
+  assert.equal(removed.get('likeCount'), 0);
+  assert.equal(removed.get('commentCount'), 0);
+  await pin.delete();
+  await onPinLikeDeleted.run(pinEvent);
+  assert.equal((await pin.get()).exists, false);
+});
