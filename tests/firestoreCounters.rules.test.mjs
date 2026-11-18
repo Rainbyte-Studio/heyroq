@@ -221,3 +221,12 @@ describe('Pin location is fixed after creation (no repeat city/country XP)', () 
     await assertSucceeds(updateDoc(doc(adminDb, 'pins/spot1'), { city: 'Piraeus' }));
   });
 });
+
+describe('Server geography verification receipts', () => {
+  it('denies clients write access to pin verification receipts', async () => {
+    await seedAlice();
+    await assertFails(setDoc(doc(alice(), 'users/alice/geographyPins/spot1'), {
+      verifiedAt: new Date(),
+    }));
+  });
+});

@@ -4,6 +4,11 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
+import {
+  GEOGRAPHY_RETRY_WINDOW_MS, geographyCityIds, geographyStartTime, resolvePinGeography,
+  type ResolvedGeography,
+} from './progressionGeography';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -13,7 +18,6 @@ import {
   getProgressForXp,
   getPinCreatedEventId,
   getFirstDiscoveryEventId,
-  getCityFirstEventId,
   getCountryFirstEventId,
   getRichDiscoveryEventId,
   getAchievementEventId,
@@ -32,128 +36,19 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
+const geographyApiKey = defineSecret('GEOAPIFY_BOUNDARIES_KEY');
 
-/**
- * Normalizes city strings with diacritic removal and canonical mapping.
- */
-function normalizeCityName(rawCity: string): string {
-  if (!rawCity) return 'Exploration Spot';
-  const trimmed = rawCity.trim();
-  const lowerNoAccents = trimmed
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  const CANONICAL_CITIES: Record<string, string> = {
-    tromso: 'Tromsø',
-    oslo: 'Oslo',
-    bergen: 'Bergen',
-    trondheim: 'Trondheim',
-    stavanger: 'Stavanger',
-    zakynthos: 'Zakynthos',
-    zante: 'Zakynthos',
-    athens: 'Athens',
-    athina: 'Athens',
-    santorini: 'Santorini',
-    thira: 'Santorini',
-    mykonos: 'Mykonos',
-    corfu: 'Corfu',
-    kerkyra: 'Corfu',
-    paris: 'Paris',
-    london: 'London',
-    rome: 'Rome',
-    roma: 'Rome',
-    barcelona: 'Barcelona',
-    madrid: 'Madrid',
-    berlin: 'Berlin',
-    tokyo: 'Tokyo',
-    newyork: 'New York',
-    'new york': 'New York',
-    sanfrancisco: 'San Francisco',
-    'san francisco': 'San Francisco',
-    bali: 'Bali',
-    sydney: 'Sydney',
-  };
-
-  if (CANONICAL_CITIES[lowerNoAccents]) {
-    return CANONICAL_CITIES[lowerNoAccents];
-  }
-
-  return trimmed
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
+interface PinGeography {
+  pin: FirebaseFirestore.QueryDocumentSnapshot;
+  location: ResolvedGeography | null;
 }
 
-/**
- * Normalizes country strings with ISO alpha-2/alpha-3 canonical mapping.
- */
-function resolveCountry(rawCountry: string): { code: string; name: string } {
-  if (!rawCountry) return { code: 'GL', name: 'Global' };
-  const trimmed = rawCountry.trim();
-  const lower = trimmed.toLowerCase();
+function isActivePin(data: FirebaseFirestore.DocumentData): boolean {
+  return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
+}
 
-  const CANONICAL_MAP: Record<string, { code: string; name: string }> = {
-    norway: { code: 'NO', name: 'Norway' },
-    no: { code: 'NO', name: 'Norway' },
-    nor: { code: 'NO', name: 'Norway' },
-    norge: { code: 'NO', name: 'Norway' },
-    greece: { code: 'GR', name: 'Greece' },
-    gr: { code: 'GR', name: 'Greece' },
-    grc: { code: 'GR', name: 'Greece' },
-    hellas: { code: 'GR', name: 'Greece' },
-    'united states': { code: 'US', name: 'United States' },
-    us: { code: 'US', name: 'United States' },
-    usa: { code: 'US', name: 'United States' },
-    'united kingdom': { code: 'GB', name: 'United Kingdom' },
-    uk: { code: 'GB', name: 'United Kingdom' },
-    gb: { code: 'GB', name: 'United Kingdom' },
-    gbr: { code: 'GB', name: 'United Kingdom' },
-    france: { code: 'FR', name: 'France' },
-    fr: { code: 'FR', name: 'France' },
-    germany: { code: 'DE', name: 'Germany' },
-    de: { code: 'DE', name: 'Germany' },
-    italy: { code: 'IT', name: 'Italy' },
-    it: { code: 'IT', name: 'Italy' },
-    spain: { code: 'ES', name: 'Spain' },
-    es: { code: 'ES', name: 'Spain' },
-    japan: { code: 'JP', name: 'Japan' },
-    jp: { code: 'JP', name: 'Japan' },
-    australia: { code: 'AU', name: 'Australia' },
-    au: { code: 'AU', name: 'Australia' },
-    canada: { code: 'CA', name: 'Canada' },
-    ca: { code: 'CA', name: 'Canada' },
-    netherlands: { code: 'NL', name: 'Netherlands' },
-    nl: { code: 'NL', name: 'Netherlands' },
-    sweden: { code: 'SE', name: 'Sweden' },
-    se: { code: 'SE', name: 'Sweden' },
-    denmark: { code: 'DK', name: 'Denmark' },
-    dk: { code: 'DK', name: 'Denmark' },
-    finland: { code: 'FI', name: 'Finland' },
-    fi: { code: 'FI', name: 'Finland' },
-    iceland: { code: 'IS', name: 'Iceland' },
-    is: { code: 'IS', name: 'Iceland' },
-    indonesia: { code: 'ID', name: 'Indonesia' },
-    id: { code: 'ID', name: 'Indonesia' },
-    singapore: { code: 'SG', name: 'Singapore' },
-    sg: { code: 'SG', name: 'Singapore' },
-  };
-
-  if (CANONICAL_MAP[lower]) {
-    return CANONICAL_MAP[lower];
-  }
-
-  if (trimmed.length === 2 && /^[A-Za-z]{2}$/.test(trimmed)) {
-    const code = trimmed.toUpperCase();
-    return { code, name: code };
-  }
-
-  const name = trimmed
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
-  const code = name.slice(0, 2).toUpperCase();
-  return { code, name };
+function geographyReceipt(userId: string, pinId: string) {
+  return db.collection('users').doc(userId).collection('geographyPins').doc(pinId);
 }
 
 /**
@@ -176,7 +71,11 @@ function resolveCountry(rawCountry: string): { code: string; name: string } {
  * - Current Likes Received (`summary.likesReceivedCount`): Live sum of likes on surviving pins.
  * - Current Followers (`summary.followersCount`): Live count of followers.
  */
-export async function updateUserProgressionServer(userId: string, concurrencyRetry = 0) {
+export async function updateUserProgressionServer(userId: string) {
+  return syncUserProgression(userId);
+}
+
+async function syncUserProgression(userId: string, geography?: PinGeography, concurrencyRetry = 0): Promise<unknown> {
   if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
 
   // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
@@ -189,34 +88,14 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
   const validPins: any[] = [];
   pinsSnap.forEach((doc) => {
     const data = doc.data();
-    if (!data.isDeleted && data.status !== 'reported' && data.status !== 'removed') {
-      validPins.push({ id: doc.id, ...data });
+    if (isActivePin(data)) {
+      validPins.push({ ...data, id: doc.id });
     }
   });
 
   const activeSpotsCount = validPins.length; // DYNAMIC: Current non-deleted pins
 
-  // 2. Extract active geographic footprint with ISO normalization
-  const activeCitiesSet = new Set<string>();
-  const activeCountriesSet = new Set<string>();
-  const cityToCountryMap = new Map<string, string>();
-
-  validPins.forEach((pin) => {
-    const country = resolveCountry(pin.countryCode || pin.countryName || pin.country || pin.locationName || '');
-    const city = normalizeCityName(pin.city || pin.locationName || '');
-    if (city && city !== 'Exploration Spot') {
-      const c = city.toLowerCase().trim();
-      activeCitiesSet.add(c);
-      if (country.code && country.code !== 'GL') {
-        cityToCountryMap.set(c, country.code.toUpperCase().trim());
-      }
-    }
-    if (country.code && country.code !== 'GL') {
-      activeCountriesSet.add(country.code.toUpperCase());
-    }
-  });
-
-  // 3. Fetch user profile for followers & completeness
+  // 2. Fetch user profile for followers & completeness
   const userDoc = await db.collection('users').doc(userId).get();
   const userData = userDoc.exists ? userDoc.data() : null;
   const followersCount = Number(userData?.followersCount) || 0; // DYNAMIC: Current followers
@@ -249,7 +128,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
   if (userData?.avatarUrl || userData?.photoURL) profileCompletePoints++;
   if (userData?.bio && userData.bio.trim().length >= 10) profileCompletePoints++;
 
-  // 4. Read Existing State to Enforce Monotonic Historical Invariants
+  // 3. Read Existing State to Enforce Monotonic Historical Invariants
   const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
   const summarySnap = await summaryRef.get();
   const existingSummary = summarySnap.exists ? summarySnap.data() : null;
@@ -257,6 +136,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
   const xpEventsCol = db.collection('users').doc(userId).collection('xpEvents');
   const existingEventsSnap = await xpEventsCol.get();
   const existingEventIds = new Set<string>();
+  const earnedCityBoundaryIds = new Set<string>();
   let historicalLedgerXp = 0;
   let historicalSpotsCount = 0;
   const historicalCitiesSet = new Set<string>();
@@ -272,32 +152,73 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     } else if (doc.id.startsWith('city_first:')) {
       const cityRef = (data?.referenceId || doc.id.replace('city_first:', '')).toLowerCase().trim();
       historicalCitiesSet.add(cityRef);
+      if (typeof data.geographyBoundaryId === 'string') {
+        earnedCityBoundaryIds.add(data.geographyBoundaryId);
+      }
     } else if (doc.id.startsWith('country_first:')) {
       const countryRef = (data?.referenceId || doc.id.replace('country_first:', '')).toUpperCase().trim();
       historicalCountriesSet.add(countryRef);
     }
   });
 
-  // Union active cities/countries into historical sets
-  activeCitiesSet.forEach((c) => historicalCitiesSet.add(c));
-  activeCountriesSet.forEach((c) => historicalCountriesSet.add(c));
+  const earnedCitiesBefore = historicalCitiesSet.size;
+  const earnedCountriesBefore = historicalCountriesSet.size;
+  const pendingXpEvents: { id: string; event: any }[] = [];
+  const location = geography?.location;
+  if (location) {
+    const { countryCode, city, cityBoundaryId, attribution } = location;
+    const countryEventId = getCountryFirstEventId(countryCode);
+    const createdAt = new Date().toISOString();
+    if (!existingEventIds.has(countryEventId) && !historicalCountriesSet.has(countryCode)) {
+      historicalCountriesSet.add(countryCode);
+      pendingXpEvents.push({
+        id: countryEventId,
+        event: {
+          id: countryEventId, userId, createdAt, attribution,
+          action: 'UNIQUE_COUNTRY', referenceId: countryCode,
+          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
+          description: 'Verified a new country discovery',
+        },
+      });
+    }
 
+    if (city) {
+      const { id, legacyId } = geographyCityIds(city, countryCode);
+      const alreadyEarned = legacyId
+        ? existingEventIds.has(legacyId) || existingEventIds.has(legacyId + ':' + countryCode)
+        : historicalCitiesSet.has(city);
+      if (!existingEventIds.has(id) && !alreadyEarned &&
+          !(cityBoundaryId && earnedCityBoundaryIds.has(cityBoundaryId))) {
+        historicalCitiesSet.add(city);
+        pendingXpEvents.push({
+          id,
+          event: {
+            id, userId, createdAt, attribution,
+            action: 'UNIQUE_CITY', referenceId: city,
+            ...(cityBoundaryId ? { geographyBoundaryId: cityBoundaryId } : {}),
+            xpEarned: PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
+            description: 'Verified a new city discovery',
+          },
+        });
+      }
+    }
+  }
+  // Geography high-water marks survive deletes and historical partial ledgers.
   // HISTORICAL MONOTONIC METRICS: Must never decrease!
   const prevSpots = Number(existingSummary?.totalSpotsCount) || 0;
   const lifetimeSpotsCount = Math.max(prevSpots, historicalSpotsCount, activeSpotsCount);
 
   const prevCities = Number(existingSummary?.citiesCount) || 0;
-  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size, activeCitiesSet.size);
+  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size);
 
   const prevCountries = Number(existingSummary?.countriesCount) || 0;
-  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size, activeCountriesSet.size);
+  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size);
 
   if (lifetimeSpotsCount >= 1) {
     profileCompletePoints++;
   }
 
-  // 5. Calculate New Pending XP Events (Idempotent: Only award if not already in existingEventIds)
-  const pendingXpEvents: { id: string; event: any }[] = [];
+  // 4. Calculate other pending XP events.
 
   // First discovery bonus (+100 XP)
   if (lifetimeSpotsCount >= 1) {
@@ -345,45 +266,6 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
           xpEarned: PROGRESSION_CONSTANTS.BASE_DISCOVERY_XP,
           description: `Discovered: ${pin.title || 'Spot'}`,
           createdAt: pin.createdAt || new Date().toISOString(),
-        },
-      });
-    }
-  });
-
-  // Unique Cities (+25 XP each)
-  activeCitiesSet.forEach((canonicalCity) => {
-    const countryCode = cityToCountryMap.get(canonicalCity);
-    const eventId = getCityFirstEventId(canonicalCity, countryCode);
-    if (!existingEventIds.has(eventId)) {
-      pendingXpEvents.push({
-        id: eventId,
-        event: {
-          id: eventId,
-          userId,
-          action: 'UNIQUE_CITY',
-          referenceId: canonicalCity,
-          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
-          description: `Discovered new city: ${canonicalCity}`,
-          createdAt: new Date().toISOString(),
-        },
-      });
-    }
-  });
-
-  // Unique Countries (+150 XP each)
-  activeCountriesSet.forEach((countryCode) => {
-    const eventId = getCountryFirstEventId(countryCode);
-    if (!existingEventIds.has(eventId)) {
-      pendingXpEvents.push({
-        id: eventId,
-        event: {
-          id: eventId,
-          userId,
-          action: 'UNIQUE_COUNTRY',
-          referenceId: countryCode,
-          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-          description: `Discovered new country: ${countryCode}`,
-          createdAt: new Date().toISOString(),
         },
       });
     }
@@ -450,13 +332,15 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
   });
 
-  // 6. Read Existing Achievements to PRESERVE permanent unlocked state!
+  // 5. Read Existing Achievements to PRESERVE permanent unlocked state!
   const achievementsCol = db.collection('users').doc(userId).collection('achievements');
   const existingAchSnap = await achievementsCol.get();
   const existingMap = new Map<string, any>();
   existingAchSnap.forEach((d) => existingMap.set(d.id, d.data()));
 
-  const prelimLevel = getProgressForXp(Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp)).level;
+  // Some historical summaries contain earned XP that predates the ledger.
+  const earnedXpBefore = Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp);
+  const prelimLevel = getProgressForXp(earnedXpBefore).level;
   const metricContext: MetricContext = {
     totalSpots: lifetimeSpotsCount,       // Historical lifetime spots
     citiesCount: lifetimeCitiesCount,     // Historical lifetime cities
@@ -476,7 +360,13 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
 
   ACHIEVEMENTS_CATALOG.forEach((item) => {
     const existing = existingMap.get(item.id);
-    const calculatedMetric = item.metric(metricContext);
+    const achEventId = getAchievementEventId(item.id);
+    const isGeography = item.category === 'Geography';
+    const calculatedMetric = item.metric(isGeography ? {
+      ...metricContext,
+      citiesCount: historicalCitiesSet.size,
+      countriesCount: historicalCountriesSet.size,
+    } : metricContext);
 
     // Determine progress high-water mark:
     // For exploration, geography, discovery, and special achievements, progress represents
@@ -498,12 +388,21 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
 
     // PERMANENT: Once unlocked, remains unlocked!
-    const isUnlocked = Boolean(existing?.isUnlocked) || progressVal >= item.target;
+    const alreadyUnlocked = Boolean(existing?.isUnlocked) || (isGeography && existingEventIds.has(achEventId));
+    const metricBefore = isGeography ? item.metric({
+      ...metricContext,
+      citiesCount: earnedCitiesBefore,
+      countriesCount: earnedCountriesBefore,
+    }) : 0;
+    const newlyUnlocked = isGeography
+      ? calculatedMetric >= item.target && calculatedMetric > metricBefore
+      : progressVal >= item.target;
+    const isUnlocked = alreadyUnlocked || newlyUnlocked;
+    if (isUnlocked && isGeography) progressVal = item.target;
 
     if (isUnlocked) {
       unlockedCount++;
-      const achEventId = getAchievementEventId(item.id);
-      if (!existingEventIds.has(achEventId)) {
+      if (!existingEventIds.has(achEventId) && (!isGeography || !alreadyUnlocked)) {
         pendingXpEvents.push({
           id: achEventId,
           event: {
@@ -537,10 +436,7 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
 
   // Re-verify Pioneer Voyager (Level 5) with full XP
   const newlyEarnedXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
-  const runningTotalXp = Math.max(
-    Number(existingSummary?.xp) || 0,
-    historicalLedgerXp + newlyEarnedXp
-  );
+  const runningTotalXp = earnedXpBefore + newlyEarnedXp;
   const prelimLevelInfo = getProgressForXp(runningTotalXp);
 
   const pioneer = pendingAchievements.find((a) => a.id === 'pioneer_voyager');
@@ -566,11 +462,9 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
     }
   }
 
-  // 7. Final Monotonic XP Calculation
+  // 6. Final Monotonic XP Calculation
   const totalNewXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
-  const ledgerTotalXp = historicalLedgerXp + totalNewXp;
-  const previousXp = Number(existingSummary?.xp) || 0;
-  const finalTotalXp = Math.max(previousXp, ledgerTotalXp);
+  const finalTotalXp = earnedXpBefore + totalNewXp;
   const finalLevelInfo = getProgressForXp(finalTotalXp);
 
   // SUMMARY DOCUMENT CONTRACT:
@@ -598,45 +492,60 @@ export async function updateUserProgressionServer(userId: string, concurrencyRet
   // A deletion lock created concurrently forces a transaction retry, preventing
   // delayed progression triggers from resurrecting the deleted account.
   const userProfileRef = db.collection('users').doc(userId);
-  let didWrite: boolean;
+  const receiptRef = geography ? geographyReceipt(userId, geography.pin.id) : undefined;
+  let result: 'written' | 'skip' | 'recalculate';
   try {
-    didWrite = await db.runTransaction(async (transaction) => {
-      const [lockSnap, profileSnap, latestSummarySnap] = await Promise.all([
+    result = await db.runTransaction(async (transaction) => {
+      const [lockSnap, profileSnap, latestSummarySnap, latestPin, receipt] = await Promise.all([
         transaction.get(deletionLockRef),
         transaction.get(userProfileRef),
         transaction.get(summaryRef),
+        geography ? transaction.get(geography.pin.ref) : undefined,
+        receiptRef ? transaction.get(receiptRef) : undefined,
       ]);
-      if (lockSnap.exists || !profileSnap.exists) return false;
+      if (lockSnap.exists || !profileSnap.exists) return 'skip';
+      if (geography) {
+        const pin = latestPin?.data();
+        const original = geography.pin.data();
+        if (receipt?.exists) return 'skip';
+        if (!pin || !latestPin?.createTime?.isEqual(geography.pin.createTime) ||
+            pin.userId !== userId || !isActivePin(pin) ||
+            pin.latitude !== original.latitude || pin.longitude !== original.longitude) {
+          return 'recalculate';
+        }
+      }
 
       // The XP ledger and summary were calculated outside the transaction.
       // If another trigger committed a progression update in the meantime,
       // abort and recalculate from the fresh ledger rather than overwrite it.
-      const expectedVersion = summarySnap.updateTime?.toMillis() ?? null;
-      const currentVersion = latestSummarySnap.updateTime?.toMillis() ?? null;
-      if (expectedVersion !== currentVersion) {
+      const expectedVersion = summarySnap.updateTime;
+      const currentVersion = latestSummarySnap.updateTime;
+      if (expectedVersion ? !currentVersion?.isEqual(expectedVersion) : currentVersion) {
         throw new Error('PROGRESSION_STALE_SNAPSHOT');
       }
 
       transaction.set(summaryRef, summary, { merge: true });
-    transaction.update(userProfileRef, {
-      pinsCount: activeSpotsCount,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    pendingAchievements.forEach((ach) => {
-      transaction.set(achievementsCol.doc(ach.id), ach, { merge: true });
-    });
-    pendingXpEvents.forEach(({ id, event }) => {
-      transaction.set(xpEventsCol.doc(id), event, { merge: true });
-    });
-      return true;
+      transaction.update(userProfileRef, {
+        pinsCount: activeSpotsCount,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      for (const achievement of pendingAchievements) {
+        transaction.set(achievementsCol.doc(achievement.id), achievement, { merge: true });
+      }
+      for (const { id, event } of pendingXpEvents) {
+        transaction.create(xpEventsCol.doc(id), event);
+      }
+      if (receiptRef) transaction.create(receiptRef, { verifiedAt: FieldValue.serverTimestamp() });
+      return 'written';
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
-      return updateUserProgressionServer(userId, concurrencyRetry + 1);
+      return syncUserProgression(userId, geography, concurrencyRetry + 1);
     }
     throw error;
   }
-  if (!didWrite) return null;
+  if (result === 'recalculate') return syncUserProgression(userId);
+  if (result === 'skip') return null;
   console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
   return summary;
 }
@@ -957,25 +866,64 @@ export const onPinDeleted = onDocumentDeleted(
 // 5. EXPLORER PROGRESSION TRIGGERS
 // ============================================================================
 
+export async function processPinCreationProgression(
+  pin: FirebaseFirestore.QueryDocumentSnapshot,
+  startAt: number,
+  resolve: (latitude: number, longitude: number) => Promise<ResolvedGeography | null>,
+) {
+  const data = pin.data();
+  const { userId, latitude, longitude } = data;
+  if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_')) return;
+
+  const createdAt = pin.createTime.toMillis();
+  if (!Number.isFinite(startAt) || createdAt < startAt || Date.now() < startAt ||
+      Date.now() - createdAt >= GEOGRAPHY_RETRY_WINDOW_MS || !isActivePin(data) ||
+      !discoveryLocationKey(latitude, longitude)) {
+    await updateUserProgressionServer(userId);
+    return;
+  }
+
+  const current = await pin.ref.get();
+  const currentData = current.data();
+  if (!currentData || !current.createTime?.isEqual(pin.createTime) ||
+      !isActivePin(currentData) || currentData.userId !== userId ||
+      currentData.latitude !== latitude || currentData.longitude !== longitude) {
+    await updateUserProgressionServer(userId);
+    return;
+  }
+  const [receipt, profile, deletionLock] = await Promise.all([
+    geographyReceipt(userId, pin.id).get(),
+    db.collection('users').doc(userId).get(),
+    db.collection('accountDeletionLocks').doc(userId).get(),
+  ]);
+  if (receipt.exists || !profile.exists || deletionLock.exists) return;
+
+  let location: ResolvedGeography | null;
+  try {
+    location = await resolve(latitude, longitude);
+  } catch (error) {
+    // Keep ordinary discovery XP available while the event is retried.
+    await updateUserProgressionServer(userId);
+    throw error;
+  }
+  await syncUserProgression(userId, { pin, location });
+}
+
 export const onPinCreatedProgression = onDocumentCreated(
   {
     document: 'pins/{pinId}',
     database: FIRESTORE_DATABASE_ID,
     region: FUNCTION_REGION,
+    secrets: [geographyApiKey],
+    retry: true,
   },
   async (event) => {
-    const pinData = event.data?.data();
-    if (!pinData) return;
-
-    const userId = pinData.userId;
-    if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return;
-
-    console.log(`[Progression Trigger] Processing pin creation for user: ${userId}`);
-    try {
-      await updateUserProgressionServer(userId);
-    } catch (err) {
-      console.error(`[Progression Trigger] Error updating progression for user ${userId}:`, err);
-    }
+    if (!event.data) return;
+    await processPinCreationProgression(
+      event.data,
+      geographyStartTime(process.env.GEOGRAPHY_XP_START_AT),
+      (latitude, longitude) => resolvePinGeography(latitude, longitude, geographyApiKey.value()),
+    );
   }
 );
 

@@ -21,6 +21,8 @@ jobs:
           node-version: '22'
       - name: Install Cloud Functions dependencies
         run: npm ci --prefix functions
+      - name: Audit locked Cloud Functions dependencies
+        run: npm audit --prefix functions --audit-level=high
       - name: TypeScript build
         run: npm --prefix functions run build
       - name: Progression unit tests
