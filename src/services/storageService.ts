@@ -1,3 +1,4 @@
+import { uploadBatch } from './uploadBatch';
 import {
   ref,
   uploadBytes,
@@ -102,19 +103,16 @@ export async function uploadPinImage(file: File, userId: string): Promise<string
   // Enforce strict client-side validation first
   validateImageFile(file);
 
-  try {
-    const timestamp = Date.now();
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-    const storageRef = ref(storage, `pins/${userId}/${timestamp}_${cleanFileName}`);
+  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+  const storageRef = ref(storage, `pins/${userId}/${Date.now()}_${crypto.randomUUID()}_${cleanFileName}`);
+  const upload = uploadBytes(storageRef, file, {
+    contentType: file.type || 'image/jpeg',
+    customMetadata: { uploadedBy: userId, uploadedAt: new Date().toISOString() },
+  });
 
+  try {
     const snapshot = await withTimeout(
-      uploadBytes(storageRef, file, {
-        contentType: file.type || 'image/jpeg',
-        customMetadata: {
-          uploadedBy: userId,
-          uploadedAt: new Date().toISOString(),
-        },
-      }),
+      upload,
       15000,
       'Photo upload timed out after 15 seconds. Storage bucket may not exist or be reachable.'
     );
@@ -126,6 +124,10 @@ export async function uploadPinImage(file: File, userId: string): Promise<string
     );
     return downloadUrl;
   } catch (error: any) {
+    // A timed-out upload can still finish. Clean up its unique object once it does.
+    void upload.then(snapshot => deleteObject(snapshot.ref), () => undefined).catch(cleanupError => {
+      if (cleanupError?.code !== 'storage/object-not-found') console.warn('Pin upload cleanup failed:', cleanupError);
+    });
     console.error('Firebase Storage upload failed:', error);
     let message = 'Failed to upload photo to Firebase Storage.';
     if (error?.code === 'storage/unauthorized') {
@@ -151,8 +153,7 @@ export async function uploadMultipleImages(files: File[], userId: string): Promi
     validateImageFile(file);
   }
 
-  const uploadPromises = files.map((file) => uploadPinImage(file, userId));
-  return Promise.all(uploadPromises);
+  return uploadBatch(files, file => uploadPinImage(file, userId), urls => deletePinImages(urls, userId));
 }
 
 /**
