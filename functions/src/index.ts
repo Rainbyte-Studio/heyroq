@@ -4,10 +4,6 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import {
-  GEOGRAPHY_RETRY_WINDOW_MS, geographyCityIds, normalizeGeographyCity,
-  type ResolvedGeography,
-} from './progressionGeography';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -17,7 +13,6 @@ import {
   getProgressForXp,
   getPinCreatedEventId,
   getFirstDiscoveryEventId,
-  getCountryFirstEventId,
   getRichDiscoveryEventId,
   getAchievementEventId,
   getLikeMilestoneEventId,
@@ -36,17 +31,8 @@ const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
 
-interface PinGeography {
-  pin: FirebaseFirestore.QueryDocumentSnapshot;
-  location: ResolvedGeography | null;
-}
-
 function isActivePin(data: FirebaseFirestore.DocumentData): boolean {
   return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
-}
-
-function geographyReceipt(userId: string, pinId: string) {
-  return db.collection('users').doc(userId).collection('geographyPins').doc(pinId);
 }
 
 /**
@@ -73,7 +59,7 @@ export async function updateUserProgressionServer(userId: string) {
   return syncUserProgression(userId);
 }
 
-async function syncUserProgression(userId: string, geography?: PinGeography, concurrencyRetry = 0): Promise<unknown> {
+async function syncUserProgression(userId: string, concurrencyRetry = 0): Promise<unknown> {
   if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
 
   // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
@@ -134,7 +120,6 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
   const xpEventsCol = db.collection('users').doc(userId).collection('xpEvents');
   const existingEventsSnap = await xpEventsCol.get();
   const existingEventIds = new Set<string>();
-  const earnedCityBoundaryIds = new Set<string>();
   let historicalLedgerXp = 0;
   let historicalSpotsCount = 0;
   const historicalCitiesSet = new Set<string>();
@@ -150,58 +135,13 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
     } else if (doc.id.startsWith('city_first:')) {
       const cityRef = (data?.referenceId || doc.id.replace('city_first:', '')).toLowerCase().trim();
       historicalCitiesSet.add(cityRef);
-      if (typeof data.geographyBoundaryId === 'string') {
-        earnedCityBoundaryIds.add(data.geographyBoundaryId);
-      }
     } else if (doc.id.startsWith('country_first:')) {
       const countryRef = (data?.referenceId || doc.id.replace('country_first:', '')).toUpperCase().trim();
       historicalCountriesSet.add(countryRef);
     }
   });
 
-  const earnedCitiesBefore = historicalCitiesSet.size;
-  const earnedCountriesBefore = historicalCountriesSet.size;
   const pendingXpEvents: { id: string; event: any }[] = [];
-  const location = geography?.location;
-  if (location) {
-    const { countryCode, cityBoundaryId, attribution } = location;
-    const city = location.city ? normalizeGeographyCity(location.city) : null;
-    const countryEventId = getCountryFirstEventId(countryCode);
-    const createdAt = new Date().toISOString();
-    if (!existingEventIds.has(countryEventId) && !historicalCountriesSet.has(countryCode)) {
-      historicalCountriesSet.add(countryCode);
-      pendingXpEvents.push({
-        id: countryEventId,
-        event: {
-          id: countryEventId, userId, createdAt, attribution,
-          action: 'UNIQUE_COUNTRY', referenceId: countryCode,
-          xpEarned: PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-          description: 'Verified a new country discovery',
-        },
-      });
-    }
-
-    if (city) {
-      const { id, legacyId } = geographyCityIds(city, countryCode);
-      const alreadyEarned = legacyId
-        ? existingEventIds.has(legacyId) || existingEventIds.has(legacyId + ':' + countryCode)
-        : historicalCitiesSet.has(city);
-      if (!existingEventIds.has(id) && !alreadyEarned &&
-          !(cityBoundaryId && earnedCityBoundaryIds.has(cityBoundaryId))) {
-        historicalCitiesSet.add(city);
-        pendingXpEvents.push({
-          id,
-          event: {
-            id, userId, createdAt, attribution,
-            action: 'UNIQUE_CITY', referenceId: city,
-            ...(cityBoundaryId ? { geographyBoundaryId: cityBoundaryId } : {}),
-            xpEarned: PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
-            description: 'Verified a new city discovery',
-          },
-        });
-      }
-    }
-  }
   // Geography high-water marks survive deletes and historical partial ledgers.
   // HISTORICAL MONOTONIC METRICS: Must never decrease!
   const prevSpots = Number(existingSummary?.totalSpotsCount) || 0;
@@ -388,20 +328,12 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
 
     // PERMANENT: Once unlocked, remains unlocked!
     const alreadyUnlocked = Boolean(existing?.isUnlocked) || (isGeography && existingEventIds.has(achEventId));
-    const metricBefore = isGeography ? item.metric({
-      ...metricContext,
-      citiesCount: earnedCitiesBefore,
-      countriesCount: earnedCountriesBefore,
-    }) : 0;
-    const newlyUnlocked = isGeography
-      ? calculatedMetric >= item.target && calculatedMetric > metricBefore
-      : progressVal >= item.target;
-    const isUnlocked = alreadyUnlocked || newlyUnlocked;
+    const isUnlocked = alreadyUnlocked || (!isGeography && progressVal >= item.target);
     if (isUnlocked && isGeography) progressVal = item.target;
 
     if (isUnlocked) {
       unlockedCount++;
-      if (!existingEventIds.has(achEventId) && (!isGeography || !alreadyUnlocked)) {
+      if (!existingEventIds.has(achEventId) && !isGeography) {
         pendingXpEvents.push({
           id: achEventId,
           event: {
@@ -491,28 +423,13 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
   // A deletion lock created concurrently forces a transaction retry, preventing
   // delayed progression triggers from resurrecting the deleted account.
   const userProfileRef = db.collection('users').doc(userId);
-  const receiptRef = geography ? geographyReceipt(userId, geography.pin.id) : undefined;
-  let result: 'written' | 'skip' | 'recalculate';
+  let result: 'written' | 'skip';
   try {
     result = await db.runTransaction(async (transaction) => {
-      const [lockSnap, profileSnap, latestSummarySnap, latestPin, receipt] = await Promise.all([
-        transaction.get(deletionLockRef),
-        transaction.get(userProfileRef),
-        transaction.get(summaryRef),
-        geography ? transaction.get(geography.pin.ref) : undefined,
-        receiptRef ? transaction.get(receiptRef) : undefined,
-      ]);
+      const [lockSnap, profileSnap, latestSummarySnap] = await transaction.getAll(
+        deletionLockRef, userProfileRef, summaryRef,
+      );
       if (lockSnap.exists || !profileSnap.exists) return 'skip';
-      if (geography) {
-        const pin = latestPin?.data();
-        const original = geography.pin.data();
-        if (receipt?.exists) return 'skip';
-        if (!pin || !latestPin?.createTime?.isEqual(geography.pin.createTime) ||
-            pin.userId !== userId || !isActivePin(pin) ||
-            pin.latitude !== original.latitude || pin.longitude !== original.longitude) {
-          return 'recalculate';
-        }
-      }
 
       // The XP ledger and summary were calculated outside the transaction.
       // If another trigger committed a progression update in the meantime,
@@ -534,16 +451,14 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
       for (const { id, event } of pendingXpEvents) {
         transaction.create(xpEventsCol.doc(id), event);
       }
-      if (receiptRef) transaction.create(receiptRef, { verifiedAt: FieldValue.serverTimestamp() });
       return 'written';
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
-      return syncUserProgression(userId, geography, concurrencyRetry + 1);
+      return syncUserProgression(userId, concurrencyRetry + 1);
     }
     throw error;
   }
-  if (result === 'recalculate') return syncUserProgression(userId);
   if (result === 'skip') return null;
   console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
   return summary;
@@ -701,49 +616,6 @@ export const onPinDeleted = onDocumentDeleted(
 // 5. EXPLORER PROGRESSION TRIGGERS
 // ============================================================================
 
-export async function processPinCreationProgression(
-  pin: FirebaseFirestore.QueryDocumentSnapshot,
-  startAt = Infinity,
-  resolve?: (latitude: number, longitude: number) => Promise<ResolvedGeography | null>,
-) {
-  const data = pin.data();
-  const { userId, latitude, longitude } = data;
-  if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_')) return;
-
-  const createdAt = pin.createTime.toMillis();
-  if (!resolve || !Number.isFinite(startAt) || createdAt < startAt || Date.now() < startAt ||
-      Date.now() - createdAt >= GEOGRAPHY_RETRY_WINDOW_MS || !isActivePin(data) ||
-      !discoveryLocationKey(latitude, longitude)) {
-    await updateUserProgressionServer(userId);
-    return;
-  }
-
-  const current = await pin.ref.get();
-  const currentData = current.data();
-  if (!currentData || !current.createTime?.isEqual(pin.createTime) ||
-      !isActivePin(currentData) || currentData.userId !== userId ||
-      currentData.latitude !== latitude || currentData.longitude !== longitude) {
-    await updateUserProgressionServer(userId);
-    return;
-  }
-  const [receipt, profile, deletionLock] = await Promise.all([
-    geographyReceipt(userId, pin.id).get(),
-    db.collection('users').doc(userId).get(),
-    db.collection('accountDeletionLocks').doc(userId).get(),
-  ]);
-  if (receipt.exists || !profile.exists || deletionLock.exists) return;
-
-  let location: ResolvedGeography | null;
-  try {
-    location = await resolve(latitude, longitude);
-  } catch (error) {
-    // Keep ordinary discovery XP available while the event is retried.
-    await updateUserProgressionServer(userId);
-    throw error;
-  }
-  await syncUserProgression(userId, { pin, location });
-}
-
 export const onPinCreatedProgression = onDocumentCreated(
   {
     document: 'pins/{pinId}',
@@ -752,9 +624,8 @@ export const onPinCreatedProgression = onDocumentCreated(
     retry: true,
   },
   async (event) => {
-    if (!event.data) return;
-    // Geographic awards stay paused until a provider is approved for durable XP.
-    await processPinCreationProgression(event.data);
+    const userId = event.data?.get('userId');
+    if (typeof userId === 'string') await updateUserProgressionServer(userId);
   }
 );
 

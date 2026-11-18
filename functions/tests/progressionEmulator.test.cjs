@@ -3,10 +3,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getFirestore } = require('firebase-admin/firestore');
-const { onPinCreatedProgression, processPinCreationProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
+const { onPinCreatedProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
 
-if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.GCLOUD_PROJECT?.startsWith('demo-')) {
-  throw new Error('Refusing progression integration test outside demo-* Firestore emulator');
+if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
+    process.env.GCLOUD_PROJECT !== 'demo-heyroq') {
+  throw new Error('Refusing progression integration test outside the local demo-heyroq emulator');
 }
 
 const db = getFirestore(FIRESTORE_DATABASE_ID);
@@ -117,121 +118,129 @@ test('geography XP and lifetime counts come from earned history', async () => {
   assert.ok(updated.xp > 175, 'ordinary discovery XP still advances');
 });
 
-test('new pins use server-resolved geography and geography awards are idempotent under concurrent delivery', async () => {
-  const id = 'integration-verified-geography-user';
-  const user = db.collection('users').doc(id);
-  const ledger = user.collection('xpEvents');
-  await user.set({ displayName: 'Verified Explorer' });
-  const startAt = Date.now() - 1000;
-  const publish = async (pinId, latitude) => {
-    const ref = pins.doc(pinId);
-    await ref.set({
-      userId: id, title: 'Map pin', latitude, longitude: 23.72754,
-      city: 'Paris', country: 'France', countryCode: 'FR', geohash: 'untrusted',
-      category: 'nature', description: 'Short', tags: [],
-    });
-    return ref.get();
-  };
-  const [pinOne, pinTwo] = await Promise.all([
-    publish('integration-verified-one', 37.98381), publish('integration-verified-two', 37.98481),
-  ]);
-  let requests = 0;
-  const resolve = async (latitude, longitude) => {
-    requests++;
-    assert.equal(longitude, 23.72754);
-    assert.ok([37.98381, 37.98481].includes(latitude));
-    return geographyFixture('GR', 'athens');
+
+const functions = require('../lib/index.js');
+
+test('every progression caller keeps geography frozen and replays without adding ledger entries', async () => {
+  const cases = {
+    onPinCreatedProgression: ({ pin }) => ({ data: pin }),
+    onPinLikeCreated: ({ pin }) => ({ params: { pinId: pin.id } }),
+    onPinLikeDeleted: ({ pin }) => ({ params: { pinId: pin.id } }),
+    onUserFollowerCreated: ({ id }) => ({ params: { targetUserId: id, followerId: 'matrix-follower' } }),
+    onUserFollowerDeleted: ({ id }) => ({ params: { targetUserId: id, followerId: 'matrix-follower' } }),
+    onPinDeleted: ({ id, pin }) => ({
+      params: { pinId: pin.id + '-deleted' }, data: { data: () => ({ userId: id }) },
+    }),
+    onUserProfileUpdatedProgression: ({ id }) => ({
+      params: { userId: id },
+      data: { before: { data: () => ({}) }, after: { data: () => ({ bio: 'Updated bio' }) } },
+    }),
+    recalculateProgression: ({ id }) => ({ auth: { uid: id, token: {} } }),
   };
 
-  await Promise.all([pinOne, pinTwo, pinOne].map(pin => processPinCreationProgression(pin, startAt, resolve)));
-  const first = await ledger.get();
-  const geography = first.docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(geography.map(doc => doc.id), ['city_first:GR:athens', 'country_first:GR']);
-  assert.equal(geography[0].data().attribution, 'Synthetic fixture');
-  const metrics = user.collection('progression').doc('summary');
-  const previous = (await metrics.get()).data();
-  assert.equal(previous.citiesCount, 1);
-  assert.equal(previous.countriesCount, 1);
-  assert.equal(previous.xp, first.docs.reduce((xp, event) => xp + event.data().xpEarned, 0));
-  const completedRequests = requests;
-  await processPinCreationProgression(pinOne, startAt, resolve);
-  assert.equal(requests, completedRequests, 'committed delivery is skipped before the provider request');
-  assert.equal((await metrics.get()).data().xp, previous.xp);
-  assert.equal((await ledger.get()).size, first.size);
+  for (const [name, makeEvent] of Object.entries(cases)) {
+    const id = 'matrix-' + name;
+    const user = db.collection('users').doc(id);
+    const ledger = user.collection('xpEvents');
+    const metrics = user.collection('progression').doc('summary');
+    const badges = user.collection('achievements');
+    const pinRef = pins.doc(id);
+    const historicalCity = { action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25 };
+    const historicalCountry = { action: 'UNIQUE_COUNTRY', referenceId: 'GR', xpEarned: 150 };
+    await db.batch()
+      .set(user, { displayName: id })
+      .set(metrics, { xp: 575, citiesCount: 5, countriesCount: 3 })
+      .set(badges.doc('city_scout'), { isUnlocked: true, unlockedAt: '2025-01-01T00:00:00Z' })
+      .set(ledger.doc('city_first:athens:GR'), historicalCity)
+      .set(ledger.doc('country_first:GR'), historicalCountry)
+      .set(pinRef, {
+        userId: id, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR',
+      })
+      .commit();
 
-  const secondCity = await publish('integration-verified-three', 37.95);
-  await processPinCreationProgression(secondCity, startAt, async () => geographyFixture('GR', 'piraeus', 'second-city'),
-  );
-  assert.equal((await ledger.doc('city_first:GR:piraeus').get()).exists, true);
-  assert.equal((await ledger.doc('achievement:city_scout').get()).exists, true);
-  assert.equal((await metrics.get()).data().citiesCount, 2);
+    const event = makeEvent({ id, pin: await pinRef.get() });
+    await functions[name].run(event);
+    const initial = await ledger.get();
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'PIN_CREATED'), name);
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'FIRST_DISCOVERY'), name);
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'ACHIEVEMENT_UNLOCKED'), name);
+    assert.deepEqual(initial.docs.filter(doc => doc.get('action').startsWith('UNIQUE_'))
+      .map(doc => [doc.id, doc.data()]), [
+      ['city_first:athens:GR', historicalCity],
+      ['country_first:GR', historicalCountry],
+    ], name);
+    const updated = (await metrics.get()).data();
+    assert.equal(updated.xp, 400 + initial.docs.reduce((xp, doc) => xp + doc.get('xpEarned'), 0), name);
+    assert.equal(updated.citiesCount, 5, name);
+    assert.equal(updated.countriesCount, 3, name);
+    assert.equal((await badges.doc('city_scout').get()).get('unlockedAt'), '2025-01-01T00:00:00Z', name);
+    assert.equal((await badges.doc('metro_hopper').get()).get('isUnlocked'), false, name);
+    assert.equal((await user.collection('geographyPins').get()).empty, true, name);
+
+    await Promise.all([functions[name].run(event), functions[name].run(event)]);
+    assert.deepEqual((await ledger.get()).docs.map(doc => doc.data()), initial.docs.map(doc => doc.data()), name);
+    assert.equal((await metrics.get()).get('xp'), updated.xp, name);
+  }
 });
 
-test('legacy pins are skipped and provider retries preserve prior awards and ordinary XP', async () => {
-  const id = 'integration-geo-retry-user';
-  const user = db.collection('users').doc(id);
-  const ledger = user.collection('xpEvents');
-  await user.set({ displayName: 'Legacy Retry Explorer' });
-  await user.collection('progression').doc('summary').set({ xp: 425, citiesCount: 5 });
-  const badges = user.collection('achievements');
-  await badges.doc('city_scout').set({ isUnlocked: true, unlockedAt: '2025-01-01T00:00:00Z' });
-  const oldAward = { action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25 };
-  await ledger.doc('city_first:athens:GR').set(oldAward);
-  const legacy = pins.doc('integration-geo-old');
-  await legacy.set({ userId: id, latitude: 5, longitude: 5, createdAt: '2099-01-01T00:00:00Z' });
-  const legacyPin = await legacy.get();
-  const startAt = legacyPin.createTime.toMillis() + 1;
-  await processPinCreationProgression(legacyPin, startAt, async () => assert.fail('legacy lookup'));
-  await new Promise(resolve => setTimeout(resolve, 10));
-
-  const ref = pins.doc('integration-geo-retry');
-  await ref.set({ userId: id, latitude: 37.98, longitude: 23.72, createdAt: '2000-01-01T00:00:00Z' });
-  const pin = await ref.get();
-  const retryable = async () => { throw new Error('Geography verification unavailable'); };
-  await assert.rejects(processPinCreationProgression(pin, startAt, retryable), /Geography verification unavailable/);
-  assert.equal((await ledger.doc('country_first:GR').get()).exists, false);
-  assert.ok((await ledger.get()).docs.some(doc => doc.data().action === 'PIN_CREATED'));
-
-  const verified = async () => geographyFixture('GR', 'athina');
-  await processPinCreationProgression(pin, startAt, verified);
-  await processPinCreationProgression(pin, startAt, verified);
-  const earnedGeography = (await ledger.get()).docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(earnedGeography.map(doc => doc.id), ['city_first:athens:GR', 'country_first:GR']);
-  assert.deepEqual((await ledger.doc('city_first:athens:GR').get()).data(), oldAward);
-  assert.equal((await badges.doc('city_scout').get()).data().unlockedAt, '2025-01-01T00:00:00Z');
-  assert.equal((await badges.doc('metro_hopper').get()).data().isUnlocked, false);
-  const summary = (await user.collection('progression').doc('summary').get()).data();
-  assert.equal(summary.citiesCount, 5);
-  const ledgerXp = (await ledger.get()).docs.reduce((xp, event) => xp + event.data().xpEarned, 0);
-  assert.equal(summary.xp, ledgerXp + 400, 'new awards add to the legacy XP balance');
-  assert.equal((await ledger.doc('achievement:city_scout').get()).exists, false);
+test('all compiled endpoints match the deployment manifest, including retry policy', () => {
+  const manifest = require('../../docs/progression-deployment-manifest.json');
+  const names = Object.keys(functions).filter(name => functions[name].__endpoint);
+  assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
+  for (const [name, { trigger, desiredTimeoutSeconds }] of Object.entries(manifest.functions)) {
+    const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
+    assert.deepEqual(endpoint.region, [manifest.region], name);
+    assert.equal(endpoint.platform, manifest.platform, name);
+    assert.equal(endpoint.timeoutSeconds ?? 60, desiredTimeoutSeconds, name);
+    if (trigger.type === 'httpsCallable') {
+      assert.ok(endpoint.callableTrigger, name);
+      continue;
+    }
+    assert.equal(endpoint.eventTrigger.eventType, trigger.type, name);
+    assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, trigger.document, name);
+    assert.equal(endpoint.eventTrigger.eventFilters.database, manifest.firestore.database, name);
+    assert.equal(endpoint.eventTrigger.eventFilters.namespace, manifest.firestore.namespace, name);
+    assert.equal(endpoint.eventTrigger.retry, trigger.retryPolicy === 'RETRY_POLICY_RETRY', name);
+  }
 });
 
-test('unresolved pins and pins edited during lookup do not create geographic awards', async () => {
-  const id = 'integration-geo-ambiguous-user';
-  const user = db.collection('users').doc(id);
-  await user.set({ displayName: 'Boundaries Explorer' });
-  const ref = pins.doc('integration-geo-boundary');
-  const startAt = Date.now() - 1000;
-  await ref.set({ userId: id, latitude: 37, longitude: 23 });
-  const pin = await ref.get();
-  await processPinCreationProgression(pin, startAt, async () => null);
+test('account deletion and downstream replay preserve the surviving user ledger', async () => {
+  assert.match(process.env.FIREBASE_AUTH_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  assert.match(process.env.FIREBASE_STORAGE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const uid = 'matrix-departing-user';
+  const survivorId = 'matrix-surviving-user';
+  const departing = db.collection('users').doc(uid);
+  const survivor = db.collection('users').doc(survivorId);
+  const pin = pins.doc('matrix-surviving-pin');
+  const like = pin.collection('likes').doc(uid);
+  const comment = pin.collection('comments').doc('matrix-comment');
+  const follower = survivor.collection('followers').doc(uid);
+  await db.batch().set(departing, {}).set(survivor, { followersCount: 1 })
+    .set(pin, { userId: survivorId, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR' })
+    .set(like, { userId: uid }).set(comment, { userId: uid }).set(follower, { followerId: uid })
+    .set(departing.collection('following').doc(survivorId), {}).commit();
 
-  const moved = pins.doc('integration-geo-moved');
-  await moved.set({ userId: id, latitude: 37, longitude: 23 });
-  await processPinCreationProgression(await moved.get(), startAt, async () => {
-    await moved.update({ latitude: 45 });
-    return geographyFixture('GR', 'athens');
-  },
-  );
-  const geography = (await user.collection('xpEvents').get()).docs.filter(doc =>
-    doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(geography, []);
+  const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
+  const ledger = survivor.collection('xpEvents');
+  let previousEvents;
+  for (let delivery = 0; delivery < 2; delivery++) {
+    assert.equal((await functions.deleteUserAccount.run(request)).success, true);
+    for (const ref of [departing, like, comment, follower]) assert.equal((await ref.get()).exists, false);
+    await Promise.all([
+      functions.onPinLikeDeleted.run({ params: { pinId: pin.id } }),
+      functions.onPinCommentDeleted.run({ params: { pinId: pin.id } }),
+      functions.onUserFollowerDeleted.run({ params: { targetUserId: survivorId, followerId: uid } }),
+    ]);
+    assert.equal((await pin.get()).get('likeCount'), 0);
+    assert.equal((await pin.get()).get('commentCount'), 0);
+    assert.equal((await survivor.get()).get('followersCount'), 0);
+    const events = (await ledger.get()).docs.map(doc => doc.data());
+    assert.equal(events.filter(event => event.action === 'PIN_CREATED').length, 1);
+    assert.ok(events.every(event => !event.action.startsWith('UNIQUE_')));
+    if (previousEvents) assert.deepEqual(events, previousEvents);
+    previousEvents = events;
+  }
 });
-
-function geographyFixture(countryCode, city, cityBoundaryId = 'first-city') {
-  return { countryCode, city, cityBoundaryId, attribution: 'Synthetic fixture' };
-}
 
 const { onPinLikeCreated, onPinLikeDeleted, onPinCommentCreated, onPinCommentDeleted,
   onUserFollowerCreated, onUserFollowerDeleted } = require('../lib/index.js');
@@ -262,6 +271,8 @@ test('social counters converge on current documents after concurrent and replaye
   const comment = pin.collection('comments').doc('comment');
   const pinEvent = { params: { pinId: pin.id } };
   await Promise.all([like.set({}), comment.set({})]);
+  await Promise.all([onPinCommentCreated.run(pinEvent), onPinCommentDeleted.run(pinEvent)]);
+  assert.equal((await target.collection('progression').doc('summary').get()).get('likesReceivedCount'), 0);
   await Promise.all([onPinLikeDeleted.run(pinEvent), onPinLikeCreated.run(pinEvent),
     onPinCommentDeleted.run(pinEvent), onPinCommentCreated.run(pinEvent)]);
   const added = await pin.get();

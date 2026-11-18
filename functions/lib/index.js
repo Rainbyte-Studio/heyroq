@@ -2,11 +2,14 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteUserAccount = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
 exports.updateUserProgressionServer = updateUserProgressionServer;
+exports.cleanAccountReports = cleanAccountReports;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const storage_1 = require("firebase-admin/storage");
+const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const progressionLocation_1 = require("./progressionLocation");
 const progressionConfig_1 = require("./progressionConfig");
 // Initialize Firebase Admin SDK
 (0, app_1.initializeApp)();
@@ -14,121 +17,8 @@ exports.FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-
 const db = (0, firestore_1.getFirestore)(exports.FIRESTORE_DATABASE_ID);
 const storage = (0, storage_1.getStorage)();
 exports.FUNCTION_REGION = 'europe-west2';
-/**
- * Normalizes city strings with diacritic removal and canonical mapping.
- */
-function normalizeCityName(rawCity) {
-    if (!rawCity)
-        return 'Exploration Spot';
-    const trimmed = rawCity.trim();
-    const lowerNoAccents = trimmed
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-    const CANONICAL_CITIES = {
-        tromso: 'Tromsø',
-        oslo: 'Oslo',
-        bergen: 'Bergen',
-        trondheim: 'Trondheim',
-        stavanger: 'Stavanger',
-        zakynthos: 'Zakynthos',
-        zante: 'Zakynthos',
-        athens: 'Athens',
-        athina: 'Athens',
-        santorini: 'Santorini',
-        thira: 'Santorini',
-        mykonos: 'Mykonos',
-        corfu: 'Corfu',
-        kerkyra: 'Corfu',
-        paris: 'Paris',
-        london: 'London',
-        rome: 'Rome',
-        roma: 'Rome',
-        barcelona: 'Barcelona',
-        madrid: 'Madrid',
-        berlin: 'Berlin',
-        tokyo: 'Tokyo',
-        newyork: 'New York',
-        'new york': 'New York',
-        sanfrancisco: 'San Francisco',
-        'san francisco': 'San Francisco',
-        bali: 'Bali',
-        sydney: 'Sydney',
-    };
-    if (CANONICAL_CITIES[lowerNoAccents]) {
-        return CANONICAL_CITIES[lowerNoAccents];
-    }
-    return trimmed
-        .split(/\s+/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join(' ');
-}
-/**
- * Normalizes country strings with ISO alpha-2/alpha-3 canonical mapping.
- */
-function resolveCountry(rawCountry) {
-    if (!rawCountry)
-        return { code: 'GL', name: 'Global' };
-    const trimmed = rawCountry.trim();
-    const lower = trimmed.toLowerCase();
-    const CANONICAL_MAP = {
-        norway: { code: 'NO', name: 'Norway' },
-        no: { code: 'NO', name: 'Norway' },
-        nor: { code: 'NO', name: 'Norway' },
-        norge: { code: 'NO', name: 'Norway' },
-        greece: { code: 'GR', name: 'Greece' },
-        gr: { code: 'GR', name: 'Greece' },
-        grc: { code: 'GR', name: 'Greece' },
-        hellas: { code: 'GR', name: 'Greece' },
-        'united states': { code: 'US', name: 'United States' },
-        us: { code: 'US', name: 'United States' },
-        usa: { code: 'US', name: 'United States' },
-        'united kingdom': { code: 'GB', name: 'United Kingdom' },
-        uk: { code: 'GB', name: 'United Kingdom' },
-        gb: { code: 'GB', name: 'United Kingdom' },
-        gbr: { code: 'GB', name: 'United Kingdom' },
-        france: { code: 'FR', name: 'France' },
-        fr: { code: 'FR', name: 'France' },
-        germany: { code: 'DE', name: 'Germany' },
-        de: { code: 'DE', name: 'Germany' },
-        italy: { code: 'IT', name: 'Italy' },
-        it: { code: 'IT', name: 'Italy' },
-        spain: { code: 'ES', name: 'Spain' },
-        es: { code: 'ES', name: 'Spain' },
-        japan: { code: 'JP', name: 'Japan' },
-        jp: { code: 'JP', name: 'Japan' },
-        australia: { code: 'AU', name: 'Australia' },
-        au: { code: 'AU', name: 'Australia' },
-        canada: { code: 'CA', name: 'Canada' },
-        ca: { code: 'CA', name: 'Canada' },
-        netherlands: { code: 'NL', name: 'Netherlands' },
-        nl: { code: 'NL', name: 'Netherlands' },
-        sweden: { code: 'SE', name: 'Sweden' },
-        se: { code: 'SE', name: 'Sweden' },
-        denmark: { code: 'DK', name: 'Denmark' },
-        dk: { code: 'DK', name: 'Denmark' },
-        finland: { code: 'FI', name: 'Finland' },
-        fi: { code: 'FI', name: 'Finland' },
-        iceland: { code: 'IS', name: 'Iceland' },
-        is: { code: 'IS', name: 'Iceland' },
-        indonesia: { code: 'ID', name: 'Indonesia' },
-        id: { code: 'ID', name: 'Indonesia' },
-        singapore: { code: 'SG', name: 'Singapore' },
-        sg: { code: 'SG', name: 'Singapore' },
-    };
-    if (CANONICAL_MAP[lower]) {
-        return CANONICAL_MAP[lower];
-    }
-    if (trimmed.length === 2 && /^[A-Za-z]{2}$/.test(trimmed)) {
-        const code = trimmed.toUpperCase();
-        return { code, name: code };
-    }
-    const name = trimmed
-        .split(/\s+/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join(' ');
-    const code = name.slice(0, 2).toUpperCase();
-    return { code, name };
+function isActivePin(data) {
+    return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
 }
 /**
  * Server-Authoritative Progression Calculation and Update Engine
@@ -151,37 +41,28 @@ function resolveCountry(rawCountry) {
  * - Current Followers (`summary.followersCount`): Live count of followers.
  */
 async function updateUserProgressionServer(userId) {
+    return syncUserProgression(userId);
+}
+async function syncUserProgression(userId, concurrencyRetry = 0) {
     if (!userId || userId.startsWith('system_') || userId.startsWith('demo_'))
+        return null;
+    // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
+    const deletionLockRef = db.collection('accountDeletionLocks').doc(userId);
+    if ((await deletionLockRef.get()).exists)
+        return null;
+    if (!(await db.collection('users').doc(userId).get()).exists)
         return null;
     // 1. Fetch user's active pins (excluding deleted or reported)
     const pinsSnap = await db.collection('pins').where('userId', '==', userId).get();
     const validPins = [];
     pinsSnap.forEach((doc) => {
         const data = doc.data();
-        if (!data.isDeleted && data.status !== 'reported' && data.status !== 'removed') {
-            validPins.push({ id: doc.id, ...data });
+        if (isActivePin(data)) {
+            validPins.push({ ...data, id: doc.id });
         }
     });
     const activeSpotsCount = validPins.length; // DYNAMIC: Current non-deleted pins
-    // 2. Extract active geographic footprint with ISO normalization
-    const activeCitiesSet = new Set();
-    const activeCountriesSet = new Set();
-    const cityToCountryMap = new Map();
-    validPins.forEach((pin) => {
-        const country = resolveCountry(pin.countryCode || pin.countryName || pin.country || pin.locationName || '');
-        const city = normalizeCityName(pin.city || pin.locationName || '');
-        if (city && city !== 'Exploration Spot') {
-            const c = city.toLowerCase().trim();
-            activeCitiesSet.add(c);
-            if (country.code && country.code !== 'GL') {
-                cityToCountryMap.set(c, country.code.toUpperCase().trim());
-            }
-        }
-        if (country.code && country.code !== 'GL') {
-            activeCountriesSet.add(country.code.toUpperCase());
-        }
-    });
-    // 3. Fetch user profile for followers & completeness
+    // 2. Fetch user profile for followers & completeness
     const userDoc = await db.collection('users').doc(userId).get();
     const userData = userDoc.exists ? userDoc.data() : null;
     const followersCount = Number(userData?.followersCount) || 0; // DYNAMIC: Current followers
@@ -215,7 +96,7 @@ async function updateUserProgressionServer(userId) {
         profileCompletePoints++;
     if (userData?.bio && userData.bio.trim().length >= 10)
         profileCompletePoints++;
-    // 4. Read Existing State to Enforce Monotonic Historical Invariants
+    // 3. Read Existing State to Enforce Monotonic Historical Invariants
     const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
     const summarySnap = await summaryRef.get();
     const existingSummary = summarySnap.exists ? summarySnap.data() : null;
@@ -242,21 +123,19 @@ async function updateUserProgressionServer(userId) {
             historicalCountriesSet.add(countryRef);
         }
     });
-    // Union active cities/countries into historical sets
-    activeCitiesSet.forEach((c) => historicalCitiesSet.add(c));
-    activeCountriesSet.forEach((c) => historicalCountriesSet.add(c));
+    const pendingXpEvents = [];
+    // Geography high-water marks survive deletes and historical partial ledgers.
     // HISTORICAL MONOTONIC METRICS: Must never decrease!
     const prevSpots = Number(existingSummary?.totalSpotsCount) || 0;
     const lifetimeSpotsCount = Math.max(prevSpots, historicalSpotsCount, activeSpotsCount);
     const prevCities = Number(existingSummary?.citiesCount) || 0;
-    const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size, activeCitiesSet.size);
+    const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size);
     const prevCountries = Number(existingSummary?.countriesCount) || 0;
-    const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size, activeCountriesSet.size);
+    const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size);
     if (lifetimeSpotsCount >= 1) {
         profileCompletePoints++;
     }
-    // 5. Calculate New Pending XP Events (Idempotent: Only award if not already in existingEventIds)
-    const pendingXpEvents = [];
+    // 4. Calculate other pending XP events.
     // First discovery bonus (+100 XP)
     if (lifetimeSpotsCount >= 1) {
         const firstDiscId = (0, progressionConfig_1.getFirstDiscoveryEventId)();
@@ -275,8 +154,22 @@ async function updateUserProgressionServer(userId) {
             });
         }
     }
-    // Spots creation (+50 XP each)
+    // Award discovery XP once per physical location, even after a pin is deleted.
+    // Quantize to roughly 100m cells to prevent trivial coordinate jitter farming.
+    // Existing ledger entries without a fingerprint are preserved unchanged.
+    const earnedLocationKeys = new Set();
+    existingEventsSnap.forEach((doc) => {
+        if (doc.data()?.action === 'PIN_CREATED' && typeof doc.data()?.locationKey === 'string') {
+            earnedLocationKeys.add(doc.data().locationKey);
+        }
+    });
+    const eligibleIds = new Set((0, progressionLocation_1.eligibleDiscoveryIds)(validPins, earnedLocationKeys));
     validPins.forEach((pin) => {
+        if (!eligibleIds.has(pin.id))
+            return;
+        const locationKey = (0, progressionLocation_1.discoveryLocationKey)(pin.latitude, pin.longitude);
+        if (!locationKey)
+            return;
         const eventId = (0, progressionConfig_1.getPinCreatedEventId)(pin.id);
         if (!existingEventIds.has(eventId)) {
             pendingXpEvents.push({
@@ -286,46 +179,10 @@ async function updateUserProgressionServer(userId) {
                     userId,
                     action: 'PIN_CREATED',
                     referenceId: pin.id,
+                    locationKey,
                     xpEarned: progressionConfig_1.PROGRESSION_CONSTANTS.BASE_DISCOVERY_XP,
                     description: `Discovered: ${pin.title || 'Spot'}`,
                     createdAt: pin.createdAt || new Date().toISOString(),
-                },
-            });
-        }
-    });
-    // Unique Cities (+25 XP each)
-    activeCitiesSet.forEach((canonicalCity) => {
-        const countryCode = cityToCountryMap.get(canonicalCity);
-        const eventId = (0, progressionConfig_1.getCityFirstEventId)(canonicalCity, countryCode);
-        if (!existingEventIds.has(eventId)) {
-            pendingXpEvents.push({
-                id: eventId,
-                event: {
-                    id: eventId,
-                    userId,
-                    action: 'UNIQUE_CITY',
-                    referenceId: canonicalCity,
-                    xpEarned: progressionConfig_1.PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
-                    description: `Discovered new city: ${canonicalCity}`,
-                    createdAt: new Date().toISOString(),
-                },
-            });
-        }
-    });
-    // Unique Countries (+150 XP each)
-    activeCountriesSet.forEach((countryCode) => {
-        const eventId = (0, progressionConfig_1.getCountryFirstEventId)(countryCode);
-        if (!existingEventIds.has(eventId)) {
-            pendingXpEvents.push({
-                id: eventId,
-                event: {
-                    id: eventId,
-                    userId,
-                    action: 'UNIQUE_COUNTRY',
-                    referenceId: countryCode,
-                    xpEarned: progressionConfig_1.PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-                    description: `Discovered new country: ${countryCode}`,
-                    createdAt: new Date().toISOString(),
                 },
             });
         }
@@ -388,12 +245,14 @@ async function updateUserProgressionServer(userId) {
             });
         }
     });
-    // 6. Read Existing Achievements to PRESERVE permanent unlocked state!
+    // 5. Read Existing Achievements to PRESERVE permanent unlocked state!
     const achievementsCol = db.collection('users').doc(userId).collection('achievements');
     const existingAchSnap = await achievementsCol.get();
     const existingMap = new Map();
     existingAchSnap.forEach((d) => existingMap.set(d.id, d.data()));
-    const prelimLevel = (0, progressionConfig_1.getProgressForXp)(Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp)).level;
+    // Some historical summaries contain earned XP that predates the ledger.
+    const earnedXpBefore = Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp);
+    const prelimLevel = (0, progressionConfig_1.getProgressForXp)(earnedXpBefore).level;
     const metricContext = {
         totalSpots: lifetimeSpotsCount, // Historical lifetime spots
         citiesCount: lifetimeCitiesCount, // Historical lifetime cities
@@ -411,7 +270,13 @@ async function updateUserProgressionServer(userId) {
     const pendingAchievements = [];
     progressionConfig_1.ACHIEVEMENTS_CATALOG.forEach((item) => {
         const existing = existingMap.get(item.id);
-        const calculatedMetric = item.metric(metricContext);
+        const achEventId = (0, progressionConfig_1.getAchievementEventId)(item.id);
+        const isGeography = item.category === 'Geography';
+        const calculatedMetric = item.metric(isGeography ? {
+            ...metricContext,
+            citiesCount: historicalCitiesSet.size,
+            countriesCount: historicalCountriesSet.size,
+        } : metricContext);
         // Determine progress high-water mark:
         // For exploration, geography, discovery, and special achievements, progress represents
         // lifetime discovery activity and must not regress upon pin deletion.
@@ -430,11 +295,13 @@ async function updateUserProgressionServer(userId) {
                 : Math.min(item.target, calculatedMetric);
         }
         // PERMANENT: Once unlocked, remains unlocked!
-        const isUnlocked = Boolean(existing?.isUnlocked) || progressVal >= item.target;
+        const alreadyUnlocked = Boolean(existing?.isUnlocked) || (isGeography && existingEventIds.has(achEventId));
+        const isUnlocked = alreadyUnlocked || (!isGeography && progressVal >= item.target);
+        if (isUnlocked && isGeography)
+            progressVal = item.target;
         if (isUnlocked) {
             unlockedCount++;
-            const achEventId = (0, progressionConfig_1.getAchievementEventId)(item.id);
-            if (!existingEventIds.has(achEventId)) {
+            if (!existingEventIds.has(achEventId) && !isGeography) {
                 pendingXpEvents.push({
                     id: achEventId,
                     event: {
@@ -466,7 +333,7 @@ async function updateUserProgressionServer(userId) {
     });
     // Re-verify Pioneer Voyager (Level 5) with full XP
     const newlyEarnedXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
-    const runningTotalXp = Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp + newlyEarnedXp);
+    const runningTotalXp = earnedXpBefore + newlyEarnedXp;
     const prelimLevelInfo = (0, progressionConfig_1.getProgressForXp)(runningTotalXp);
     const pioneer = pendingAchievements.find((a) => a.id === 'pioneer_voyager');
     if (pioneer && !pioneer.isUnlocked && prelimLevelInfo.level >= 5) {
@@ -490,11 +357,9 @@ async function updateUserProgressionServer(userId) {
             });
         }
     }
-    // 7. Final Monotonic XP Calculation
+    // 6. Final Monotonic XP Calculation
     const totalNewXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
-    const ledgerTotalXp = historicalLedgerXp + totalNewXp;
-    const previousXp = Number(existingSummary?.xp) || 0;
-    const finalTotalXp = Math.max(previousXp, ledgerTotalXp);
+    const finalTotalXp = earnedXpBefore + totalNewXp;
     const finalLevelInfo = (0, progressionConfig_1.getProgressForXp)(finalTotalXp);
     // SUMMARY DOCUMENT CONTRACT:
     // - xp, level, title, totalSpotsCount, citiesCount, countriesCount, unlockedAchievementsCount: HISTORICAL / MONOTONIC
@@ -516,23 +381,46 @@ async function updateUserProgressionServer(userId) {
         totalAchievementsCount: progressionConfig_1.ACHIEVEMENTS_CATALOG.length,
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
     };
-    // 8. Write Authoritative State Atomically via Batch
-    const batch = db.batch();
-    // Summary
-    batch.set(summaryRef, summary, { merge: true });
-    // Update dynamic pinsCount on user profile (reflects active spots for queries)
+    // Read the deletion lock and profile in the same transaction as the writes.
+    // A deletion lock created concurrently forces a transaction retry, preventing
+    // delayed progression triggers from resurrecting the deleted account.
     const userProfileRef = db.collection('users').doc(userId);
-    batch.set(userProfileRef, { pinsCount: activeSpotsCount, updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
-    // Achievements
-    pendingAchievements.forEach((ach) => {
-        const achRef = achievementsCol.doc(ach.id);
-        batch.set(achRef, ach, { merge: true });
-    });
-    // Write new XP events idempotently (never overwrite or delete existing ones)
-    pendingXpEvents.forEach(({ id, event }) => {
-        batch.set(xpEventsCol.doc(id), event, { merge: true });
-    });
-    await batch.commit();
+    let result;
+    try {
+        result = await db.runTransaction(async (transaction) => {
+            const [lockSnap, profileSnap, latestSummarySnap] = await transaction.getAll(deletionLockRef, userProfileRef, summaryRef);
+            if (lockSnap.exists || !profileSnap.exists)
+                return 'skip';
+            // The XP ledger and summary were calculated outside the transaction.
+            // If another trigger committed a progression update in the meantime,
+            // abort and recalculate from the fresh ledger rather than overwrite it.
+            const expectedVersion = summarySnap.updateTime;
+            const currentVersion = latestSummarySnap.updateTime;
+            if (expectedVersion ? !currentVersion?.isEqual(expectedVersion) : currentVersion) {
+                throw new Error('PROGRESSION_STALE_SNAPSHOT');
+            }
+            transaction.set(summaryRef, summary, { merge: true });
+            transaction.update(userProfileRef, {
+                pinsCount: activeSpotsCount,
+                updatedAt: firestore_1.FieldValue.serverTimestamp(),
+            });
+            for (const achievement of pendingAchievements) {
+                transaction.set(achievementsCol.doc(achievement.id), achievement, { merge: true });
+            }
+            for (const { id, event } of pendingXpEvents) {
+                transaction.create(xpEventsCol.doc(id), event);
+            }
+            return 'written';
+        });
+    }
+    catch (error) {
+        if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
+            return syncUserProgression(userId, concurrencyRetry + 1);
+        }
+        throw error;
+    }
+    if (result === 'skip')
+        return null;
     console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
     return summary;
 }
@@ -561,226 +449,70 @@ function extractStoragePathFromUrl(url, expectedPrefix) {
     return null;
 }
 // ============================================================================
-// 1. PIN LIKE COUNTER (Server-Side Trigger - Idempotent Canonical Count)
+// 1–3. SOCIAL COUNTERS
 // ============================================================================
-exports.onPinLikeCreated = (0, firestore_2.onDocumentCreated)({
+async function syncPinCounter(pinId, collection) {
+    const pinRef = db.collection('pins').doc(pinId);
+    const field = collection === 'likes' ? 'likeCount' : 'commentCount';
+    const authorId = await db.runTransaction(async (transaction) => {
+        const pin = await transaction.get(pinRef);
+        if (!pin.exists)
+            return;
+        const count = await transaction.get(pinRef.collection(collection).count());
+        const canonicalCount = count.data().count;
+        if (pin.get(field) !== canonicalCount) {
+            transaction.update(pinRef, { [field]: canonicalCount, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        }
+        return pin.get('userId');
+    });
+    if (collection === 'likes' && typeof authorId === 'string' && authorId) {
+        await updateUserProgressionServer(authorId);
+    }
+}
+const likesTrigger = {
     document: 'pins/{pinId}/likes/{userId}',
     database: exports.FIRESTORE_DATABASE_ID,
     region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-    try {
-        // Authoritative, idempotent count of existing like documents
-        const likesCountSnap = await pinRef.collection('likes').count().get();
-        const canonicalCount = likesCountSnap.data().count;
-        let authorId = null;
-        await db.runTransaction(async (transaction) => {
-            const pinDoc = await transaction.get(pinRef);
-            if (!pinDoc.exists)
-                return;
-            authorId = pinDoc.data()?.userId || null;
-            transaction.update(pinRef, {
-                likeCount: canonicalCount,
-                updatedAt: firestore_1.FieldValue.serverTimestamp(),
-            });
-        });
-        console.log(`Successfully synchronized likeCount to ${canonicalCount} for pin ${pinId}`);
-        if (authorId) {
-            await updateUserProgressionServer(authorId);
-        }
-    }
-    catch (err) {
-        console.error(`Error synchronizing likeCount for pin ${pinId}:`, err);
-        throw err;
-    }
-});
-exports.onPinLikeDeleted = (0, firestore_2.onDocumentDeleted)({
-    document: 'pins/{pinId}/likes/{userId}',
-    database: exports.FIRESTORE_DATABASE_ID,
-    region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-    try {
-        // Authoritative, idempotent count of existing like documents
-        const likesCountSnap = await pinRef.collection('likes').count().get();
-        const canonicalCount = likesCountSnap.data().count;
-        let authorId = null;
-        await db.runTransaction(async (transaction) => {
-            const pinDoc = await transaction.get(pinRef);
-            if (!pinDoc.exists)
-                return;
-            authorId = pinDoc.data()?.userId || null;
-            transaction.update(pinRef, {
-                likeCount: canonicalCount,
-                updatedAt: firestore_1.FieldValue.serverTimestamp(),
-            });
-        });
-        console.log(`Successfully synchronized likeCount to ${canonicalCount} for pin ${pinId}`);
-        if (authorId) {
-            await updateUserProgressionServer(authorId);
-        }
-    }
-    catch (err) {
-        console.error(`Error synchronizing likeCount for pin ${pinId}:`, err);
-        throw err;
-    }
-});
-// ============================================================================
-// 2. PIN COMMENT COUNTER (Server-Side Trigger - Idempotent Canonical Count)
-// ============================================================================
-exports.onPinCommentCreated = (0, firestore_2.onDocumentCreated)({
+    retry: true,
+};
+exports.onPinLikeCreated = (0, firestore_2.onDocumentCreated)(likesTrigger, event => syncPinCounter(event.params.pinId, 'likes'));
+exports.onPinLikeDeleted = (0, firestore_2.onDocumentDeleted)(likesTrigger, event => syncPinCounter(event.params.pinId, 'likes'));
+const commentsTrigger = {
     document: 'pins/{pinId}/comments/{commentId}',
     database: exports.FIRESTORE_DATABASE_ID,
     region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-    try {
-        // Authoritative, idempotent count of existing comment documents
-        const commentsCountSnap = await pinRef.collection('comments').count().get();
-        const canonicalCount = commentsCountSnap.data().count;
-        await db.runTransaction(async (transaction) => {
-            const pinDoc = await transaction.get(pinRef);
-            if (!pinDoc.exists)
-                return;
-            transaction.update(pinRef, {
-                commentCount: canonicalCount,
-                updatedAt: firestore_1.FieldValue.serverTimestamp(),
-            });
-        });
-        console.log(`Successfully synchronized commentCount to ${canonicalCount} for pin ${pinId}`);
-    }
-    catch (err) {
-        console.error(`Error synchronizing commentCount for pin ${pinId}:`, err);
-        throw err;
-    }
-});
-exports.onPinCommentDeleted = (0, firestore_2.onDocumentDeleted)({
-    document: 'pins/{pinId}/comments/{commentId}',
-    database: exports.FIRESTORE_DATABASE_ID,
-    region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-    try {
-        // Authoritative, idempotent count of existing comment documents
-        const commentsCountSnap = await pinRef.collection('comments').count().get();
-        const canonicalCount = commentsCountSnap.data().count;
-        await db.runTransaction(async (transaction) => {
-            const pinDoc = await transaction.get(pinRef);
-            if (!pinDoc.exists)
-                return;
-            transaction.update(pinRef, {
-                commentCount: canonicalCount,
-                updatedAt: firestore_1.FieldValue.serverTimestamp(),
-            });
-        });
-        console.log(`Successfully synchronized commentCount to ${canonicalCount} for pin ${pinId}`);
-    }
-    catch (err) {
-        console.error(`Error synchronizing commentCount for pin ${pinId}:`, err);
-        throw err;
-    }
-});
-// ============================================================================
-// 3. FOLLOWER / FOLLOWING COUNTERS (Server-Side Trigger)
-// ============================================================================
-exports.onUserFollowerCreated = (0, firestore_2.onDocumentCreated)({
+    retry: true,
+};
+exports.onPinCommentCreated = (0, firestore_2.onDocumentCreated)(commentsTrigger, event => syncPinCounter(event.params.pinId, 'comments'));
+exports.onPinCommentDeleted = (0, firestore_2.onDocumentDeleted)(commentsTrigger, event => syncPinCounter(event.params.pinId, 'comments'));
+async function syncFollowCounters(targetUserId, followerId) {
+    if (targetUserId === followerId)
+        return;
+    const targetRef = db.collection('users').doc(targetUserId);
+    const followerRef = db.collection('users').doc(followerId);
+    await db.runTransaction(async (transaction) => {
+        const [target, follower] = await transaction.getAll(targetRef, followerRef);
+        const [followers, following] = await Promise.all([
+            target.exists ? transaction.get(targetRef.collection('followers').count()) : undefined,
+            follower.exists ? transaction.get(followerRef.collection('following').count()) : undefined,
+        ]);
+        if (followers && target.get('followersCount') !== followers.data().count) {
+            transaction.update(targetRef, { followersCount: followers.data().count, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        }
+        if (following && follower.get('followingCount') !== following.data().count) {
+            transaction.update(followerRef, { followingCount: following.data().count, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        }
+    });
+    await updateUserProgressionServer(targetUserId);
+}
+const followersTrigger = {
     document: 'users/{targetUserId}/followers/{followerId}',
     database: exports.FIRESTORE_DATABASE_ID,
     region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const { targetUserId, followerId } = event.params;
-    if (targetUserId === followerId)
-        return;
-    const targetUserRef = db.collection('users').doc(targetUserId);
-    const followerRef = db.collection('users').doc(followerId);
-    try {
-        await db.runTransaction(async (transaction) => {
-            const [targetDoc, followerDoc] = await Promise.all([
-                transaction.get(targetUserRef),
-                transaction.get(followerRef),
-            ]);
-            if (targetDoc.exists) {
-                const prev = Number(targetDoc.data()?.followersCount) || 0;
-                transaction.update(targetUserRef, {
-                    followersCount: prev + 1,
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                });
-            }
-            else {
-                transaction.set(targetUserRef, {
-                    uid: targetUserId,
-                    followersCount: 1,
-                    followingCount: 0,
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                }, { merge: true });
-            }
-            if (followerDoc.exists) {
-                const prev = Number(followerDoc.data()?.followingCount) || 0;
-                transaction.update(followerRef, {
-                    followingCount: prev + 1,
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                });
-            }
-            else {
-                transaction.set(followerRef, {
-                    uid: followerId,
-                    followersCount: 0,
-                    followingCount: 1,
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                }, { merge: true });
-            }
-        });
-        console.log(`Successfully updated follow counters for ${targetUserId}`);
-        await updateUserProgressionServer(targetUserId);
-    }
-    catch (err) {
-        console.error(`Error updating follow counters on create:`, err);
-        throw err;
-    }
-});
-exports.onUserFollowerDeleted = (0, firestore_2.onDocumentDeleted)({
-    document: 'users/{targetUserId}/followers/{followerId}',
-    database: exports.FIRESTORE_DATABASE_ID,
-    region: exports.FUNCTION_REGION,
-}, async (event) => {
-    const { targetUserId, followerId } = event.params;
-    if (targetUserId === followerId)
-        return;
-    const targetUserRef = db.collection('users').doc(targetUserId);
-    const followerRef = db.collection('users').doc(followerId);
-    try {
-        await db.runTransaction(async (transaction) => {
-            const [targetDoc, followerDoc] = await Promise.all([
-                transaction.get(targetUserRef),
-                transaction.get(followerRef),
-            ]);
-            if (targetDoc.exists) {
-                const prev = Number(targetDoc.data()?.followersCount) || 0;
-                transaction.update(targetUserRef, {
-                    followersCount: Math.max(0, prev - 1),
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                });
-            }
-            if (followerDoc.exists) {
-                const prev = Number(followerDoc.data()?.followingCount) || 0;
-                transaction.update(followerRef, {
-                    followingCount: Math.max(0, prev - 1),
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                });
-            }
-        });
-        console.log(`Successfully decremented follow counters for ${targetUserId}`);
-        await updateUserProgressionServer(targetUserId);
-    }
-    catch (err) {
-        console.error(`Error updating follow counters on delete:`, err);
-        throw err;
-    }
-});
+    retry: true,
+};
+exports.onUserFollowerCreated = (0, firestore_2.onDocumentCreated)(followersTrigger, event => syncFollowCounters(event.params.targetUserId, event.params.followerId));
+exports.onUserFollowerDeleted = (0, firestore_2.onDocumentDeleted)(followersTrigger, event => syncFollowCounters(event.params.targetUserId, event.params.followerId));
 // ============================================================================
 // 4. CASCADE DELETION ON PIN REMOVAL
 // ============================================================================
@@ -804,7 +536,9 @@ exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
         }
         if (pinData?.imageUrls && Array.isArray(pinData.imageUrls)) {
             for (const url of pinData.imageUrls) {
-                const storagePath = extractStoragePathFromUrl(url, 'pin-images/');
+                const storagePath = pinData?.userId
+                    ? extractStoragePathFromUrl(url, `pins/${pinData.userId}/`)
+                    : null;
                 if (storagePath) {
                     try {
                         await storage.bucket().file(storagePath).delete();
@@ -831,20 +565,11 @@ exports.onPinCreatedProgression = (0, firestore_2.onDocumentCreated)({
     document: 'pins/{pinId}',
     database: exports.FIRESTORE_DATABASE_ID,
     region: exports.FUNCTION_REGION,
+    retry: true,
 }, async (event) => {
-    const pinData = event.data?.data();
-    if (!pinData)
-        return;
-    const userId = pinData.userId;
-    if (!userId || userId.startsWith('system_') || userId.startsWith('demo_'))
-        return;
-    console.log(`[Progression Trigger] Processing pin creation for user: ${userId}`);
-    try {
+    const userId = event.data?.get('userId');
+    if (typeof userId === 'string')
         await updateUserProgressionServer(userId);
-    }
-    catch (err) {
-        console.error(`[Progression Trigger] Error updating progression for user ${userId}:`, err);
-    }
 });
 exports.onUserProfileUpdatedProgression = (0, firestore_2.onDocumentUpdated)({
     document: 'users/{userId}',
@@ -898,32 +623,175 @@ exports.recalculateProgression = (0, https_1.onCall)({
 // ============================================================================
 // 7. ACCOUNT DELETION
 // ============================================================================
+async function forEachAccountDeletionPage(query, handlePage) {
+    const ordered = query.orderBy('__name__').limit(200);
+    let cursor;
+    do {
+        const page = await (cursor ? ordered.startAfter(cursor) : ordered).get();
+        if (page.empty)
+            return;
+        await handlePage(page.docs);
+        cursor = page.docs[page.docs.length - 1];
+        if (page.size < 200)
+            return;
+    } while (cursor);
+}
+async function cleanAccountReports(userId) {
+    const reports = db.collection('reports');
+    await forEachAccountDeletionPage(reports.where('reporterId', '==', userId), async (docs) => {
+        await db.runTransaction(async (transaction) => {
+            const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+            for (const report of currentReports) {
+                if (report.get('reporterId') !== userId ||
+                    (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt')))
+                    continue;
+                transaction.update(report.ref, {
+                    reporterEmail: firestore_1.FieldValue.delete(),
+                    reporterDeletedAt: firestore_1.FieldValue.serverTimestamp(),
+                });
+            }
+        });
+    });
+    await forEachAccountDeletionPage(reports.where('targetId', '==', userId), async (docs) => {
+        await db.runTransaction(async (transaction) => {
+            const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+            for (const current of currentReports) {
+                if (current.get('targetId') !== userId || current.get('targetType') !== 'user' ||
+                    current.get('status') !== 'pending')
+                    continue;
+                transaction.update(current.ref, {
+                    status: 'resolved',
+                    resolvedReason: 'target_account_deleted',
+                    resolvedAt: firestore_1.FieldValue.serverTimestamp(),
+                });
+            }
+        });
+    });
+}
 exports.deleteUserAccount = (0, https_1.onCall)({
     region: exports.FUNCTION_REGION,
+    timeoutSeconds: 540,
 }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be signed in.');
     }
     const userId = request.auth.uid;
+    // Strict ownership enforcement: reject any attempt to target another user's UID
+    const requestedTargetUid = request.data && typeof request.data === 'object' && 'userId' in request.data
+        ? request.data.userId
+        : undefined;
+    if (typeof requestedTargetUid === 'string' && requestedTargetUid.trim() !== '' && requestedTargetUid !== userId) {
+        throw new https_1.HttpsError('permission-denied', 'You can only delete your own authenticated account.');
+    }
+    // Require recent authentication (within 5 minutes / 300 seconds) before destructive deletion
+    const authTimeSec = Number(request.auth.token?.auth_time || 0);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const MAX_RECENT_AUTH_AGE_SEC = 300;
+    if (!authTimeSec || nowSec - authTimeSec > MAX_RECENT_AUTH_AGE_SEC) {
+        throw new https_1.HttpsError('failed-precondition', 'RECENT_LOGIN_REQUIRED: Please reauthenticate before deleting your account.');
+    }
     console.log(`Starting account deletion for user: ${userId}`);
     try {
-        const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
-        for (const pinDoc of userPinsSnapshot.docs) {
-            await pinDoc.ref.delete();
+        // Persist a server-owned deletion lock before any destructive operation.
+        // Firestore rules deny new client content and profile recreation while it exists.
+        await db.collection('accountDeletionLocks').doc(userId).set({
+            status: 'deleting',
+            startedAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        // Remove the account's reactions and comments on other users' pins before
+        // revoking its Auth identity. Only documents whose userId matches are deleted.
+        // This intentionally preserves likes/comments authored by other users.
+        for (const collectionName of ['likes', 'comments']) {
+            while (true) {
+                const authored = await db.collectionGroup(collectionName)
+                    .where('userId', '==', userId).limit(200).get();
+                if (authored.empty)
+                    break;
+                const batch = db.batch();
+                authored.docs.forEach((entry) => batch.delete(entry.ref));
+                await batch.commit();
+            }
         }
-        try {
-            await storage.bucket().deleteFiles({
-                prefix: `profile-images/${userId}/`,
-            });
+        // Legacy likes may have no userId field. Their document ID is the author's
+        // Firebase UID, so a collection-group userId query cannot discover them.
+        // Scan pin IDs in bounded pages and inspect only the departing user's like.
+        let lastScannedPin;
+        while (true) {
+            let pinsPageQuery = db.collection('pins').orderBy('__name__').limit(200);
+            if (lastScannedPin)
+                pinsPageQuery = pinsPageQuery.startAfter(lastScannedPin);
+            const pinsPage = await pinsPageQuery.get();
+            if (pinsPage.empty)
+                break;
+            const likeRefs = pinsPage.docs.map((pin) => pin.ref.collection('likes').doc(userId));
+            const likeDocs = await db.getAll(...likeRefs);
+            const batch = db.batch();
+            let deleteCount = 0;
+            for (const like of likeDocs) {
+                if (like.exists && (!like.data()?.userId || like.data()?.userId === userId)) {
+                    batch.delete(like.ref);
+                    deleteCount++;
+                }
+            }
+            if (deleteCount)
+                await batch.commit();
+            lastScannedPin = pinsPage.docs[pinsPage.docs.length - 1];
         }
-        catch (stErr) {
-            console.warn(`Error deleting avatar files for user ${userId}:`, stErr);
+        // Remove both sides of each follow relationship. The user's own
+        // subcollections are the authoritative source for the mirror document IDs.
+        const departingUserRef = db.collection('users').doc(userId);
+        for (const relationship of ['following', 'followers']) {
+            while (true) {
+                const relationships = await departingUserRef.collection(relationship).limit(200).get();
+                if (relationships.empty)
+                    break;
+                const batch = db.batch();
+                for (const entry of relationships.docs) {
+                    const otherUserId = entry.id;
+                    const counterpart = relationship === 'following'
+                        ? db.collection('users').doc(otherUserId).collection('followers').doc(userId)
+                        : db.collection('users').doc(otherUserId).collection('following').doc(userId);
+                    batch.delete(counterpart);
+                    batch.delete(entry.ref);
+                }
+                await batch.commit();
+            }
         }
+        await cleanAccountReports(userId);
+        const userPins = db.collection('pins').where('userId', '==', userId);
+        await forEachAccountDeletionPage(userPins, async (pins) => {
+            for (const pin of pins)
+                await db.recursiveDelete(pin.ref);
+        });
+        // Avatar cleanup must succeed before reporting account deletion complete.
+        // The caller can retry on transient Storage errors.
+        await storage.bucket().deleteFiles({
+            prefix: `profile-images/${userId}/`,
+        });
+        // Remove the user's remaining pin images, including uploads not attached to a pin.
+        // A missing bucket or transient Storage error must not silently be reported as success.
+        await storage.bucket().deleteFiles({ prefix: `pins/${userId}/` });
         const userRef = db.collection('users').doc(userId);
         await db.recursiveDelete(userRef);
+        // Revoke access last, after the primary data cleanup has succeeded.
+        // This operation is idempotent for a retried deletion request.
+        try {
+            await (0, auth_1.getAuth)().deleteUser(userId);
+        }
+        catch (authErr) {
+            if (authErr?.code !== 'auth/user-not-found')
+                throw authErr;
+        }
+        await db.collection('accountDeletionLocks').doc(userId).set({
+            status: 'deleted',
+            completedAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
         return { success: true, message: `Account and associated data deleted for user ${userId}` };
     }
     catch (err) {
+        if (err instanceof https_1.HttpsError) {
+            throw err;
+        }
         console.error(`Failed to delete account for user ${userId}:`, err);
         throw new https_1.HttpsError('internal', err.message || 'Failed to complete account deletion.');
     }

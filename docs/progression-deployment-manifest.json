@@ -1,0 +1,194 @@
+{
+  "project": "rainbyte-studio",
+  "approvedBase": "08e5cae04ee8da46eb5726777ed76ea64fc8ab4c",
+  "codebase": "default",
+  "source": "functions",
+  "entryModule": "lib/index.js",
+  "runtime": "nodejs22",
+  "platform": "gcfv2",
+  "region": "europe-west2",
+  "firestore": {
+    "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+    "location": "us-west1",
+    "namespace": "(default)"
+  },
+  "preflightOriginalEight": {
+    "cpu": 1,
+    "memoryMiB": 256,
+    "concurrency": 80,
+    "timeoutSeconds": 60,
+    "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+  },
+  "functions": {
+    "onPinCreatedProgression": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpincreatedprogression-00001-zad",
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onpincreatedprogression-137532",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinLikeCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}/likes/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpinlikecreated-00002-ver",
+        "sourceGeneration": "1794935922754012",
+        "eventarcTrigger": "onpinlikecreated-237095",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinLikeDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}/likes/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpinlikedeleted-00002-yuy",
+        "sourceGeneration": "1794935922727534",
+        "eventarcTrigger": "onpinlikedeleted-398095",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinCommentCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}/comments/{commentId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "counter-only",
+      "preflight": {
+        "revision": "onpincommentcreated-00002-sus",
+        "sourceGeneration": "1794935922210537",
+        "eventarcTrigger": "onpincommentcreated-837229",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinCommentDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}/comments/{commentId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "counter-only",
+      "preflight": {
+        "revision": "onpincommentdeleted-00002-xoq",
+        "sourceGeneration": "1794935922268044",
+        "eventarcTrigger": "onpincommentdeleted-629181",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onUserFollowerCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "users/{targetUserId}/followers/{followerId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserfollowercreated-00002-tij",
+        "sourceGeneration": "1794935922231647",
+        "eventarcTrigger": "onuserfollowercreated-459541",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onUserFollowerDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "users/{targetUserId}/followers/{followerId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserfollowerdeleted-00002-foy",
+        "sourceGeneration": "1794935922813037",
+        "eventarcTrigger": "onuserfollowerdeleted-637552",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "deleteUserAccount": {
+      "trigger": {
+        "type": "httpsCallable"
+      },
+      "desiredTimeoutSeconds": 540,
+      "legacyGeography": "indirect",
+      "preflight": {
+        "revision": "deleteuseraccount-00002-bey",
+        "sourceGeneration": "1794935922063323",
+        "eventarcTrigger": null,
+        "retryPolicy": null
+      }
+    },
+    "onPinDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpindeleted-00002-baw",
+        "sourceGeneration": null,
+        "eventarcTrigger": null,
+        "retryPolicy": null
+      }
+    },
+    "onUserProfileUpdatedProgression": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "users/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserprofileupdatedprogression-00001-guv",
+        "sourceGeneration": null,
+        "eventarcTrigger": null,
+        "retryPolicy": null
+      }
+    },
+    "recalculateProgression": {
+      "trigger": {
+        "type": "httpsCallable"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "recalculateprogression-00001-hex",
+        "sourceGeneration": null,
+        "eventarcTrigger": null,
+        "retryPolicy": null
+      }
+    }
+  }
+}

@@ -6,7 +6,9 @@ on:
       - 'firestore.rules'
       - 'firestore.indexes.json'
       - 'functions/src/**'
+      - 'functions/lib/**'
       - 'functions/tests/**'
+      - 'docs/progression-deployment-manifest.json'
       - 'functions/package.json'
       - 'functions/package-lock.json'
       - '.github/workflows/functions-build.yml'
@@ -28,15 +30,18 @@ jobs:
         run: npm audit --prefix functions --audit-level=high
       - name: TypeScript build
         run: npm --prefix functions run build
+      - name: Verify checked-in Functions runtime
+        run: test -z "$(git status --porcelain -- functions/lib)"
       - name: Progression unit tests
         run: node --test functions/tests/progressionLocation.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - name: Firestore emulator concurrency integration test
+      - name: Progression integration tests with local emulators
         env:
+          FIREBASE_CONFIG: '{"projectId":"demo-heyroq","storageBucket":"demo-heyroq.appspot.com"}'
           GCLOUD_PROJECT: demo-heyroq
           GOOGLE_CLOUD_PROJECT: demo-heyroq
           FIRESTORE_DATABASE_ID: ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3
-        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/progressionEmulator.test.cjs'
+        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore,auth,storage 'node --test functions/tests/progressionEmulator.test.cjs'
