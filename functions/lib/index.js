@@ -52,13 +52,20 @@ async function syncUserProgression(userId, concurrencyRetry = 0) {
         return null;
     if (!(await db.collection('users').doc(userId).get()).exists)
         return null;
+    // Establish the version before reading the metrics it protects.
+    const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
+    const summarySnap = await summaryRef.get();
+    const existingSummary = summarySnap.exists ? summarySnap.data() : null;
     // 1. Fetch user's active pins (excluding deleted or reported)
     const pinsSnap = await db.collection('pins').where('userId', '==', userId).get();
     const validPins = [];
     pinsSnap.forEach((doc) => {
         const data = doc.data();
         if (isActivePin(data)) {
-            validPins.push({ ...data, id: doc.id });
+            const tags = Array.isArray(data.tags)
+                ? data.tags.filter((tag) => typeof tag === 'string' && tag.trim().length > 0)
+                : [];
+            validPins.push({ ...data, id: doc.id, tags });
         }
     });
     const activeSpotsCount = validPins.length; // DYNAMIC: Current non-deleted pins
@@ -75,18 +82,18 @@ async function syncUserProgression(userId, concurrencyRetry = 0) {
     let photoSpotsCount = 0;
     let richSpotsCount = 0;
     validPins.forEach((pin) => {
-        const cat = (pin.category || '').toLowerCase();
+        const cat = typeof pin.category === 'string' ? pin.category.toLowerCase() : '';
         if (cat.includes('hidden') || cat.includes('gem'))
             hiddenGemsCount++;
         if (cat.includes('food'))
             foodCount++;
         if (cat.includes('nature'))
             natureCount++;
-        if (cat.includes('photo') || (pin.tags && pin.tags.some((t) => t.toLowerCase().includes('photo')))) {
+        if (cat.includes('photo') || pin.tags.some((tag) => tag.toLowerCase().includes('photo'))) {
             photoSpotsCount++;
         }
-        const hasLongDesc = (pin.description || '').trim().length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
-        const hasTags = Array.isArray(pin.tags) && pin.tags.length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
+        const hasLongDesc = typeof pin.description === 'string' && pin.description.trim().length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
+        const hasTags = pin.tags.length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
         if (hasLongDesc && hasTags)
             richSpotsCount++;
     });
@@ -94,12 +101,8 @@ async function syncUserProgression(userId, concurrencyRetry = 0) {
     let profileCompletePoints = 0;
     if (userData?.avatarUrl || userData?.photoURL)
         profileCompletePoints++;
-    if (userData?.bio && userData.bio.trim().length >= 10)
+    if (typeof userData?.bio === 'string' && userData.bio.trim().length >= 10)
         profileCompletePoints++;
-    // 3. Read Existing State to Enforce Monotonic Historical Invariants
-    const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
-    const summarySnap = await summaryRef.get();
-    const existingSummary = summarySnap.exists ? summarySnap.data() : null;
     const xpEventsCol = db.collection('users').doc(userId).collection('xpEvents');
     const existingEventsSnap = await xpEventsCol.get();
     const existingEventIds = new Set();
@@ -189,8 +192,8 @@ async function syncUserProgression(userId, concurrencyRetry = 0) {
     });
     // Rich spot bonus (+25 XP each)
     validPins.forEach((pin) => {
-        const hasLongDesc = (pin.description || '').trim().length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
-        const hasTags = Array.isArray(pin.tags) && pin.tags.length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
+        const hasLongDesc = typeof pin.description === 'string' && pin.description.trim().length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
+        const hasTags = pin.tags.length >= progressionConfig_1.PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
         if (hasLongDesc && hasTags) {
             const eventId = (0, progressionConfig_1.getRichDiscoveryEventId)(pin.id);
             if (!existingEventIds.has(eventId)) {
@@ -424,30 +427,6 @@ async function syncUserProgression(userId, concurrencyRetry = 0) {
     console.log(`[Progression Server] Authoritatively synchronized user ${userId}: Level ${finalLevelInfo.level} (${finalLevelInfo.title}), ${finalTotalXp} XP, ${unlockedCount} achievements.`);
     return summary;
 }
-/**
- * Helper to safely extract a Cloud Storage object path from a Firebase Storage download URL.
- */
-function extractStoragePathFromUrl(url, expectedPrefix) {
-    try {
-        if (!url || typeof url !== 'string')
-            return null;
-        if (url.includes('/o/')) {
-            const parts = url.split('/o/');
-            if (parts.length < 2)
-                return null;
-            const pathWithParams = parts[1];
-            const encodedPath = pathWithParams.split('?')[0];
-            const decodedPath = decodeURIComponent(encodedPath);
-            if (decodedPath.startsWith(expectedPrefix)) {
-                return decodedPath;
-            }
-        }
-    }
-    catch (err) {
-        console.warn('Failed to parse storage path from url:', url, err);
-    }
-    return null;
-}
 // ============================================================================
 // 1–3. SOCIAL COUNTERS
 // ============================================================================
@@ -522,41 +501,46 @@ exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
     region: exports.FUNCTION_REGION,
 }, async (event) => {
     const pinId = event.params.pinId;
-    const pinData = event.data?.data();
-    console.log(`Pin deleted: ${pinId}. Processing cleanup.`);
-    try {
-        const pinRef = db.collection('pins').doc(pinId);
-        const likesSnap = await pinRef.collection('likes').get();
-        for (const doc of likesSnap.docs) {
-            await doc.ref.delete();
-        }
-        const commentsSnap = await pinRef.collection('comments').get();
-        for (const doc of commentsSnap.docs) {
-            await doc.ref.delete();
-        }
-        if (pinData?.imageUrls && Array.isArray(pinData.imageUrls)) {
-            for (const url of pinData.imageUrls) {
-                const storagePath = pinData?.userId
-                    ? extractStoragePathFromUrl(url, `pins/${pinData.userId}/`)
-                    : null;
-                if (storagePath) {
-                    try {
-                        await storage.bucket().file(storagePath).delete();
+    const deletedPin = event.data;
+    const authorId = deletedPin?.data()?.userId;
+    const pinRef = db.collection('pins').doc(pinId);
+    const createdAt = deletedPin?.createTime;
+    const lastUpdatedAt = deletedPin?.updateTime;
+    const cleanup = async () => {
+        if (!createdAt || !lastUpdatedAt)
+            return;
+        for (const name of ['likes', 'comments']) {
+            const children = await pinRef.collection(name).get();
+            for (let offset = 0; offset < children.docs.length; offset += 200) {
+                const group = children.docs.slice(offset, offset + 200);
+                const recreated = await db.runTransaction(async (transaction) => {
+                    if ((await transaction.get(pinRef)).exists)
+                        return true;
+                    const current = await transaction.getAll(...group.map(child => child.ref));
+                    for (const child of current) {
+                        // Keep writes outside the deleted snapshot's proven lifetime.
+                        if (child.createTime && child.updateTime &&
+                            child.createTime.valueOf() >= createdAt.valueOf() &&
+                            child.updateTime.valueOf() <= lastUpdatedAt.valueOf()) {
+                            transaction.delete(child.ref);
+                        }
                     }
-                    catch (fileErr) {
-                        console.warn(`Could not delete storage file ${storagePath}:`, fileErr);
-                    }
-                }
+                    return false;
+                });
+                if (recreated)
+                    return;
             }
         }
-        // Synchronize progression for author (preserving permanent milestones)
-        if (pinData?.userId) {
-            await updateUserProgressionServer(pinData.userId);
-        }
-    }
-    catch (err) {
-        console.error(`Error in onPinDeleted cleanup for ${pinId}:`, err);
-    }
+    };
+    // Legacy URLs can be shared by a replacement pin and omit a generation.
+    // Retain these objects until their exclusive ownership can be established.
+    const results = await Promise.allSettled([
+        cleanup(),
+        typeof authorId === 'string' ? updateUserProgressionServer(authorId) : Promise.resolve(),
+    ]);
+    const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+    if (failures.length)
+        throw new AggregateError(failures, 'Pin deletion processing failed for ' + pinId);
 });
 // ============================================================================
 // 5. EXPLORER PROGRESSION TRIGGERS

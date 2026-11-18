@@ -197,3 +197,26 @@ adapter. Seek custom licensing from Google Maps Platform Sales if required.
   With separate production approval, run the restricted smoke test before
   widening the allowlist. Monitor request rates, failures, award rates and
   spend without recording precise coordinates or lookup content.
+
+### Open pin-deletion release blocker
+
+The draft retains Storage objects on spot deletion. Existing image URLs record
+a bucket and path and can be reused by a recreated pin. An owner-path check or
+a generation fetched during delivery cannot establish that the deleted pin
+owned that generation exclusively. Require an authoritative, immutable pin
+incarnation binding and the originally attached object generation before
+enabling deletion. A generation mismatch or missing object must preserve any
+replacement. Recovery must handle partial failures without falling back to
+an unconditional delete. Coordinate the hosted frontend because legacy
+clients can still delete from their Storage namespace directly.
+
+Firestore cleanup checks parent absence and each child version in the same
+transaction. Legacy children updated after the deleted parent's last update
+remain ambiguous and are retained. A complete cascade needs incarnation data
+for those children. Confirm the two unknown live retry settings before
+rollout. Keep automatic retries off for the delete trigger until the complete
+cascade can safely resume, and verify error monitoring and manual recovery.
+For the account-deletion callable, treat 540 seconds as a candidate ceiling.
+The frontend allows 550 seconds, leaving 10 seconds of nominal headroom.
+Before approval, measure representative large accounts in staging and
+prove that a lost response or server timeout can be resumed safely.

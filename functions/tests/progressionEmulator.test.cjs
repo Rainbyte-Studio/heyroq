@@ -290,3 +290,115 @@ test('social counters converge on current documents after concurrent and replaye
   await onPinLikeDeleted.run(pinEvent);
   assert.equal((await pin.get()).exists, false);
 });
+
+test('a slower recomputation cannot publish metrics read before a newer summary commit', { timeout: 20000 }, async t => {
+  const uid = 'progression-stale-metrics';
+  const user = db.collection('users').doc(uid);
+  const metrics = user.collection('progression').doc('summary');
+  const pin = pins.doc(uid);
+  await user.set({ followersCount: 0 });
+  await pin.set({ userId: uid, likeCount: 1, latitude: 38, longitude: 23 });
+  await updateUserProgressionServer(uid);
+
+  const staleRead = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const queryPrototype = Object.getPrototypeOf(pins.where('userId', '==', uid));
+  const originalGet = queryPrototype.get;
+  let intercepted = false;
+  t.mock.method(queryPrototype, 'get', async function (...args) {
+    const snapshot = await originalGet.apply(this, args);
+    if (!intercepted && snapshot.docs.some(doc => doc.ref.path === pin.path)) {
+      intercepted = true;
+      staleRead.resolve();
+      await resume.promise;
+    }
+    return snapshot;
+  });
+
+  const slower = updateUserProgressionServer(uid);
+  try {
+    await staleRead.promise;
+    await pin.update({ likeCount: 12 });
+    await updateUserProgressionServer(uid);
+    assert.equal((await metrics.get()).get('likesReceivedCount'), 12);
+  } finally {
+    resume.resolve();
+    await slower;
+  }
+  assert.equal((await metrics.get()).get('likesReceivedCount'), 12);
+});
+
+test('legacy and mixed tags cannot crash progression or manufacture rich-discovery XP', async () => {
+  const uid = 'progression-legacy-tags';
+  const user = db.collection('users').doc(uid);
+  await user.set({ displayName: 'Legacy tags' });
+  const description = 'A'.repeat(100);
+  for (const [suffix, tags] of [
+    ['scalar', 'photo'],
+    ['mixed', [null, 4, {}, ' ', 'PHoTo']],
+    ['valid', [false, 'photo', 'nature']],
+  ]) {
+    await pins.doc(uid + '-' + suffix).set({ userId: uid, description, tags });
+  }
+  await updateUserProgressionServer(uid);
+  const rich = await user.collection('xpEvents').where('action', '==', 'RICH_DISCOVERY').get();
+  assert.deepEqual(rich.docs.map(doc => doc.get('referenceId')), [uid + '-valid']);
+});
+
+test('delayed pin deletion preserves recreated children and replacement Storage generation', async () => {
+  assert.match(process.env.FIREBASE_STORAGE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const { getStorage } = require('firebase-admin/storage');
+  const uid = 'same-id-owner';
+  const pin = pins.doc('same-id-pin');
+  const like = pin.collection('likes').doc('same-like');
+  const comment = pin.collection('comments').doc('same-comment');
+  const bucket = getStorage().bucket();
+  const object = bucket.file('pins/' + uid + '/same-image.png');
+  const url = 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name + '/o/' +
+    encodeURIComponent(object.name) + '?alt=media';
+  await object.save('old');
+  const oldGeneration = (await object.getMetadata())[0].generation;
+  await pin.set({ userId: uid, imageUrls: [url] });
+  await like.set({ userId: uid });
+  await comment.set({ text: 'old' });
+  await pin.update({ likeCount: 1, commentCount: 1 });
+  const event = { params: { pinId: pin.id }, data: await pin.get() };
+  await pin.delete();
+
+  await object.save('new');
+  const newGeneration = (await object.getMetadata())[0].generation;
+  assert.notEqual(newGeneration, oldGeneration);
+  await pin.set({ userId: uid, imageUrls: [url] });
+  await like.delete();
+  await comment.delete();
+  await like.set({ userId: uid });
+  await comment.set({ text: 'new' });
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, true);
+  assert.equal((await comment.get()).get('text'), 'new');
+
+  // Replaying the older event after the replacement was also removed must
+  // still protect documents created by the replacement incarnation.
+  await pin.delete();
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, true);
+  assert.equal((await comment.get()).get('text'), 'new');
+  assert.equal((await object.getMetadata())[0].generation, newGeneration);
+  assert.equal((await object.download())[0].toString(), 'new');
+});
+
+test('pin deletion removes children known to belong to the deleted snapshot and tolerates replay', async () => {
+  const pin = pins.doc('unambiguous-deleted-pin');
+  const like = pin.collection('likes').doc('old-like');
+  const comment = pin.collection('comments').doc('old-comment');
+  await pin.set({ userId: 'deleted-pin-owner' });
+  await like.set({ userId: 'old-liker' });
+  await comment.set({ text: 'old' });
+  await pin.update({ likeCount: 1, commentCount: 1 });
+  const event = { params: { pinId: pin.id }, data: await pin.get() };
+  await pin.delete();
+  await functions.onPinDeleted.run(event);
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, false);
+  assert.equal((await comment.get()).exists, false);
+});

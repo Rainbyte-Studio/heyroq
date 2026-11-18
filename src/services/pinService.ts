@@ -449,35 +449,10 @@ export async function deletePin(pinId: string, userId: string): Promise<void> {
   const pinRef = doc(db, PINS_COLLECTION, pinId);
 
   try {
-    // 1. Read existing pin data safely so storage image URLs and actual owner UID are known
-    let pinImages: string[] = [];
-    let pinOwnerId: string = userId;
-    try {
-      const snap = await getDoc(pinRef);
-      if (snap.exists()) {
-        const pinData = snap.data() as Pin;
-        pinOwnerId = pinData.userId || userId;
-        if (pinData.imageUrls && Array.isArray(pinData.imageUrls)) {
-          pinImages = pinData.imageUrls;
-        }
-      }
-    } catch (readErr) {
-      console.warn('[Heyroq Pin Delete] Notice fetching pin data before delete:', readErr);
-    }
-
-    // 2. Perform authoritative Firestore deletion FIRST
     await deleteDoc(pinRef);
     console.log('[Heyroq Pin Delete] Successfully deleted pin doc from Firestore:', { pinId, authUid });
 
-    // 3. Immediately evict from all in-memory caches so map/discovery do not re-render deleted pin
     evictSessionPin(pinId);
-
-    // 4. Safely clean up associated Storage images in the background (non-blocking)
-    if (pinImages.length > 0) {
-      deletePinImages(pinImages, pinOwnerId).catch((imgErr) => {
-        console.warn('[Heyroq Pin Delete] Storage image cleanup notice:', imgErr);
-      });
-    }
   } catch (err: any) {
     console.error('[Heyroq Pin Delete] Error deleting pin from Firestore:', {
       pinId,
