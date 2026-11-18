@@ -43,7 +43,10 @@ import { ListFilter, Map as MapIcon, Plus, Compass } from 'lucide-react';
 
 const AdminModal = lazy(() => import('./components/Admin/AdminModal').then(module => ({ default: module.AdminModal })));
 
-class AdminLoadBoundary extends React.Component<React.PropsWithChildren<{ onClose: () => void }>> {
+type AdminLoadBoundaryProps = React.PropsWithChildren<{ onClose: () => void }>;
+
+class AdminLoadBoundary extends React.Component<AdminLoadBoundaryProps> {
+  declare readonly props: AdminLoadBoundaryProps;
   state = { failed: false };
 
   static getDerivedStateFromError() {
