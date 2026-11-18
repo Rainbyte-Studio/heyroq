@@ -359,6 +359,35 @@ export async function fetchPinById(pinId: string): Promise<Pin | null> {
   return null;
 }
 
+/**
+ * Resolves the signed-in author's public display identity from their Firestore profile.
+ * Pins and comments must store exactly these values; Firestore rules reject any other
+ * name/avatar so users cannot publish under someone else's identity.
+ */
+async function resolveCanonicalAuthorIdentity(
+  userId: string,
+  action: string
+): Promise<{ userName: string; userAvatar: string }> {
+  const authorUid = auth.currentUser?.uid;
+  if (!authorUid || authorUid !== userId) {
+    throw new Error(`The author must match the signed-in account to ${action}.`);
+  }
+  const authorSnap = await getDoc(doc(db, 'users', authorUid));
+  if (!authorSnap.exists()) throw new Error(`Complete your profile before you ${action}.`);
+  const authorData = authorSnap.data();
+  const userName = authorData.displayName;
+  if (typeof userName !== 'string' || !userName.trim()) {
+    throw new Error(`A profile display name is required to ${action}.`);
+  }
+  const userAvatar =
+    typeof authorData.avatarUrl === 'string'
+      ? authorData.avatarUrl
+      : typeof authorData.photoURL === 'string'
+        ? authorData.photoURL
+        : '';
+  return { userName, userAvatar };
+}
+
 // 5. Create Pin directly in Firestore
 export async function createPin(
   pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt'>
@@ -366,10 +395,13 @@ export async function createPin(
   const geohash = computeGeohash(pinData.latitude, pinData.longitude);
   const now = new Date().toISOString();
 
+  // Author name/avatar come from the authenticated profile, never from caller input.
+  const { userName, userAvatar } = await resolveCanonicalAuthorIdentity(pinData.userId, 'publish a spot');
+
   const firestorePin = {
     userId: pinData.userId,
-    userName: pinData.userName || 'Explorer',
-    userAvatar: pinData.userAvatar || '',
+    userName,
+    userAvatar,
     title: pinData.title,
     description: pinData.description,
     latitude: pinData.latitude,
@@ -728,20 +760,8 @@ export async function addComment(
   }
 
   // Resolve the authenticated author's identity from Firestore, not caller input.
-  const authorUid = auth.currentUser?.uid;
-  if (!authorUid || authorUid !== userId) {
-    throw new Error('Comment author must match the signed-in account.');
-  }
-  const authorSnap = await getDoc(doc(db, 'users', authorUid));
-  if (!authorSnap.exists()) throw new Error('Complete your profile before commenting.');
-  const authorData = authorSnap.data();
-  const canonicalName = authorData.displayName;
-  if (typeof canonicalName !== 'string' || !canonicalName.trim()) {
-    throw new Error('A profile display name is required to comment.');
-  }
-  const canonicalAvatar = typeof authorData.avatarUrl === 'string'
-    ? authorData.avatarUrl
-    : typeof authorData.photoURL === 'string' ? authorData.photoURL : '';
+  const { userName: canonicalName, userAvatar: canonicalAvatar } =
+    await resolveCanonicalAuthorIdentity(userId, 'comment');
 
   const now = new Date().toISOString();
 

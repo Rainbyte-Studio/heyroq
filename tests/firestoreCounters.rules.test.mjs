@@ -146,3 +146,78 @@ describe('Admin cannot reintroduce public emails', () => {
     await assertFails(updateDoc(doc(adminDb, 'users/alice'), { email: 'alice@example.test' }));
   });
 });
+
+describe('Canonical pin author identity', () => {
+  const seedAliceWithAvatar = async () => env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/alice'),
+      profile({ avatarUrl: 'https://example.test/alice.png' }));
+  });
+
+  it('accepts the authenticated profile name and avatar', async () => {
+    await seedAliceWithAvatar();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'),
+      pin({ userName: 'Alice', userAvatar: 'https://example.test/alice.png' })));
+  });
+  it('rejects a forged author display name', async () => {
+    await seedAliceWithAvatar();
+    await assertFails(setDoc(doc(alice(), 'pins/spot1'),
+      pin({ userName: 'Bob', userAvatar: 'https://example.test/alice.png' })));
+  });
+  it('rejects a forged author avatar', async () => {
+    await seedAliceWithAvatar();
+    await assertFails(setDoc(doc(alice(), 'pins/spot1'),
+      pin({ userName: 'Alice', userAvatar: 'https://example.test/bob.png' })));
+  });
+  it('rejects changing an existing pin to another identity', async () => {
+    await seedAliceWithAvatar();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'),
+      pin({ userName: 'Alice', userAvatar: 'https://example.test/alice.png' })));
+    await assertFails(updateDoc(doc(alice(), 'pins/spot1'), { userName: 'Bob' }));
+  });
+  it('allows refreshing a pin to the current profile identity', async () => {
+    await seedAliceWithAvatar();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'),
+      pin({ userName: 'Alice', userAvatar: 'https://example.test/alice.png' })));
+    await env.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'users/alice'), { displayName: 'Alice R.' });
+    });
+    await assertSucceeds(updateDoc(doc(alice(), 'pins/spot1'), { userName: 'Alice R.' }));
+  });
+});
+
+describe('Pin location is fixed after creation (no repeat city/country XP)', () => {
+  const located = () => pin({
+    city: 'Athens', countryCode: 'GR', countryName: 'Greece', locationName: 'Plaka',
+    geohash: 'sw8zm',
+  });
+  const changes = {
+    city: { city: 'Paris' },
+    countryCode: { countryCode: 'FR' },
+    countryName: { countryName: 'France' },
+    country: { country: 'France' },
+    locationName: { locationName: 'Montmartre' },
+    latitude: { latitude: 48.85 },
+    longitude: { longitude: 2.35 },
+    geohash: { geohash: 'u09tv' },
+  };
+  for (const [field, change] of Object.entries(changes)) {
+    it(`rejects owner change of ${field}`, async () => {
+      await seedAlice();
+      await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), located()));
+      await assertFails(updateDoc(doc(alice(), 'pins/spot1'), change));
+    });
+  }
+  it('still allows owner edits to title and description', async () => {
+    await seedAlice();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), located()));
+    await assertSucceeds(updateDoc(doc(alice(), 'pins/spot1'), {
+      title: 'Better title', description: 'Updated description',
+    }));
+  });
+  it('still allows admins to correct a pin location', async () => {
+    await seedAlice();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), located()));
+    const adminDb = env.authenticatedContext('admin', { admin: true }).firestore();
+    await assertSucceeds(updateDoc(doc(adminDb, 'pins/spot1'), { city: 'Piraeus' }));
+  });
+});
