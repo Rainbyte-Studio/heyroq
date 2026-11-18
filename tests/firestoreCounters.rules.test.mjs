@@ -351,7 +351,7 @@ it('denies all client writes to legacy and managed Storage namespaces and preser
     }
   });
 
-it('transitional rules allow old-client and verified new-client publication without allowing URL reuse', async () => {
+it('transitional rules accept published legacy filenames and keep managed publication claim-bound', async () => {
   const config = { projectId };
   const rules = readFileSync('firestore.rules', 'utf8').replaceAll('\r\n', '\n');
   const storageRules = process.env.FIREBASE_STORAGE_EMULATOR_HOST
@@ -369,11 +369,15 @@ it('transitional rules allow old-client and verified new-client publication with
       await assertFails(setDoc(legacy, pin({ imageUrls: [url] })));
       await assertFails(setDoc(legacy, pin({ imageUrls: [...Array(19).fill(legacyUrl), url] })));
     }
-    await assertSucceeds(setDoc(legacy, pin({ imageUrls: Array(20).fill(legacyUrl) })));
+    const publishedClientUrls = Array.from({ length: 20 }, (_, index) =>
+      legacyUrl.replace(`123_${incarnation}_example.png`, `123_photo_${index}.png`));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls, legacyUrl] })));
+    await assertSucceeds(setDoc(doc(client, 'pins', 'publishedClientPin01'), pin({ imageUrls: publishedClientUrls })));
+    await assertSucceeds(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls.slice(0, 19), legacyUrl] })));
     await assertSucceeds(publish(client));
     await assertFails(updateDoc(legacy, { imageUrls: [imageUrl] }));
     if (storageRules) {
-      const legacyPath = 'pins/alice/123_' + incarnation + '_example.png';
+      const legacyPath = 'pins/alice/123_photo_19.png';
       const ownerStorage = transition.authenticatedContext('alice').storage();
       const legacyObject = ref(ownerStorage, legacyPath);
       const bytes = new Uint8Array([1]);

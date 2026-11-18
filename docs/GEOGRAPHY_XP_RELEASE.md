@@ -269,7 +269,12 @@ match the tested legacy URL format and that old clients support the expected
 image count. Confirm the endpoint origin, callable authentication, runtime
 service account and bucket permissions, tokenized public reads, and named
 Firestore rules. Record checksums of transitional and final Rules and the
-frontend archive. Generate the transitional Rules locally in a release
+frontend archive. The published Cloud Run bundle `index-DygWuBIz.js` uses
+`pins/{uid}/{timestamp}_{sanitizedFilename}` and publishes via a direct
+Firestore create. The transitional guard also accepts the later UUID filename
+format. Its 20-image limit is enforced when the pin is created, after an old
+client may already have uploaded the files. Include stale tabs and failed
+legacy batches in the rehearsal. Generate the transitional Rules locally in a release
 worktree, without overwriting the canonical Rules:
 
 ```sh

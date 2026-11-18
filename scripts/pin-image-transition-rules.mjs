@@ -16,10 +16,10 @@ export function makePinImageTransitionRules(finalRules) {
 ${checks.join(' &&\n')};
     }
 
-    // Transitional guard for URLs emitted by the previous Firebase Storage client.
+    // Accept the published timestamp-only filename and the later UUID variant.
     function isLegacyPinImage(url, uid) {
       return url is string && url.size() < 1024 &&
-             url.matches('https://firebasestorage[.]googleapis[.]com/v0/b/${bucket}/o/pins%2F[^%/?#]+%2F[0-9]+_[0-9a-f-]{36}_[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}') &&
+             url.matches('https://firebasestorage[.]googleapis[.]com/v0/b/${bucket}/o/pins%2F[^%/?#]+%2F[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}') &&
              url.split('%2F')[1] == uid;
     }`);
 }
