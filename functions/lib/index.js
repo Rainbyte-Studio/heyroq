@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
+exports.deleteUserAccount = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
 exports.updateUserProgressionServer = updateUserProgressionServer;
 exports.cleanAccountReports = cleanAccountReports;
 const app_1 = require("firebase-admin/app");
@@ -9,6 +9,7 @@ const storage_1 = require("firebase-admin/storage");
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const pinImageCleanup_1 = require("./pinImageCleanup");
 const progressionLocation_1 = require("./progressionLocation");
 const progressionConfig_1 = require("./progressionConfig");
@@ -496,6 +497,7 @@ exports.onUserFollowerDeleted = (0, firestore_2.onDocumentDeleted)(followersTrig
 // ============================================================================
 // 4. CASCADE DELETION ON PIN REMOVAL
 // ============================================================================
+exports.reconcilePinImageCleanup = (0, scheduler_1.onSchedule)({ schedule: 'every 5 minutes', timeZone: 'UTC', region: exports.FUNCTION_REGION, maxInstances: 1 }, async () => (0, pinImageCleanup_1.reconcilePinImages)(db, () => storage.bucket()));
 exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
     document: 'pins/{pinId}',
     database: exports.FIRESTORE_DATABASE_ID,

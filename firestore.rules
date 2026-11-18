@@ -222,6 +222,43 @@ service cloud.firestore {
              getAfter(claim).data.userId == data.userId;
     }
 
+    function intentIsOpen(intent) {
+      return request.time < intent.createdAt + duration.value(1, "h");
+    }
+
+    function canPublishImageIntent(incarnation, data) {
+      let intent = /databases/$(database)/documents/pinImageUploadIntents/$(incarnation);
+      return !exists(intent) ||
+             (get(intent).data.userId == data.userId && get(intent).data.pinId == data.pinId &&
+              intentIsOpen(get(intent).data) &&
+              !exists(/databases/$(database)/documents/pinImageCleanupJobs/$(incarnation)));
+    }
+
+    match /pinImageUploadIntents/{incarnation} {
+      allow create: if isSignedIn() &&
+                    incarnation.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
+                    request.resource.data.keys().hasOnly(["pinId", "userId", "createdAt", "uploadIds"]) &&
+                    request.resource.data.userId == request.auth.uid &&
+                    request.resource.data.pinId.matches("[A-Za-z0-9]{20}") &&
+                    request.resource.data.createdAt == request.time &&
+                    request.resource.data.uploadIds is list && request.resource.data.uploadIds.size() > 0 &&
+                    request.resource.data.uploadIds.size() <= 20 &&
+                    !exists(/databases/$(database)/documents/pinImageClaims/$(incarnation));
+
+      match /receipts/{uploadId} {
+        allow create: if isSignedIn() &&
+                      uploadId.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") &&
+                      request.resource.data.keys().hasOnly(["generation"]) &&
+                      request.resource.data.generation.matches("[1-9][0-9]{0,19}") &&
+                      mayRecordReceipt(incarnation, uploadId);
+      }
+    }
+
+    function mayRecordReceipt(incarnation, uploadId) {
+      let intent = get(/databases/$(database)/documents/pinImageUploadIntents/$(incarnation)).data;
+      return intent.userId == request.auth.uid && uploadId in intent.uploadIds && intentIsOpen(intent);
+    }
+
     // Retain claims permanently so a later pin cannot reuse this incarnation.
     match /pinImageClaims/{incarnation} {
       allow create: if isSignedIn() &&
@@ -231,6 +268,7 @@ service cloud.firestore {
                     request.resource.data.pinId.matches("[A-Za-z0-9]{20}") &&
                     request.resource.data.images is list &&
                     request.resource.data.images.size() > 0 && request.resource.data.images.size() <= 20 &&
+                    canPublishImageIntent(incarnation, request.resource.data) &&
                     !exists(/databases/$(database)/documents/pins/$(request.resource.data.pinId)) &&
                     getAfter(/databases/$(database)/documents/pins/$(request.resource.data.pinId)).data.imageIncarnation == incarnation;
     }

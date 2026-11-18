@@ -2,10 +2,19 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cleanupPinImages = cleanupPinImages;
 exports.resumePinImageCleanup = resumePinImageCleanup;
+exports.reconcilePinImages = reconcilePinImages;
 const firestore_1 = require("firebase-admin/firestore");
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const generationPattern = /^[1-9][0-9]{0,19}$/;
 const MAX_PIN_IMAGES = 20;
+const MAX_CLEANUP_ATTEMPTS = 8;
+const RETRY_LEASE_MS = 5 * 60_000;
+const CLAIMS_PER_SWEEP = 20;
+const UPLOAD_INTENT_MS = 60 * 60_000;
+function validPinIdentity(pinId, userId) {
+    return typeof userId === 'string' && !!userId && !userId.includes('/') &&
+        typeof pinId === 'string' && /^[A-Za-z0-9]{20}$/.test(pinId);
+}
 async function cleanupPinImages(db, getBucket, deletedPin, eventId) {
     const pinId = deletedPin.id;
     const { userId, imageIncarnation, imageUrls } = deletedPin.data() ?? {};
@@ -15,8 +24,7 @@ async function cleanupPinImages(db, getBucket, deletedPin, eventId) {
             unresolved('legacy-image-urls');
         return;
     }
-    if (typeof userId !== 'string' || !userId || userId.includes('/') ||
-        !/^[A-Za-z0-9]{20}$/.test(pinId) ||
+    if (!validPinIdentity(pinId, userId) ||
         typeof imageIncarnation !== 'string' || !uuidPattern.test(imageIncarnation)) {
         unresolved('invalid-pin-identity');
         return;
@@ -30,46 +38,73 @@ async function cleanupPinImages(db, getBucket, deletedPin, eventId) {
         unresolved('invalid-image-claim');
         return;
     }
-    await db.runTransaction(async (transaction) => {
-        if ((await transaction.get(job)).exists)
-            return;
-        transaction.create(job, {
-            pinId, userId, eventId, claimCreatedAt: claim.createTime, status: 'pending',
-        });
-    });
+    await job.create({ pinId, userId, eventId, claimCreatedAt: claim.createTime, status: 'pending' })
+        .catch(error => { if (error?.code !== 6)
+        throw error; });
     await resumePinImageCleanup(db, getBucket, imageIncarnation);
 }
-// Re-run a specific recorded job. Its immutable claim remains the source of object identities.
+// A retry uses the original claim or immutable intent receipts.
 async function resumePinImageCleanup(db, getBucket, imageIncarnation) {
     if (!uuidPattern.test(imageIncarnation))
         throw new Error('Invalid image incarnation');
     const job = db.collection('pinImageCleanupJobs').doc(imageIncarnation);
     const claim = db.collection('pinImageClaims').doc(imageIncarnation);
-    const [jobSnapshot, claimSnapshot] = await db.getAll(job, claim);
-    if (!jobSnapshot.exists)
-        throw new Error('Pin image cleanup job not found');
-    const { pinId, userId, eventId, claimCreatedAt, status } = jobSnapshot.data();
-    if (status === 'complete')
+    const intent = db.collection('pinImageUploadIntents').doc(imageIncarnation);
+    const attempt = await db.runTransaction(async (transaction) => {
+        const [jobSnapshot, claimSnapshot, intentSnapshot] = await transaction.getAll(job, claim, intent);
+        const record = jobSnapshot.data();
+        if (!record)
+            throw new Error('Pin image cleanup job not found');
+        const { pinId, userId, claimCreatedAt, status } = record;
+        if (status !== 'pending')
+            return;
+        const orphan = record.source === 'upload-intent';
+        const source = orphan ? intentSnapshot : claimSnapshot;
+        const data = source.data();
+        const entries = orphan ? data?.uploadIds : data?.images;
+        if (!validPinIdentity(pinId, userId) || !data || !(claimCreatedAt instanceof firestore_1.Timestamp) ||
+            !source.createTime?.isEqual(claimCreatedAt) || data.pinId !== pinId || data.userId !== userId ||
+            !Array.isArray(entries) || !entries.length || entries.length > MAX_PIN_IMAGES ||
+            (orphan && claimSnapshot.exists)) {
+            transaction.update(job, { status: 'unresolved', reason: 'invalid-image-claim' });
+            return;
+        }
+        const pin = await transaction.get(db.collection('pins').doc(pinId));
+        if (pin.get('imageIncarnation') === imageIncarnation)
+            return;
+        const now = Date.now();
+        if (record.leaseUntil?.toMillis() > now)
+            return;
+        const attemptNumber = (record.attempts ?? 0) + 1;
+        if (attemptNumber > MAX_CLEANUP_ATTEMPTS) {
+            transaction.update(job, { status: 'unresolved', reason: 'retry-limit' });
+            return;
+        }
+        transaction.update(job, {
+            attempts: attemptNumber,
+            leaseUntil: firestore_1.Timestamp.fromMillis(now + RETRY_LEASE_MS),
+        });
+        return { pinId, userId, eventId: record.eventId, entries, orphan, attemptNumber };
+    });
+    if (!attempt)
         return;
-    const data = claimSnapshot.data();
-    if (!data || !claimSnapshot.createTime?.isEqual(claimCreatedAt) ||
-        data.pinId !== pinId || data.userId !== userId || status !== 'pending' ||
-        !Array.isArray(data.images) || !data.images.length || data.images.length > MAX_PIN_IMAGES) {
-        throw new Error('Pin image cleanup claim no longer matches recorded job');
-    }
+    const { pinId, userId, eventId, entries, orphan, attemptNumber } = attempt;
     const unresolved = (reason, uploadId) => {
         console.warn('Unresolved pin image cleanup', { eventId, pinId, reason, uploadId });
         return { reason, ...(uploadId ? { uploadId } : {}) };
     };
-    const bucket = getBucket();
-    const results = await Promise.allSettled(data.images.map(async (image) => {
-        const { uploadId, generation } = image ?? {};
-        if (typeof uploadId !== 'string' || !uuidPattern.test(uploadId) ||
-            typeof generation !== 'string' || !generationPattern.test(generation)) {
-            return unresolved('invalid-object-claim');
+    const results = await Promise.allSettled(entries.map(async (entry) => {
+        const uploadId = orphan ? entry : entry?.uploadId;
+        if (typeof uploadId !== 'string' || !uuidPattern.test(uploadId))
+            return unresolved('invalid-upload-id');
+        const generation = orphan
+            ? (await intent.collection('receipts').doc(uploadId).get()).get('generation')
+            : entry?.generation;
+        if (typeof generation !== 'string' || !generationPattern.test(generation)) {
+            return unresolved(orphan ? 'missing-upload-generation' : 'invalid-object-claim', uploadId);
         }
         const path = 'pin-images/' + userId + '/' + pinId + '/' + imageIncarnation + '/' + uploadId;
-        const file = bucket.file(path);
+        const file = getBucket().file(path);
         try {
             const [metadata] = await file.getMetadata();
             const owner = metadata.metadata;
@@ -96,12 +131,66 @@ async function resumePinImageCleanup(db, getBucket, imageIncarnation) {
     }));
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
     const unresolvedObjects = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
-    if (unresolvedObjects.length || !failures.length)
-        await job.update({
+    await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(job);
+        if (current.get('status') !== 'pending' || current.get('attempts') !== attemptNumber)
+            return;
+        transaction.update(job, {
+            leaseUntil: firestore_1.FieldValue.delete(),
             ...(!failures.length ? { status: 'complete', completedAt: firestore_1.FieldValue.serverTimestamp() } : {}),
             ...(unresolvedObjects.length ? { unresolved: firestore_1.FieldValue.arrayUnion(...unresolvedObjects) } : {}),
         });
+    });
     if (failures.length)
         throw new AggregateError(failures, 'Pin image cleanup failed for event ' + eventId);
+}
+async function reconcilePinImages(db, getBucket) {
+    await sweepPinImages(db, getBucket, false);
+    await sweepPinImages(db, getBucket, true);
+}
+async function sweepPinImages(db, getBucket, orphan) {
+    const cursor = db.collection('pinImageCleanupState').doc(orphan ? 'upload-intents' : 'claims');
+    const position = await cursor.get();
+    const after = position.get('after');
+    const ordered = db.collection(orphan ? 'pinImageUploadIntents' : 'pinImageClaims')
+        .orderBy(firestore_1.FieldPath.documentId()).limit(CLAIMS_PER_SWEEP);
+    const page = await (after ? ordered.startAfter(after) : ordered).get();
+    await Promise.all(page.docs.map(async (source) => {
+        try {
+            const { pinId, userId, createdAt } = source.data();
+            if (!uuidPattern.test(source.id) || !validPinIdentity(pinId, userId))
+                return;
+            if (orphan && (!(createdAt instanceof firestore_1.Timestamp) ||
+                createdAt.toMillis() + UPLOAD_INTENT_MS > source.readTime.toMillis()))
+                return;
+            const job = db.collection('pinImageCleanupJobs').doc(source.id);
+            const pin = db.collection('pins').doc(pinId);
+            const pending = await db.runTransaction(async (transaction) => {
+                const [current, existing] = await transaction.getAll(pin, job);
+                if (current.get('imageIncarnation') === source.id)
+                    return false;
+                if (orphan && (await transaction.get(db.collection('pinImageClaims').doc(source.id))).exists)
+                    return false;
+                if (existing.exists)
+                    return existing.get('status') === 'pending';
+                transaction.create(job, {
+                    pinId, userId, eventId: 'reconciliation', claimCreatedAt: source.createTime, status: 'pending',
+                    ...(orphan ? { source: 'upload-intent' } : {}),
+                });
+                return true;
+            });
+            if (pending)
+                await resumePinImageCleanup(db, getBucket, source.id);
+        }
+        catch (error) {
+            console.error('Pin image reconciliation failed', { incarnation: source.id, error });
+        }
+    }));
+    await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(cursor);
+        if (position.exists ? !current.updateTime?.isEqual(position.updateTime) : current.exists)
+            return;
+        transaction.set(cursor, { after: page.size === CLAIMS_PER_SWEEP ? page.docs.at(-1).id : null });
+    });
 }
 //# sourceMappingURL=pinImageCleanup.js.map

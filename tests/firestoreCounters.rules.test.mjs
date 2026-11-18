@@ -2,7 +2,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, ref, uploadBytes } from 'firebase/storage';
-import { deleteDoc, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const projectId = 'demo-heyroq-counter-rules';
 let env;
@@ -271,6 +271,43 @@ it('pins claim a fresh image incarnation atomically and cannot reassign or reuse
   await assertSucceeds(deleteDoc(pinRef));
   await assertFails(setDoc(pinRef, pinData));
   await assertSucceeds(setDoc(pinRef, pin({ imageUrls: ['legacy'] })));
+});
+
+it('upload intents and generation receipts are immutable and tied to the authenticated owner', async () => {
+  const client = alice();
+  const pinId = 'abcdefghij0123456789';
+  const incarnation = '00112233-4455-6677-8899-aabbccddeeff';
+  const uploadId = '00112233-4455-6677-8899-aabbccddee01';
+  const intentPath = ['pinImageUploadIntents', incarnation];
+  const intent = doc(client, ...intentPath);
+  const receipt = doc(client, ...intentPath, 'receipts', uploadId);
+  const data = { pinId, userId: 'alice', createdAt: serverTimestamp(), uploadIds: [uploadId] };
+  await assertFails(setDoc(receipt, { generation: '123' }));
+  await assertFails(setDoc(doc(bob(), ...intentPath), data));
+  await assertSucceeds(setDoc(intent, data));
+  await assertFails(deleteDoc(intent));
+  await assertFails(setDoc(doc(bob(), ...intentPath, 'receipts', uploadId), { generation: '123' }));
+  await assertFails(setDoc(doc(client, ...intentPath, 'receipts', incarnation), { generation: '123' }));
+  await assertSucceeds(setDoc(receipt, { generation: '123' }));
+  await assertFails(updateDoc(receipt, { generation: '456' }));
+  await assertFails(deleteDoc(receipt));
+});
+
+it('an expired intent cannot commit a receipt or publish an image claim', async () => {
+  await seedAlice();
+  const client = alice();
+  const pinId = 'abcdefghij0123456789';
+  const incarnation = '00112233-4455-6677-8899-aabbccddeeff';
+  const uploadId = '00112233-4455-6677-8899-aabbccddee01';
+  const intentPath = ['pinImageUploadIntents', incarnation];
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), ...intentPath), {
+    pinId, userId: 'alice', createdAt: new Date(Date.now() - 61 * 60_000), uploadIds: [uploadId],
+  }));
+  await assertFails(setDoc(doc(client, ...intentPath, 'receipts', uploadId), { generation: '123' }));
+  await assertFails(writeBatch(client)
+    .set(doc(client, 'pins', pinId), pin({ imageIncarnation: incarnation, imageUrls: ['photo'] }))
+    .set(doc(client, 'pinImageClaims', incarnation), { pinId, userId: 'alice', images: [{ uploadId, generation: '123' }] })
+    .commit());
 });
 
 it('Storage clients can only create managed objects with matching ownership metadata',

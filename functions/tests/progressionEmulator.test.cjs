@@ -192,6 +192,11 @@ test('all compiled endpoints match the deployment manifest, including retry poli
     assert.deepEqual(endpoint.region, [manifest.region], name);
     assert.equal(endpoint.platform, manifest.platform, name);
     assert.equal(endpoint.timeoutSeconds ?? 60, desiredTimeoutSeconds, name);
+    if (trigger.type === 'schedule') {
+      assert.equal(endpoint.scheduleTrigger.schedule, trigger.schedule, name);
+      assert.equal(endpoint.scheduleTrigger.timeZone, trigger.timeZone, name);
+      continue;
+    }
     if (trigger.type === 'httpsCallable') {
       assert.ok(endpoint.callableTrigger, name);
       continue;
@@ -489,6 +494,101 @@ test('managed partial failure leaves a recorded job that resumes with the origin
   await cleanupPinImages(db, () => bucket, snapshot, 'partial-image-event');
   assert.equal((await job.get()).get('status'), 'complete');
   assert.equal((await second.file.exists())[0], false);
+});
+
+test('claim reconciliation recovers a missing delete event and preserves a live replacement pin', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'claim-reconciliation-owner';
+  const publish = async () => {
+    const incarnation = randomUUID();
+    const uploadId = randomUUID();
+    const file = bucket.file(['pin-images', userId, pin.id, incarnation, uploadId].join('/'));
+    const metadata = { metadata: { uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    await file.save('original', { metadata });
+    const [{ generation }] = await file.getMetadata();
+    const batch = db.batch();
+    batch.create(pin, { userId, imageIncarnation: incarnation });
+    batch.create(db.collection('pinImageClaims').doc(incarnation), {
+      pinId: pin.id, userId, images: [{ uploadId, generation: String(generation) }],
+    });
+    await batch.commit();
+    return { incarnation, file };
+  };
+
+  const deleted = await publish();
+  const job = db.collection('pinImageCleanupJobs').doc(deleted.incarnation);
+  await functions.reconcilePinImageCleanup.run({});
+  assert.equal((await job.get()).exists, false);
+  assert.equal((await deleted.file.exists())[0], true);
+  await pin.delete();
+  const live = await publish();
+  assert.equal((await job.get()).exists, false);
+
+  await functions.reconcilePinImageCleanup.run({});
+  await functions.reconcilePinImageCleanup.run({});
+  assert.equal((await job.get()).get('status'), 'complete');
+  assert.equal((await deleted.file.exists())[0], false);
+  assert.equal((await pin.get()).get('imageIncarnation'), live.incarnation);
+  assert.equal((await live.file.exists())[0], true);
+});
+
+test('expired upload intents recover verified uploads and preserve unknown or replaced generations', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { Timestamp } = require('firebase-admin/firestore');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pinId = pins.doc().id;
+  const userId = 'upload-intent-owner';
+  const incarnation = randomUUID();
+  const intent = db.collection('pinImageUploadIntents').doc(incarnation);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  const uploadIds = Array.from({ length: 3 }, () => randomUUID());
+  await intent.create({ pinId, userId, uploadIds, createdAt: Timestamp.now() });
+  const objects = await Promise.all(uploadIds.map(async (uploadId, index) => {
+    const file = bucket.file(['pin-images', userId, pinId, incarnation, uploadId].join('/'));
+    const metadata = { metadata: { uploadedBy: userId, pinId, incarnation, uploadId } };
+    await file.save('upload', { metadata });
+    if (index !== 1) {
+      const [{ generation }] = await file.getMetadata();
+      await intent.collection('receipts').doc(uploadId).create({ generation: String(generation) });
+    }
+    if (index === 2) await file.save('new generation', { metadata });
+    return file;
+  }));
+
+  await functions.reconcilePinImageCleanup.run({});
+  assert.equal((await job.get()).exists, false);
+  await intent.update({ createdAt: Timestamp.fromMillis(Date.now() - 61 * 60_000) });
+  await functions.reconcilePinImageCleanup.run({});
+  await functions.reconcilePinImageCleanup.run({});
+  const result = await job.get();
+  assert.equal(result.get('status'), 'complete');
+  assert.deepEqual(result.get('unresolved'), [
+    { uploadId: uploadIds[1], reason: 'missing-upload-generation' },
+    { uploadId: uploadIds[2], reason: 'object-identity-mismatch' },
+  ]);
+  assert.equal((await objects[0].exists())[0], false);
+  assert.equal((await objects[1].download())[0].toString(), 'upload');
+  assert.equal((await objects[2].download())[0].toString(), 'new generation');
+});
+
+test('cleanup stops retrying after the durable attempt limit', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { resumePinImageCleanup } = require('../lib/pinImageCleanup.js');
+  const incarnation = randomUUID();
+  const pinId = pins.doc().id;
+  const userId = 'exhausted-job-owner';
+  const claim = db.collection('pinImageClaims').doc(incarnation);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  const { writeTime } = await claim.create({
+    pinId, userId, images: [{ uploadId: randomUUID(), generation: '1' }],
+  });
+  await job.create({ pinId, userId, claimCreatedAt: writeTime, status: 'pending', attempts: 8 });
+  await resumePinImageCleanup(db, () => assert.fail('retry limit must prevent Storage access'), incarnation);
+  assert.equal((await job.get()).get('reason'), 'retry-limit');
 });
 
 test('Storage SDK sends exact delete preconditions and a stale DELETE preserves the replacement', async () => {

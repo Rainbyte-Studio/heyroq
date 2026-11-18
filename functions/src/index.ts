@@ -4,7 +4,8 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { cleanupPinImages } from './pinImageCleanup';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -545,6 +546,11 @@ export const onUserFollowerDeleted = onDocumentDeleted(followersTrigger, event =
 // ============================================================================
 // 4. CASCADE DELETION ON PIN REMOVAL
 // ============================================================================
+
+export const reconcilePinImageCleanup = onSchedule(
+  { schedule: 'every 5 minutes', timeZone: 'UTC', region: FUNCTION_REGION, maxInstances: 1 },
+  async () => reconcilePinImages(db, () => storage.bucket()),
+);
 
 export const onPinDeleted = onDocumentDeleted(
   {

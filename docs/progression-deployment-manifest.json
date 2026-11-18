@@ -27,6 +27,14 @@
     "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com"
   },
   "functions": {
+    "reconcilePinImageCleanup": {
+      "trigger": {
+        "type": "schedule",
+        "schedule": "every 5 minutes",
+        "timeZone": "UTC"
+      },
+      "desiredTimeoutSeconds": 60
+    },
     "onPinCreatedProgression": {
       "trigger": {
         "type": "google.cloud.firestore.document.v1.created",

@@ -6,7 +6,8 @@ import {
   getDownloadURL,
   deleteObject,
 } from 'firebase/storage';
-import { auth, storage } from '../lib/firebase';
+import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db, storage } from '../lib/firebase';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -100,7 +101,7 @@ export interface PinImageUpload {
 }
 
 async function uploadPinImageObject(
-  file: File, userId: string, pinId: string, incarnation: string
+  file: File, userId: string, pinId: string, incarnation: string, uploadId: string
 ): Promise<PinImageUpload> {
   if (!userId) {
     throw new Error('Authentication required to upload photos.');
@@ -109,7 +110,6 @@ async function uploadPinImageObject(
   // Enforce strict client-side validation first
   validateImageFile(file);
 
-  const uploadId = crypto.randomUUID();
   const storageRef = ref(storage, "pin-images/" + userId + "/" + pinId + "/" + incarnation + "/" + uploadId);
   const upload = uploadBytes(storageRef, file, {
     contentType: file.type || 'image/jpeg',
@@ -123,6 +123,9 @@ async function uploadPinImageObject(
       'Photo upload timed out after 15 seconds. Storage bucket may not exist or be reachable.'
     );
 
+    await setDoc(doc(db, 'pinImageUploadIntents', incarnation, 'receipts', uploadId), {
+      generation: snapshot.metadata.generation,
+    });
     const downloadUrl = await withTimeout(
       getDownloadURL(snapshot.ref),
       10000,
@@ -154,8 +157,12 @@ export async function uploadMultipleImages(
 ): Promise<PinImageUpload[]> {
   if (files.length > MAX_PIN_IMAGES) throw new Error("You can upload up to " + MAX_PIN_IMAGES + " photos.");
   files.forEach(validateImageFile);
-  // Failed publication leaves unclaimed objects. Client deletes cannot enforce generation preconditions.
-  return uploadBatch(files, file => uploadPinImageObject(file, userId, pinId, incarnation));
+  if (!files.length) return [];
+  const uploads = files.map(file => ({ file, uploadId: crypto.randomUUID() }));
+  await setDoc(doc(collection(db, 'pinImageUploadIntents'), incarnation), {
+    userId, pinId, createdAt: serverTimestamp(), uploadIds: uploads.map(upload => upload.uploadId),
+  });
+  return uploadBatch(uploads, ({ file, uploadId }) => uploadPinImageObject(file, userId, pinId, incarnation, uploadId));
 }
 
 /**
