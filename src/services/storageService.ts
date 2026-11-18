@@ -5,6 +5,7 @@ import {
   uploadBytesResumable,
   getDownloadURL,
   deleteObject,
+  type StorageReference,
 } from 'firebase/storage';
 import { auth, storage } from '../lib/firebase';
 
@@ -96,6 +97,20 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
  * Does NOT fallback to Base64 or local storage.
  */
 export async function uploadPinImage(file: File, userId: string): Promise<string> {
+  return (await uploadPinImageObject(file, userId)).downloadUrl;
+}
+
+async function discardPinUpload(object: StorageReference): Promise<void> {
+  try {
+    await deleteObject(object);
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code !== 'storage/object-not-found') {
+      console.warn('Pin upload cleanup failed:', error);
+    }
+  }
+}
+
+async function uploadPinImageObject(file: File, userId: string) {
   if (!userId) {
     throw new Error('Authentication required to upload photos.');
   }
@@ -122,12 +137,10 @@ export async function uploadPinImage(file: File, userId: string): Promise<string
       10000,
       'Failed to retrieve photo download URL.'
     );
-    return downloadUrl;
+    return { downloadUrl, object: snapshot.ref };
   } catch (error: any) {
     // A timed-out upload can still finish. Clean up its unique object once it does.
-    void upload.then(snapshot => deleteObject(snapshot.ref), () => undefined).catch(cleanupError => {
-      if (cleanupError?.code !== 'storage/object-not-found') console.warn('Pin upload cleanup failed:', cleanupError);
-    });
+    void upload.then(snapshot => discardPinUpload(snapshot.ref), () => undefined);
     console.error('Firebase Storage upload failed:', error);
     let message = 'Failed to upload photo to Firebase Storage.';
     if (error?.code === 'storage/unauthorized') {
@@ -153,7 +166,10 @@ export async function uploadMultipleImages(files: File[], userId: string): Promi
     validateImageFile(file);
   }
 
-  return uploadBatch(files, file => uploadPinImage(file, userId), urls => deletePinImages(urls, userId));
+  const uploads = await uploadBatch(files, file => uploadPinImageObject(file, userId), async completed => {
+    await Promise.all(completed.map(({ object }) => discardPinUpload(object)));
+  });
+  return uploads.map(({ downloadUrl }) => downloadUrl);
 }
 
 /**
