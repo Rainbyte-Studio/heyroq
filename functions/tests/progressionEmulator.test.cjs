@@ -16,6 +16,34 @@ const events = profile.collection('xpEvents');
 const summary = profile.collection('progression').doc('summary');
 const pins = db.collection('pins');
 
+test('account report cleanup paginates submitted and targeted reports and remains safe to retry', async () => {
+  const { cleanAccountReports } = require('../lib/index.js');
+  const id = 'account-report-cleanup-user';
+  const reports = db.collection('reports');
+  const batch = db.batch();
+  for (let index = 0; index < 201; index++) {
+    batch.set(reports.doc('account-cleanup-' + String(index).padStart(3, '0')), {
+      reporterId: id, reporterEmail: 'private@example.test', targetId: id,
+      targetType: 'user', status: 'pending',
+    });
+  }
+  const unrelated = reports.doc('account-cleanup-unrelated');
+  batch.set(unrelated, { reporterEmail: 'keep@example.test', targetId: id, targetType: 'pin', status: 'pending' });
+  await batch.commit();
+
+  await cleanAccountReports(id);
+  const cleaned = await reports.where('reporterId', '==', id).get();
+  assert.equal(cleaned.size, 201);
+  for (const report of cleaned.docs) {
+    assert.equal(report.get('reporterEmail'), undefined);
+    assert.equal(report.get('status'), 'resolved');
+  }
+  assert.equal((await unrelated.get()).get('status'), 'pending');
+  const last = cleaned.docs[200];
+  await cleanAccountReports(id);
+  assert.ok((await last.ref.get()).updateTime.isEqual(last.updateTime));
+});
+
 test('concurrent progression updates produce a consistent, idempotent XP ledger', async () => {
   await profile.set({ displayName: 'Integration User', followersCount: 0 });
   await pins.doc('integration-pin-1').set({
