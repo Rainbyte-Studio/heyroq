@@ -253,6 +253,9 @@ export const HelpSupportPage: React.FC = () => {
               Open <strong>Progression &amp; Badges</strong> from your account menu to view your
               Explorer Level, total XP, unlocked badges across Exploration, Geography, Discovery,
               Community, and Special categories, and your global Footprint map.
+              Geography XP uses boundary data from{' '}
+              <a className="underline" href="https://www.geoapify.com/">Geoapify</a> and{' '}
+              <a className="underline" href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>.
             </li>
           </ul>
         </section>

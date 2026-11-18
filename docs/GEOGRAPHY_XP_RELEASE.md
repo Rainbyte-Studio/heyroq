@@ -1,25 +1,55 @@
-# Geography XP containment
+# Server-verified geography XP release
 
-The Functions progression engine preserves earned city and country ledger
-entries, summary high-water marks, and unlocked achievements. It pauses new
-city and country awards and stops using pin labels to advance geography counts.
-New explorers start with zero countries and cities in XP progression. The map,
-profile footprint, and ordinary discovery XP still use their existing logic.
-Pin coordinates represent a selected map location, not proof of physical presence.
+Provider and activation require explicit operator approval. The server sends
+only pin coordinates to the [Geoapify Boundaries API](https://apidocs.geoapify.com/docs/boundaries/).
+It uses containing administrative/place boundaries. Geoapify is separate from
+the Google Maps and Google AI Studio setup. Review the provider agreement,
+coordinate processing, attribution, plan quota and overage behavior before
+creating credentials or enabling traffic. Use a plan with an approved spend
+limit. No paid Google API is required. No external calls run during CI.
+See [Geoapify pricing](https://www.geoapify.com/pricing/) and
+[storage and attribution terms](https://www.geoapify.com/geocoding-api/).
 
-No data migration or replay is required. Do not run the historical progression
-migration or backfill scripts as part of this release. They derive geography from
-pin metadata and were written for earlier progression versions.
+## Activation
 
-After merge and explicit production approval, use the Functions procedures in
-[FIREBASE_RELEASE_CHECKLIST.md](FIREBASE_RELEASE_CHECKLIST.md). The deployment
-targets the existing Functions codebase and named Heyroq Firestore database
-`ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`. Verify in a demo
-emulator that legacy ledger entries survive and new pins still earn regular
-discovery XP. This change requires no Firestore rules release or Google AI Studio
-republish.
+1. Merge the dependency patch before the geography change. Build with Node 22
+   and verify the named database in the release checklist.
+2. In an approved staging Google Cloud project, set up Firebase Secret Manager
+   and store the API key as `GEOAPIFY_BOUNDARIES_KEY` with
+   `firebase functions:secrets:set GEOAPIFY_BOUNDARIES_KEY --project <project-id>`.
+   Give the pin-create function's execution identity access to that secret.
+   Secret Manager and Functions have their own Google Cloud billing.
+3. Set `GEOGRAPHY_XP_START_AT` in `functions/.env.<project-id>` to a future UTC
+   instant using `YYYY-MM-DDTHH:mm:ssZ`. Set it after the intended rollout time
+   and set it once per rollout. An omitted or invalid value pauses new geography
+   awards. The secret binding must still exist for this version to deploy.
+4. After approval, deploy the Functions in `europe-west2` using the existing
+   named Firestore database. For production the exact target is
+   `firebase deploy --project rainbyte-studio --only functions`. No Firestore
+   rules, indexes, data migration, or Firebase Hosting deployment is needed.
+   Publish the help-page attribution and privacy disclosure with the existing Google AI Studio
+   republish workflow before enabling production geography XP.
+5. In staging, validate city and country results for representative locations,
+   border and water locations, quotas, timeouts, and attribution. After production
+   approval, repeat a small smoke test with a disposable account and confirm
+   ledger totals. To pause new geographic awards, remove the start setting,
+   redeploy the pin-create function, and retain all history.
 
-To restore geographic awards, resolve city and country on the server from pin
-coordinates, then test canonical identifiers and deduplication against existing
-ledger IDs before enabling awards. Plan any retroactive awards separately.
-Reverting this containment would restore the original trust in pin labels.
+## Historical behavior
+
+The cutoff uses Firestore document creation time. Geography is evaluated only
+by the pin-create event. Legacy pins, edits and callable recalculation do not
+receive geographic backfill. Existing ledger entries, summary high-water marks,
+and unlocked achievements stay intact. Existing summary-only counts do not
+grant new geography achievements or associated XP. Country-only results can earn a country
+award. Missing or ambiguous results do not supply a city. The pin records a
+selected map location. No claim of physical presence is made.
+
+The XP ledger uses country plus normalized city name for legacy compatibility,
+with a hash for names the legacy ASCII normalizer cannot represent. Historical
+unscoped city awards conservatively suppress the same normalized name. Cities
+with indistinguishable normalized names in one country share an award. Existing
+deterministic award IDs and optional provider boundary IDs prevent duplicate
+geographic rewards. Provider timeouts, HTTP 429 and 5xx can retry only within
+the first hour after pin creation. Delivery retries can repeat provider calls
+and consume quota. Keep the old progression backfill scripts out of this rollout.
