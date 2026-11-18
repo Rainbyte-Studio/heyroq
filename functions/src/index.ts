@@ -1,12 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onObjectFinalized } from 'firebase-functions/v2/storage';
 import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
-import { handlePinImageUpload } from './pinImageUpload';
+import { handlePinImageUpload, matchesImageSignature } from './pinImageUpload';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   ACHIEVEMENTS_CATALOG,
@@ -33,6 +35,97 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
+
+const avatarBucketName = 'rainbyte-studio.firebasestorage.app';
+const avatarContentTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/avif']);
+const maxAvatarBytes = 10 * 1024 * 1024;
+
+function getAvatarBucket() {
+  return process.env.FIREBASE_STORAGE_EMULATOR_HOST ? storage.bucket() : storage.bucket(avatarBucketName);
+}
+
+async function deleteAvatarGeneration(name: string, generation: string) {
+  // The Storage SDK converts the scoped generation to a JS number.
+  if (!/^[1-9][0-9]*$/.test(generation) || !Number.isSafeInteger(Number(generation))) {
+    throw new Error('Avatar generation cannot be represented exactly.');
+  }
+  await getAvatarBucket().file(name, { generation })
+    .delete({ ifGenerationMatch: generation, ignoreNotFound: true });
+}
+
+async function assertAvatarUploadAllowed(uid: string) {
+  const [profile, lock] = await db.getAll(
+    db.collection('users').doc(uid),
+    db.collection('accountDeletionLocks').doc(uid),
+  );
+  if (!profile.exists || lock.exists || profile.get('deletionStatus') === 'deleting') {
+    throw new HttpsError('permission-denied', 'An active profile is required.');
+  }
+}
+
+export const uploadProfileAvatar = onCall(
+  { region: FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 },
+  async request => {
+    const uid = request.auth?.uid;
+    if (!uid || uid.includes('/') || uid === '.' || uid === '..' ||
+        request.auth?.token.firebase?.tenant || request.auth?.token.firebase?.sign_in_provider === 'anonymous') {
+      throw new HttpsError('unauthenticated', 'Sign in to upload a profile photo.');
+    }
+    const { userId, content, contentType } = request.data ?? {};
+    if (userId !== uid) {
+      throw new HttpsError('permission-denied', 'The signed-in account changed.');
+    }
+    if (typeof contentType !== 'string' || !avatarContentTypes.has(contentType) ||
+        typeof content !== 'string' || !content.length || content.length % 4 !== 0 ||
+        content.length > Math.ceil(maxAvatarBytes / 3) * 4) {
+      throw new HttpsError('invalid-argument', 'Supply a valid profile image.');
+    }
+    const bytes = Buffer.from(content, 'base64');
+    if (bytes.length > maxAvatarBytes || bytes.toString('base64') !== content ||
+        !matchesImageSignature(bytes, contentType)) {
+      throw new HttpsError('invalid-argument', 'Invalid profile image data.');
+    }
+
+    const bucket = getAvatarBucket();
+    const path = 'profile-images/' + uid + '/' + randomUUID();
+    const file = bucket.file(path);
+    const token = randomUUID();
+    await assertAvatarUploadAllowed(uid);
+    // Immutable, non-resumable writes give an ambiguous result at most one object.
+    await file.save(bytes, {
+      resumable: false,
+      preconditionOpts: { ifGenerationMatch: 0 },
+      metadata: {
+        contentType,
+        cacheControl: 'private, no-store',
+        metadata: { uploadedBy: uid, firebaseStorageDownloadTokens: token },
+      },
+    });
+    try {
+      await assertAvatarUploadAllowed(uid);
+    } catch (error) {
+      // No other writer can replace this server-generated path. The finalize
+      // trigger and deletion worker cover transport failure or process death.
+      await file.delete({ ignoreNotFound: true });
+      throw error;
+    }
+    return {
+      downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name +
+        '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token,
+    };
+  },
+);
+
+export const onAccountAvatarFinalized = onObjectFinalized(
+  { bucket: avatarBucketName, region: 'us-west1', retry: true, timeoutSeconds: 60 },
+  async event => {
+    const match = /^profile-images\/([^/]+)\//.exec(event.data.name);
+    if (!match || match[1] === '.' || match[1] === '..') return;
+    const lock = await db.collection('accountDeletionLocks').doc(match[1]).get();
+    if (!lock.exists) return;
+    await deleteAvatarGeneration(event.data.name, String(event.data.generation));
+  },
+);
 
 export const pinImageUpload = onCall(
   { region: FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 },
@@ -501,7 +594,7 @@ const likesTrigger = {
   document: 'pins/{pinId}/likes/{userId}',
   database: FIRESTORE_DATABASE_ID,
   region: FUNCTION_REGION,
-  retry: true,
+  retry: false,
 } as const;
 
 export const onPinLikeCreated = onDocumentCreated(likesTrigger, event => syncPinCounter(event.params.pinId, 'likes'));
@@ -511,7 +604,7 @@ const commentsTrigger = {
   document: 'pins/{pinId}/comments/{commentId}',
   database: FIRESTORE_DATABASE_ID,
   region: FUNCTION_REGION,
-  retry: true,
+  retry: false,
 } as const;
 
 export const onPinCommentCreated = onDocumentCreated(commentsTrigger, event => syncPinCounter(event.params.pinId, 'comments'));
@@ -541,7 +634,7 @@ const followersTrigger = {
   document: 'users/{targetUserId}/followers/{followerId}',
   database: FIRESTORE_DATABASE_ID,
   region: FUNCTION_REGION,
-  retry: true,
+  retry: false,
 } as const;
 
 export const onUserFollowerCreated = onDocumentCreated(followersTrigger, event =>
@@ -615,7 +708,7 @@ export const onPinCreatedProgression = onDocumentCreated(
     document: 'pins/{pinId}',
     database: FIRESTORE_DATABASE_ID,
     region: FUNCTION_REGION,
-    retry: true,
+    retry: false,
   },
   async (event) => {
     const userId = event.data?.get('userId');
@@ -702,48 +795,314 @@ async function forEachAccountDeletionPage(
   } while (cursor);
 }
 
-export async function cleanAccountReports(userId: string) {
-  const reports = db.collection('reports');
-  await forEachAccountDeletionPage(reports.where('reporterId', '==', userId), async docs => {
-    await db.runTransaction(async transaction => {
-      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
-      for (const report of currentReports) {
-        if (report.get('reporterId') !== userId ||
-            (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt'))) continue;
+type DeletionPhase = 'likes' | 'comments' | 'legacyLikes' | 'following' | 'followers' |
+  'reporterReports' | 'targetReports' | 'pins' | 'avatars' | 'profile' | 'auth' | 'verifyAvatars';
+
+const deletionPhases: DeletionPhase[] = [
+  'likes', 'comments', 'legacyLikes', 'following', 'followers',
+  'reporterReports', 'targetReports', 'pins', 'avatars', 'profile', 'auth', 'verifyAvatars',
+];
+
+async function updateAccountReportPage(
+  userId: string,
+  mode: 'reporterReports' | 'targetReports',
+  docs: FirebaseFirestore.QueryDocumentSnapshot[],
+) {
+  await db.runTransaction(async transaction => {
+    const reports = await transaction.getAll(...docs.map(report => report.ref));
+    for (const report of reports) {
+      if (mode === 'reporterReports' && report.get('reporterId') === userId &&
+          (report.get('reporterEmail') !== undefined || !report.get('reporterDeletedAt'))) {
         transaction.update(report.ref, {
           reporterEmail: FieldValue.delete(),
           reporterDeletedAt: FieldValue.serverTimestamp(),
         });
       }
-    });
-  });
-  await forEachAccountDeletionPage(reports.where('targetId', '==', userId), async docs => {
-    await db.runTransaction(async transaction => {
-      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
-      for (const current of currentReports) {
-        if (current.get('targetId') !== userId || current.get('targetType') !== 'user' ||
-            current.get('status') !== 'pending') continue;
-        transaction.update(current.ref, {
+      if (mode === 'targetReports' && report.get('targetId') === userId &&
+          report.get('targetType') === 'user' && report.get('status') === 'pending') {
+        transaction.update(report.ref, {
           status: 'resolved',
           resolvedReason: 'target_account_deleted',
           resolvedAt: FieldValue.serverTimestamp(),
         });
       }
-    });
+    }
   });
 }
+
+export async function cleanAccountReports(userId: string) {
+  const reports = db.collection('reports');
+  await forEachAccountDeletionPage(reports.where('reporterId', '==', userId),
+    docs => updateAccountReportPage(userId, 'reporterReports', docs));
+  await forEachAccountDeletionPage(reports.where('targetId', '==', userId),
+    docs => updateAccountReportPage(userId, 'targetReports', docs));
+}
+
+// Each phase advances only after the side effects succeed. A missing cursor means
+// the phase is drained. Destructive pages re-read from the front after a retry.
+async function deleteAccountPage(userId: string, phase: DeletionPhase, cursor?: string): Promise<string | null> {
+  const user = db.collection('users').doc(userId);
+  const pins = db.collection('pins');
+  switch (phase) {
+    case 'likes':
+    case 'comments': {
+      const page = await db.collectionGroup(phase).where('userId', '==', userId).limit(100).get();
+      if (page.empty) return null;
+      const batch = db.batch();
+      for (const entry of page.docs) batch.delete(entry.ref, { lastUpdateTime: entry.updateTime });
+      await batch.commit();
+      return '';
+    }
+    case 'legacyLikes': {
+      const query = pins.orderBy('__name__').limit(100);
+      const page = await (cursor ? query.startAfter(cursor) : query).get();
+      if (page.empty) return null;
+      await db.runTransaction(async tx => {
+        const likes = await tx.getAll(...page.docs.map(pin => pin.ref.collection('likes').doc(userId)));
+        for (const like of likes) {
+          if (like.exists && (!like.get('userId') || like.get('userId') === userId)) tx.delete(like.ref);
+        }
+      });
+      return page.docs.at(-1)!.id;
+    }
+    case 'following':
+    case 'followers': {
+      const page = await user.collection(phase).limit(100).get();
+      if (page.empty) return null;
+      const batch = db.batch();
+      const inverse = phase === 'following' ? 'followers' : 'following';
+      for (const relationship of page.docs) {
+        batch.delete(db.collection('users').doc(relationship.id).collection(inverse).doc(userId));
+        batch.delete(relationship.ref);
+      }
+      await batch.commit();
+      return '';
+    }
+    case 'reporterReports':
+    case 'targetReports': {
+      const field = phase === 'reporterReports' ? 'reporterId' : 'targetId';
+      const query = db.collection('reports').where(field, '==', userId).orderBy('__name__').limit(100);
+      const page = await (cursor ? query.startAfter(cursor) : query).get();
+      if (page.empty) return null;
+      await updateAccountReportPage(userId, phase, page.docs);
+      return page.docs.at(-1)!.id;
+    }
+    case 'pins': {
+      const page = await pins.where('userId', '==', userId).limit(1).get();
+      if (page.empty) return null;
+      const pin = page.docs[0].ref;
+      await db.runTransaction(async tx => {
+        const current = await tx.get(pin);
+        if (current.get('userId') !== userId) return;
+        const [likes, comments] = await Promise.all([
+          tx.get(pin.collection('likes').limit(100)),
+          tx.get(pin.collection('comments').limit(100)),
+        ]);
+        if (likes.empty && comments.empty) {
+          tx.delete(pin);
+          return;
+        }
+        for (const child of [...likes.docs, ...comments.docs]) tx.delete(child.ref);
+      });
+      return '';
+    }
+    case 'avatars':
+    case 'verifyAvatars': {
+      const bucket = getAvatarBucket();
+      const [files] = await bucket.getFiles({
+        prefix: `profile-images/${userId}/`,
+        autoPaginate: false,
+        maxResults: 25,
+        versions: true,
+      });
+      if (!files.length) return null;
+      for (const file of files) {
+        const generation = file.metadata.generation;
+        if (!generation) throw new Error('Avatar object generation is missing.');
+        await deleteAvatarGeneration(file.name, String(generation));
+      }
+      return '';
+    }
+    case 'profile':
+      // The tombstone remains present even if recursiveDelete only partly succeeds.
+      await db.recursiveDelete(user);
+      return null;
+    case 'auth':
+      try {
+        await getAuth().deleteUser(userId);
+      } catch (error) {
+        if ((error as { code?: string })?.code !== 'auth/user-not-found') throw error;
+      }
+      return null;
+  }
+}
+
+const deletionWorkerTimeoutSeconds = 120;
+const deletionLeaseMs = (deletionWorkerTimeoutSeconds + 60) * 1000;
+const deletionLocks = db.collection('accountDeletionLocks');
+
+// Legacy resumable sessions can live for a week. Keep a full extra day
+// beyond that window before the final strongly consistent listing.
+const avatarDrainMs = 8 * 24 * 60 * 60_000;
+
+function initializeDeletionJob(now: number) {
+  return {
+    phase: 'likes',
+    readyAt: Timestamp.fromMillis(now),
+    avatarDrainUntil: Timestamp.fromMillis(now + avatarDrainMs),
+    leaseOwner: FieldValue.delete(),
+    cursor: FieldValue.delete(),
+    progressedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+async function adoptLegacyDeletionJobs(stopAt: number) {
+  // An ordered readyAt query cannot see older records that lack the field.
+  // Paginate by document ID independently of queue ordering.
+  const checkpoint = db.collection('_maintenance').doc('accountDeletionLegacyScan');
+  const cursor = (await checkpoint.get()).get('cursor');
+  const scan = deletionLocks.where('status', '==', 'deleting').orderBy('__name__').limit(25);
+  const page = await (typeof cursor === 'string' ? scan.startAfter(cursor) : scan).get();
+  let lastScanned: string | null = null;
+  for (const candidate of page.docs) {
+    if (Date.now() >= stopAt) break;
+    lastScanned = candidate.id;
+    if (candidate.get('phase') !== undefined || candidate.get('readyAt') !== undefined) continue;
+    await db.runTransaction(async tx => {
+      const lock = await tx.get(candidate.ref);
+      if (lock.get('status') !== 'deleting' || lock.get('phase') !== undefined ||
+          lock.get('readyAt') !== undefined || lock.get('leaseOwner') !== undefined) return;
+      tx.update(lock.ref, initializeDeletionJob(Date.now()));
+    });
+  }
+  // Keep the scan monotonic even if a scheduler delivery overlaps a retry.
+  await db.runTransaction(async tx => {
+    const state = await tx.get(checkpoint);
+    if (state.get('cursor') !== cursor) return;
+    const reachedEnd = page.empty || lastScanned === page.docs[page.size - 1].id;
+    if (!reachedEnd && lastScanned === null) return;
+    tx.set(checkpoint, { cursor: reachedEnd && page.size < 25 ? null : lastScanned });
+  });
+}
+
+async function resumeAccountDeletion(ref: FirebaseFirestore.DocumentReference, stopAt: number) {
+  const owner = randomUUID();
+  const leased = await db.runTransaction(async tx => {
+    const current = await tx.get(ref);
+    const now = Date.now();
+    const due = current.get('readyAt');
+    if (current.get('status') !== 'deleting' || !current.get('phase') ||
+        !(due instanceof Timestamp) || due.toMillis() > now) return false;
+    const drain = current.get('avatarDrainUntil');
+    const drainUntil = drain instanceof Timestamp ? drain : Timestamp.fromMillis(now + avatarDrainMs);
+    if (current.get('phase') === 'verifyAvatars' && drainUntil.toMillis() > now) {
+      tx.update(ref, { readyAt: drainUntil, avatarDrainUntil: drainUntil, leaseOwner: FieldValue.delete() });
+      return false;
+    }
+    // A crashed invocation becomes eligible only after its execution window.
+    tx.update(ref, {
+      leaseOwner: owner,
+      readyAt: Timestamp.fromMillis(now + deletionLeaseMs),
+      avatarDrainUntil: drainUntil,
+    });
+    return true;
+  });
+  if (!leased) return;
+
+  let retryDelay = 0;
+  try {
+    while (Date.now() < stopAt) {
+      const current = await ref.get();
+      if (current.get('leaseOwner') !== owner || current.get('readyAt').toMillis() <= Date.now()) return;
+      const phase = current.get('phase') as DeletionPhase;
+      const index = deletionPhases.indexOf(phase);
+      if (index === -1) throw new Error('Unknown account deletion phase.');
+      const nextCursor = await deleteAccountPage(ref.id, phase, current.get('cursor'));
+      const done = phase === 'verifyAvatars' && nextCursor === null;
+      const drainUntil = current.get('avatarDrainUntil') as Timestamp;
+      const park = phase === 'auth' && drainUntil.toMillis() > Date.now();
+      const advanced = await db.runTransaction(async tx => {
+        const lock = await tx.get(ref);
+        if (lock.get('leaseOwner') !== owner || lock.get('readyAt').toMillis() <= Date.now()) return false;
+        tx.update(ref, done ? {
+          status: 'deleted',
+          completedAt: FieldValue.serverTimestamp(),
+          progressedAt: FieldValue.serverTimestamp(),
+          phase: FieldValue.delete(),
+          cursor: FieldValue.delete(),
+          readyAt: FieldValue.delete(),
+          leaseOwner: FieldValue.delete(),
+        } : {
+          phase: nextCursor === null ? deletionPhases[index + 1] : phase,
+          cursor: nextCursor || FieldValue.delete(),
+          ...(park ? { readyAt: drainUntil, leaseOwner: FieldValue.delete() } : {}),
+          progressedAt: FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+      if (!advanced || done || park) return;
+    }
+  } catch (error) {
+    retryDelay = 5 * 60_000;
+    console.error('Account deletion worker failed', { userId: ref.id, error });
+  } finally {
+    await db.runTransaction(async tx => {
+      if ((await tx.get(ref)).get('leaseOwner') !== owner) return;
+      tx.update(ref, {
+        leaseOwner: FieldValue.delete(),
+        readyAt: Timestamp.fromMillis(Date.now() + retryDelay),
+      });
+    });
+  }
+}
+
+export const reconcileAccountDeletion = onSchedule(
+  { schedule: '* * * * *', timeZone: 'UTC', region: FUNCTION_REGION,
+    timeoutSeconds: deletionWorkerTimeoutSeconds, maxInstances: 1, retryCount: 0 },
+  async () => {
+    const stopAt = Date.now() + 40_000;
+    // Enable only after the synchronous legacy writer and its invocations drain.
+    if (process.env.ACCOUNT_DELETION_LEGACY_ADOPTION === 'true') {
+      try {
+        await adoptLegacyDeletionJobs(Date.now() + 5_000);
+      } catch (error) {
+        console.error('Account deletion legacy scan failed', error);
+      }
+    }
+    const ready = deletionLocks.where('readyAt', '<=', Timestamp.now()).orderBy('readyAt').limit(10);
+    let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+    while (Date.now() < stopAt) {
+      const page = await (cursor ? ready.startAfter(cursor) : ready).get();
+      for (const job of page.docs) {
+        if (Date.now() >= stopAt) return;
+        if (job.get('status') !== 'deleting' || !job.get('phase') ||
+            !(job.get('readyAt') instanceof Timestamp)) continue;
+        try {
+          await resumeAccountDeletion(job.ref, Math.min(stopAt, Date.now() + 5_000));
+        } catch (error) {
+          console.error('Account deletion lease operation failed', { userId: job.id, error });
+        }
+      }
+      if (page.size < 10) return;
+      cursor = page.docs.at(-1);
+    }
+  },
+);
 
 export const deleteUserAccount = onCall(
   {
     region: FUNCTION_REGION,
-    timeoutSeconds: 540,
+    preserveExternalChanges: true,
   },
   async (request) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'User must be signed in.');
+    if (!request.auth || request.auth.token.firebase?.tenant) {
+      throw new HttpsError('unauthenticated', 'A Heyroq account must be signed in.');
     }
 
     const userId = request.auth.uid;
+    if (!userId || userId.includes('/') || userId === '.' || userId === '..') {
+      throw new HttpsError('permission-denied', 'Invalid account.');
+    }
 
     // Strict ownership enforcement: reject any attempt to target another user's UID
     const requestedTargetUid =
@@ -758,122 +1117,27 @@ export const deleteUserAccount = onCall(
     const authTimeSec = Number(request.auth.token?.auth_time || 0);
     const nowSec = Math.floor(Date.now() / 1000);
     const MAX_RECENT_AUTH_AGE_SEC = 300;
-    if (!authTimeSec || nowSec - authTimeSec > MAX_RECENT_AUTH_AGE_SEC) {
+    if (!Number.isFinite(authTimeSec) || authTimeSec <= 0 || authTimeSec > nowSec ||
+        nowSec - authTimeSec > MAX_RECENT_AUTH_AGE_SEC) {
       throw new HttpsError(
         'failed-precondition',
         'RECENT_LOGIN_REQUIRED: Please reauthenticate before deleting your account.'
       );
     }
 
-    console.log(`Starting account deletion for user: ${userId}`);
-
-    try {
-      // Persist a server-owned deletion lock before any destructive operation.
-      // Firestore rules deny new client content and profile recreation while it exists.
-      await db.collection('accountDeletionLocks').doc(userId).set({
+    const ref = deletionLocks.doc(userId);
+    const status = await db.runTransaction(async tx => {
+      const lock = await tx.get(ref);
+      if (lock.get('status') === 'deleted') return 'deleted';
+      if (lock.get('status') === 'deleting') return 'deleting';
+      if (lock.exists) throw new HttpsError('failed-precondition', 'Deletion state requires support.');
+      tx.set(ref, {
         status: 'deleting',
         startedAt: FieldValue.serverTimestamp(),
+        ...initializeDeletionJob(Date.now()),
       }, { merge: true });
-
-      // Remove the account's reactions and comments on other users' pins before
-      // revoking its Auth identity. Only documents whose userId matches are deleted.
-      // This intentionally preserves likes/comments authored by other users.
-      for (const collectionName of ['likes', 'comments'] as const) {
-        while (true) {
-          const authored = await db.collectionGroup(collectionName)
-            .where('userId', '==', userId).limit(200).get();
-          if (authored.empty) break;
-          const batch = db.batch();
-          authored.docs.forEach((entry) => batch.delete(entry.ref));
-          await batch.commit();
-        }
-      }
-
-      // Legacy likes may have no userId field. Their document ID is the author's
-      // Firebase UID, so a collection-group userId query cannot discover them.
-      // Scan pin IDs in bounded pages and inspect only the departing user's like.
-      let lastScannedPin: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-      while (true) {
-        let pinsPageQuery: FirebaseFirestore.Query = db.collection('pins').orderBy('__name__').limit(200);
-        if (lastScannedPin) pinsPageQuery = pinsPageQuery.startAfter(lastScannedPin);
-        const pinsPage = await pinsPageQuery.get();
-        if (pinsPage.empty) break;
-        const likeRefs = pinsPage.docs.map((pin) => pin.ref.collection('likes').doc(userId));
-        const likeDocs = await db.getAll(...likeRefs);
-        const batch = db.batch();
-        let deleteCount = 0;
-        for (const like of likeDocs) {
-          if (like.exists && (!like.data()?.userId || like.data()?.userId === userId)) {
-            batch.delete(like.ref);
-            deleteCount++;
-          }
-        }
-        if (deleteCount) await batch.commit();
-        lastScannedPin = pinsPage.docs[pinsPage.docs.length - 1];
-      }
-
-      // Remove both sides of each follow relationship. The user's own
-      // subcollections are the authoritative source for the mirror document IDs.
-      const departingUserRef = db.collection('users').doc(userId);
-      for (const relationship of ['following', 'followers'] as const) {
-        while (true) {
-          const relationships = await departingUserRef.collection(relationship).limit(200).get();
-          if (relationships.empty) break;
-          const batch = db.batch();
-          for (const entry of relationships.docs) {
-            const otherUserId = entry.id;
-            const counterpart = relationship === 'following'
-              ? db.collection('users').doc(otherUserId).collection('followers').doc(userId)
-              : db.collection('users').doc(otherUserId).collection('following').doc(userId);
-            batch.delete(counterpart);
-            batch.delete(entry.ref);
-          }
-          await batch.commit();
-        }
-      }
-
-      await cleanAccountReports(userId);
-
-      const userPins = db.collection('pins').where('userId', '==', userId);
-      await forEachAccountDeletionPage(userPins, async pins => {
-        for (const pin of pins) await db.recursiveDelete(pin.ref);
-      });
-
-      // Avatar cleanup must succeed before reporting account deletion complete.
-      // The caller can retry on transient Storage errors.
-      await storage.bucket().deleteFiles({
-        prefix: `profile-images/${userId}/`,
-      });
-
-      // Pin delete events and reconciliation remove server-owned images by generation.
-      // Legacy pin images can still be referenced by other pins.
-
-      const userRef = db.collection('users').doc(userId);
-      await db.recursiveDelete(userRef);
-
-      // Revoke access last, after the primary data cleanup has succeeded.
-      // This operation is idempotent for a retried deletion request.
-      try {
-        await getAuth().deleteUser(userId);
-      } catch (authErr: any) {
-        if (authErr?.code !== 'auth/user-not-found') throw authErr;
-      }
-
-      await db.collection('accountDeletionLocks').doc(userId).set(
-        {
-          status: 'deleted',
-          completedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      return { success: true, message: `Account and associated data deleted for user ${userId}` };
-    } catch (err: any) {
-      if (err instanceof HttpsError) {
-        throw err;
-      }
-      console.error(`Failed to delete account for user ${userId}:`, err);
-      throw new HttpsError('internal', err.message || 'Failed to complete account deletion.');
-    }
+      return 'deleting';
+    });
+    return { success: status === 'deleted', status };
   }
 );

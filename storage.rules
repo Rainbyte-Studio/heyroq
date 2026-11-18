@@ -18,28 +18,31 @@ service firebase.storage {
     function isValidImage() {
       return request.resource != null &&
              request.resource.contentType.matches('image/(jpeg|png|webp|gif|heic|avif)') &&
+             request.resource.size > 0 &&
              request.resource.size <= 10 * 1024 * 1024; // 10 MB maximum
     }
 
     // Preserve existing pin images. New objects use a backend-only prefix.
     match /pins/{userId}/{fileName} {
-      allow read: if true;
+      allow get: if true;
     }
     match /pin-images/{userId}/{pinId}/{incarnation}/{uploadId} {
-      allow read: if true;
+      allow get: if true;
+    }
+
+    // Managed objects are written by Admin and served through per-object bearer URLs.
+    match /pin-images-v2/{userId}/{pinId}/{incarnation}/{uploadId} {
+      allow read, write: if false;
     }
 
     // Profile and Avatar images
     // Path: profile-images/{userId}/{fileName}
     match /profile-images/{userId}/{fileName} {
       // Public read allowed for avatar images
-      allow read: if true;
+      allow get: if true;
 
-      // Only the profile owner can upload their avatar, with image validation
-      allow create: if isOwner(userId) && isValidImage();
-
-      // Only the profile owner can update their avatar
-      allow update: if isOwner(userId) && isValidImage();
+      // Avatar bytes are accepted only by the callable using the named Firestore lock.
+      allow create, update: if false;
 
       // Only the profile owner can delete their avatar
       allow delete: if isOwner(userId);

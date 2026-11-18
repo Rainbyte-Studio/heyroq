@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UPLOAD_WINDOW_MS = exports.IMAGE_PREFIX = exports.IMAGE_PROTOCOL = void 0;
+exports.matchesImageSignature = matchesImageSignature;
 exports.pinImagePath = pinImagePath;
 exports.handlePinImageUpload = handlePinImageUpload;
 const node_crypto_1 = require("node:crypto");
@@ -72,14 +73,32 @@ async function handlePinImageUpload(db, getBucket, auth, input) {
             images.length < 1 || images.length > MAX_IMAGES || !images.every(isImageSpec)) {
             return invalid('Supply a pin ID and valid image sizes and types.');
         }
-        const incarnation = (0, node_crypto_1.randomUUID)();
+        const incarnation = data.incarnation ?? (0, node_crypto_1.randomUUID)();
+        if (typeof incarnation !== 'string' || !UUID.test(incarnation))
+            return invalid('Invalid upload authorization.');
         const uploadIds = images.map(() => (0, node_crypto_1.randomUUID)());
         const specs = images.map(({ size, type }) => ({ size, type }));
         const quota = db.collection('pinImageUploadQuotas').doc(uid);
         const globalQuota = db.collection('pinImageUploadQuotas').doc('global').collection('capacity').doc('hourly');
-        await db.runTransaction(async (tx) => {
+        const intentRef = db.collection('pinImageUploadIntents').doc(incarnation);
+        return db.runTransaction(async (tx) => {
             await assertActiveUser(db, tx, uid);
-            const [pin, userLimit, globalLimit] = await tx.getAll(db.collection('pins').doc(pinId), quota, globalQuota);
+            const [pin, userLimit, globalLimit, prior, cleanup] = await tx.getAll(db.collection('pins').doc(pinId), quota, globalQuota, intentRef, db.collection('pinImageCleanupJobs').doc(incarnation));
+            if (prior.exists) {
+                const savedSpecs = prior.get('specs');
+                if (prior.get('protocol') !== exports.IMAGE_PROTOCOL || prior.get('userId') !== uid || prior.get('pinId') !== pinId ||
+                    savedSpecs.length !== specs.length ||
+                    specs.some((spec, i) => spec.size !== savedSpecs[i].size || spec.type !== savedSpecs[i].type)) {
+                    throw new https_1.HttpsError('failed-precondition', 'Upload authorization does not match this attempt.');
+                }
+                if (cleanup.exists || prior.get('expiresAt').toMillis() <= Date.now()) {
+                    throw new https_1.HttpsError('deadline-exceeded', 'Upload authorization expired.', { uploadExpired: true });
+                }
+                return { incarnation, uploadIds: prior.get('uploadIds') };
+            }
+            if (cleanup.exists) {
+                throw new https_1.HttpsError('failed-precondition', 'Restart this image upload.', { uploadExpired: true });
+            }
             if (pin.exists)
                 throw new https_1.HttpsError('already-exists', 'This pin already exists.');
             const now = Date.now();
@@ -91,13 +110,13 @@ async function handlePinImageUpload(db, getBucket, auth, input) {
             }
             tx.set(quota, { hour, count: userCount });
             tx.set(globalQuota, { hour, count: globalCount });
-            tx.create(db.collection('pinImageUploadIntents').doc(incarnation), {
+            tx.create(intentRef, {
                 protocol: exports.IMAGE_PROTOCOL, pinId, userId: uid, uploadIds, specs,
                 createdAt: firestore_1.Timestamp.fromMillis(now), expiresAt: firestore_1.Timestamp.fromMillis(now + exports.UPLOAD_WINDOW_MS),
                 cleanupAfter: firestore_1.Timestamp.fromMillis(now + 60 * 60_000),
             });
+            return { incarnation, uploadIds };
         });
-        return { incarnation, uploadIds };
     }
     if (!data || typeof data.incarnation !== 'string' || !UUID.test(data.incarnation)) {
         return invalid('Invalid upload authorization.');
@@ -114,7 +133,7 @@ async function handlePinImageUpload(db, getBucket, auth, input) {
             throw new https_1.HttpsError('permission-denied', 'Upload authorization is unavailable.');
         }
         if (cleanup.exists || record.expiresAt.toMillis() <= Date.now()) {
-            throw new https_1.HttpsError('deadline-exceeded', 'Upload authorization expired.');
+            throw new https_1.HttpsError('deadline-exceeded', 'Upload authorization expired.', { uploadExpired: true });
         }
         return { pinId: record.pinId, uploadIds: record.uploadIds,
             specs: record.specs, expiresAt: record.expiresAt };
@@ -145,23 +164,35 @@ async function handlePinImageUpload(db, getBucket, auth, input) {
     }
     const { uploadId, content } = data;
     const receipt = intent.collection('receipts').doc(uploadId);
-    const nonce = (0, node_crypto_1.randomUUID)();
-    const token = (0, node_crypto_1.randomUUID)();
-    const { pinId, spec } = await db.runTransaction(async (tx) => {
+    const bytes = Buffer.from(content, 'base64');
+    const digest = (0, node_crypto_1.createHash)('sha256').update(bytes).digest('hex');
+    const { pinId, spec, nonce, token, completed } = await db.runTransaction(async (tx) => {
         const authorization = await openIntent(tx);
         const spec = authorization.specs[authorization.uploadIds.indexOf(uploadId)];
-        if (!spec || content.length !== Math.ceil(spec.size / 3) * 4)
-            return invalid('Image does not match the authorization.');
+        if (!spec || bytes.length !== spec.size || bytes.toString('base64') !== content ||
+            !matchesImageSignature(bytes, spec.type)) {
+            return invalid('Image bytes do not match the authorized format or size.');
+        }
         const existing = await tx.get(receipt);
-        if (existing.exists)
-            throw new https_1.HttpsError('already-exists', 'This upload slot was already used.');
-        tx.create(receipt, { nonce });
-        return { pinId: authorization.pinId, spec };
+        if (existing.exists) {
+            const prior = existing.data();
+            // An old nonce does not prove which bytes reached Storage. Never reuse the slot.
+            if (prior.digest === undefined) {
+                throw new https_1.HttpsError('failed-precondition', 'Restart this legacy image upload.', { uploadExpired: true });
+            }
+            if (prior.digest !== digest || typeof prior.token !== 'string') {
+                throw new https_1.HttpsError('failed-precondition', 'This upload slot belongs to a different upload.');
+            }
+            return { pinId: authorization.pinId, spec, nonce: prior.nonce,
+                token: prior.token, completed: !!prior.generation && !!prior.downloadUrl };
+        }
+        const nonce = (0, node_crypto_1.randomUUID)();
+        const token = (0, node_crypto_1.randomUUID)();
+        tx.create(receipt, { nonce, token, digest });
+        return { pinId: authorization.pinId, spec, nonce, token, completed: false };
     });
-    const bytes = Buffer.from(content, 'base64');
-    if (bytes.length !== spec.size || bytes.toString('base64') !== content || !matchesImageSignature(bytes, spec.type)) {
-        return invalid('Image bytes do not match the authorized format or size.');
-    }
+    if (completed)
+        return { uploaded: true };
     const bucket = getBucket();
     const path = pinImagePath(uid, pinId, incarnation, uploadId);
     const file = bucket.file(path);
@@ -172,28 +203,42 @@ async function handlePinImageUpload(db, getBucket, auth, input) {
             preconditionOpts: { ifGenerationMatch: 0 },
             metadata: {
                 contentType: spec.type,
-                metadata: { protocol: exports.IMAGE_PROTOCOL, uploadedBy: uid, pinId, incarnation, uploadId, nonce,
+                metadata: { protocol: exports.IMAGE_PROTOCOL, uploadedBy: uid, pinId, incarnation, uploadId, nonce, digest,
                     firebaseStorageDownloadTokens: token },
             },
         });
-        [metadata] = await file.getMetadata();
     }
     catch (error) {
+        // The create may have succeeded before transport failure, or a same-slot retry won.
         const code = error?.code;
-        console.warn('Pin image Storage request failed', { pinId, incarnation, uploadId, code });
-        throw new https_1.HttpsError(code === 412 ? 'failed-precondition' : 'unavailable', 'The image could not be stored and verified. Start a new publish attempt.');
+        if (code !== 412)
+            console.warn('Pin image create unconfirmed', { pinId, incarnation, uploadId, code });
+    }
+    try {
+        [metadata] = await file.getMetadata();
+    }
+    catch {
+        throw new https_1.HttpsError('unavailable', 'Image storage is unconfirmed. Retry this publish attempt.');
     }
     const generation = String(metadata.generation);
     const custom = metadata.metadata;
     if (!GENERATION.test(generation) || Number(metadata.size) !== spec.size || metadata.contentType !== spec.type ||
         custom?.protocol !== exports.IMAGE_PROTOCOL || custom.nonce !== nonce || custom.uploadedBy !== uid ||
         custom.pinId !== pinId || custom.incarnation !== incarnation || custom.uploadId !== uploadId ||
-        custom.firebaseStorageDownloadTokens !== token) {
+        custom.digest !== digest || custom.firebaseStorageDownloadTokens !== token) {
         throw new https_1.HttpsError('failed-precondition', 'Stored image does not match the authorization.');
     }
     const downloadUrl = 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name +
         '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
-    await receipt.update({ generation, downloadUrl });
+    await db.runTransaction(async (tx) => {
+        await openIntent(tx);
+        const current = await tx.get(receipt);
+        if (current.get('nonce') !== nonce || current.get('digest') !== digest ||
+            (current.get('generation') && current.get('generation') !== generation)) {
+            throw new https_1.HttpsError('failed-precondition', 'Upload receipt changed.');
+        }
+        tx.update(receipt, { generation, downloadUrl });
+    });
     return { uploaded: true };
 }
 //# sourceMappingURL=pinImageUpload.js.map

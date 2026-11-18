@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { LatLngPoint, PinCategory, Pin } from '../../types';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
-import { createPin } from '../../services/pinService';
+import { createPin, newPinPublishAttempt } from '../../services/pinService';
 import { MAX_PIN_IMAGES } from '../../services/storageService';
 import { extractCityAndCountry } from '../../utils/footprintUtils';
 import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
@@ -30,6 +30,7 @@ export interface CreatePinDraft {
   previewUrls: string[];
   customLat: number;
   customLng: number;
+  publishAttempt?: ReturnType<typeof newPinPublishAttempt>;
 }
 
 interface CreatePinModalProps {
@@ -84,6 +85,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   );
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlight = useRef(false);
+  const publishAttempt = useRef(initialDraft?.publishAttempt);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Sync selectedLocation if updated from map click
@@ -164,7 +167,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || submitInFlight.current) return;
     setErrorMsg(null);
 
     if (!title.trim()) {
@@ -177,6 +180,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       return;
     }
 
+    submitInFlight.current = true;
     setIsSubmitting(true);
     console.log('[CreatePinModal] Starting pin publish flow. Files count:', files.length);
     try {
@@ -200,6 +204,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
       // 2. Publish to Firestore
       console.log('[CreatePinModal] Step 2: Creating pin document in Firestore...');
+      publishAttempt.current ??= newPinPublishAttempt();
       const newPinId = await createPin({
         userId: user.uid,
         userName: profile?.displayName || user.email?.split('@')[0] || 'Explorer',
@@ -214,7 +219,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         city: geo.city,
         category,
         tags,
-      }, files);
+      }, files, publishAttempt.current);
       console.log('[CreatePinModal] Step 2 Complete: Pin document created with ID:', newPinId);
 
       onPinCreated(newPinId);
@@ -224,6 +229,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       setErrorMsg(err.message || 'Failed to create pin. Please check your inputs.');
     } finally {
       console.log('[CreatePinModal] Resetting isSubmitting in finally block.');
+      submitInFlight.current = false;
       setIsSubmitting(false);
     }
   };
@@ -286,7 +292,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
               Discard Pin Draft?
             </h3>
             <p className="text-xs text-slate-600 dark:text-white/60 max-w-xs mb-6 leading-relaxed">
-              You have unsaved details that will be lost if you leave now.
+              {publishAttempt.current?.commitStarted
+                ? 'This draft may have been published. Retry it here to check, or check your profile before creating it again.'
+                : 'You have unsaved details that will be lost if you leave now.'}
             </p>
             <div className="flex items-center gap-3">
               <button
@@ -399,6 +407,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      if (submitInFlight.current) return;
                       onActivateMapPick({
                         title,
                         description,
@@ -409,6 +418,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         previewUrls,
                         customLat,
                         customLng,
+                        publishAttempt: publishAttempt.current,
                       });
                     }}
                     className="text-xs text-[var(--heyroq-accent-text)] hover:underline font-semibold cursor-pointer"

@@ -34,6 +34,25 @@
       "concurrency": 2,
       "maxInstances": 8
     },
+    "uploadProfileAvatar": {
+      "trigger": { "type": "httpsCallable" },
+      "desiredTimeoutSeconds": 60,
+      "memoryMiB": 512,
+      "concurrency": 2,
+      "maxInstances": 8,
+      "dependsOn": ["namedFirestoreRules", "onAccountAvatarFinalized"]
+    },
+    "onAccountAvatarFinalized": {
+      "region": "us-west1",
+      "trigger": {
+        "type": "google.cloud.storage.object.v1.finalized",
+        "bucket": "rainbyte-studio.firebasestorage.app",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "releaseGate": "Verify the bucket location, Eventarc delivery and retry, named database lock read and generation-scoped prefix deletion."
+    },
     "reconcilePinImageCleanup": {
       "trigger": {
         "type": "schedule",
@@ -47,7 +66,7 @@
         "type": "google.cloud.firestore.document.v1.created",
         "document": "pins/{pinId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -63,7 +82,7 @@
         "type": "google.cloud.firestore.document.v1.created",
         "document": "pins/{pinId}/likes/{userId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -79,7 +98,7 @@
         "type": "google.cloud.firestore.document.v1.deleted",
         "document": "pins/{pinId}/likes/{userId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -95,7 +114,7 @@
         "type": "google.cloud.firestore.document.v1.created",
         "document": "pins/{pinId}/comments/{commentId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "counter-only",
@@ -111,7 +130,7 @@
         "type": "google.cloud.firestore.document.v1.deleted",
         "document": "pins/{pinId}/comments/{commentId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "counter-only",
@@ -127,7 +146,7 @@
         "type": "google.cloud.firestore.document.v1.created",
         "document": "users/{targetUserId}/followers/{followerId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -143,7 +162,7 @@
         "type": "google.cloud.firestore.document.v1.deleted",
         "document": "users/{targetUserId}/followers/{followerId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_RETRY"
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -158,21 +177,32 @@
       "trigger": {
         "type": "httpsCallable"
       },
-      "desiredTimeoutSeconds": 540,
+      "desiredTimeoutSeconds": null,
       "legacyGeography": "indirect",
       "preflight": {
         "revision": "deleteuseraccount-00002-bey",
         "sourceGeneration": "1794935922063323",
         "eventarcTrigger": null,
         "retryPolicy": null
-      }
+      },
+      "preserveExternalChanges": true,
+      "releaseGate": "Capture deployed callable runtime options before rollout. Preserve the observed live timeout and verify it afterward.",
+      "dependsOn": [
+        "reconcileAccountDeletion",
+        "namedFirestoreRules",
+        "accountDeletionAwareFrontend",
+        "storageRulesDenyDirectAvatarWrites",
+        "onAccountAvatarFinalized",
+        "onAuthUserDeleted",
+        "onUserProfileUpdated"
+      ]
     },
     "onPinDeleted": {
       "trigger": {
         "type": "google.cloud.firestore.document.v1.deleted",
         "document": "pins/{pinId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        "retryPolicy": null
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -181,14 +211,15 @@
         "sourceGeneration": "1794935874000125",
         "eventarcTrigger": "onpindeleted-858893",
         "retryPolicy": null
-      }
+      },
+      "releaseGate": "Read live Functions API retry policy and match it explicitly before deploying this endpoint. The SDK currently defaults to retry disabled."
     },
     "onUserProfileUpdatedProgression": {
       "trigger": {
         "type": "google.cloud.firestore.document.v1.updated",
         "document": "users/{userId}",
         "location": "us-west1",
-        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        "retryPolicy": null
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -197,7 +228,8 @@
         "sourceGeneration": "1794935874000125",
         "eventarcTrigger": "onuserprofileupdatedprogression-614944",
         "retryPolicy": null
-      }
+      },
+      "releaseGate": "Read live Functions API retry policy and match it explicitly before deploying this endpoint. The SDK currently defaults to retry disabled."
     },
     "recalculateProgression": {
       "trigger": {
@@ -211,6 +243,49 @@
         "eventarcTrigger": null,
         "retryPolicy": null
       }
+    },
+    "reconcileAccountDeletion": {
+      "trigger": {
+        "type": "schedule",
+        "schedule": "* * * * *",
+        "timeZone": "UTC",
+        "retryCount": 0
+      },
+      "desiredTimeoutSeconds": 120,
+      "maxInstances": 1,
+      "queue": "accountDeletionLocks/{userId}",
+      "leaseSeconds": 180,
+      "avatarDrainSeconds": 691200,
+      "legacyAdoptionEnv": "ACCOUNT_DELETION_LEGACY_ADOPTION",
+      "legacyAdoptionCheckpoint": "_maintenance/accountDeletionLegacyScan",
+      "dependsOn": [
+        "storageRulesDenyDirectAvatarWrites",
+        "onAccountAvatarFinalized",
+        "onAuthUserDeleted",
+        "onUserProfileUpdated",
+        "reconcilePinImageCleanup"
+      ]
+    }
+  },
+  "liveDependenciesOutsideRollout": {
+    "onAuthUserDeleted": {
+      "platform": "gcfv1",
+      "purpose": "Legacy Auth user-deletion trigger",
+      "trigger": {
+        "type": "firebase.auth.user.delete",
+        "retryPolicy": null
+      },
+      "releaseGate": "Block account deletion until live source, region, runtime identity, failure policy and UID-scoped Auth delete side effects are verified. Keep outside deploy, rollback and deletion selectors."
+    },
+    "onUserProfileUpdated": {
+      "platform": "gcfv2",
+      "purpose": "Avatar cleanup on profile update",
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "users/{userId}",
+        "retryPolicy": null
+      },
+      "releaseGate": "Block account deletion until live database, namespace, document filter, region, source, identity, retry and generation-safe avatar cleanup are verified. Keep outside deploy, rollback and deletion selectors."
     }
   }
 }

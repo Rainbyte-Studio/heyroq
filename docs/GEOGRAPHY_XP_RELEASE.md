@@ -10,10 +10,17 @@ deletion still removes the departing account's data.
 
 ## Scope and evidence
 
-See [the machine-readable manifest](progression-deployment-manifest.json) for all
-11 existing endpoints plus the image upload callable and reconciliation
-scheduler, their triggers, intended retries, and the production preflight snapshot. The snapshot is historical. The two unknown Functions API retry
-values must be checked before approval.
+This source patch does not regenerate the checked-in Functions runtime
+or source maps. The repository checks their parity with TypeScript in CI.
+Regenerate them with the locked toolchain in an authorized build before
+considering the patch mergeable or packaging a release.
+
+See [the deployment manifest](progression-deployment-manifest.json) for the
+existing endpoints, image and avatar upload callables, the avatar finalize trigger and the two reconciliation schedulers. Verify the historical production snapshot against the Functions
+API. Verify the live Gen1 `onAuthUserDeleted` and Gen2
+`onUserProfileUpdated` avatar cleanup trigger and their interactions with
+account deletion. Both are live dependencies outside the rollout. Exclude
+them from deployment, deletion and rollback selectors.
 
 The follow-up Cloud Run view showed the three additional endpoints at 100% on
 the recorded revisions. They shared pin-create's legacy source generation and
@@ -36,6 +43,12 @@ namespace and document filters.
 
 ## Local verification
 
+The prior CI results do not cover this candidate. Before running the existing
+suites with authorization, align their assertions with the queued deletion
+response and scheduler, live-preserved callable timeout, idempotent slot
+replay, and existing-parent comment rules. The existing suites and fixtures
+were left untouched for this handoff.
+
 Use Node 22, Java 21, and the repository's locked dependencies. Build Functions,
 run the location unit tests, and run the progression suite with CLI 14.27.0
 against the Firestore, Auth and Storage emulators in `demo-heyroq`. The exact
@@ -55,13 +68,13 @@ Eventarc scheduling, redelivery timing, or service IAM.
    this snapshot and stop on drift or unresolved identity. Verify the
    Functions API retry values for the two added Eventarc endpoints, along
    with the Functions API configuration for all 11.
-2. Explicitly approve the retry change for pin create, both likes, both
-   comments, and both followers from observed `RETRY_POLICY_DO_NOT_RETRY` to
-   `RETRY_POLICY_RETRY`. Preserve the approved SDK defaults for pin delete and
-   profile update (`DO_NOT_RETRY`), subject to verification of their live settings.
-   Callables have no event retry policy. Pub/Sub subscription backoff is a
-   separate setting. Also review the account deletion timeout change from the
-   preflight's 60 seconds to the approved code's 540 seconds.
+2. Match the seven recorded no-retry policies for pin create, likes, comments
+   and follows. For `onPinDeleted` and `onUserProfileUpdatedProgression`,
+   the live retry value is unknown. Block both deployments until the Functions
+   API confirms their settings and the reviewed artifact matches them. Record
+   Pub/Sub backoff separately. Capture the callable's active timeout and other
+   runtime options. `preserveExternalChanges` leaves omitted options with the
+   deployed callable. Verify the active values before and after the update.
 3. Follow the [pin image cutover](#pin-image-release-sequence) for the order of
    Rules, Functions and the AI Studio frontend. After production approval,
    deploy explicitly selected Functions from the same immutable package. Use
@@ -218,8 +231,21 @@ verifies the stored size, MIME, generation and server metadata, and writes
 the receipt. Validation checks format signatures. It does not decode images,
 scan their contents, or validate dimensions. The server never fetches a
 client-provided URL or accepts a client-provided object path or generation.
-A failure after slot reservation requires a fresh publish attempt. A
-successful finalization can be retried within the authorization window.
+The draft reuses its pin ID and upload incarnation across retries. Begin
+replays reuse the original quota reservation. The slot receipt binds the
+validated content digest, nonce and token. A replay can complete a reserved
+slot by creating the original object or checking the original generation
+after a lost Storage acknowledgement. Finish reuses the original approval
+within the authorization window. If the window expires, re-upload under a
+new incarnation with the same pin ID.
+
+A new-client Firestore transaction creates the pin, its owner-only publish
+receipt and the image claim when present. The receipt survives ordinary pin
+deletion. On an uncertain commit, retry the same draft and read its receipt
+from the server. The UI suppresses simultaneous submissions and preserves
+the draft's attempt during map selection. After discarding the draft or
+reloading the tab, check the profile for the published pin before creating
+it again. A different draft starts a different operation.
 
 Firestore Rules match the complete URL list and immutable claim against the
 server approval and require the pin and claim to be created in the same commit.
@@ -227,8 +253,9 @@ The claim binds the owner, ID and incarnation, is consumed once, and persists
 for cleanup. Rules forbid later URL changes or copying a managed URL to
 another pin's image list. Public image views use the stored Firebase download
 URLs. Keep their bearer tokens out of logs. New objects deny client Storage
-SDK access and use tokenized reads. Legacy prefixes stay readable, and the
-final Storage Rules prohibit all client mutations in all three pin prefixes.
+SDK access and use tokenized reads. Legacy object-level reads remain available under `pins/` and
+`pin-images/`. Existing stored URLs are used unchanged. Bucket listing stays
+denied, and final Storage Rules prohibit client writes in all three prefixes.
 Profile picture Storage access is separate.
 
 A delete event verifies the shared pin/claim create time. The scheduler
@@ -282,7 +309,11 @@ node scripts/pin-image-transition-rules.mjs firestore > firestore.pin-transition
 node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rules
 ```
 
-1. With explicit approval, deploy the transitional named Firestore Rules and
+1. Before applying transitional Storage Rules, provision the avatar callable
+   and finalize trigger under the account deletion gates below and coordinate
+   the frontend cutover. The transition closes direct avatar writes, so old
+   tabs lose avatar upload until refreshed. Keep deletion intake paused.
+   With explicit approval, deploy the transitional named Firestore Rules and
    transitional Storage Rules using a release-only Firebase config pointing to
    those generated files. Firestore accepts old URLs only in the same owner's
    exact legacy bucket and prefix, and the new flow only via server approval.
@@ -291,14 +322,18 @@ node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rul
    With index approval, apply the sparse orphan-queue index in
    `firestore.indexes.json` to the named Enterprise database and confirm it is
    ready before activating the scheduler and callable.
-2. Deploy the approved Functions from the pinned artifact using explicit
-   selectors. Confirm safety of pin deletion and account deletion and drain
-   old revisions that could delete legacy images. Verify the reconciliation
-   scheduler and deploy/enable the new upload callable only after the
-   transitional Firestore Rules are confirmed active. A wholesale deployment
-   of the 11 existing handlers must wait for separate decisions on the
-   timeout and retry deltas identified above.
-3. Publish the pinned AI Studio frontend. During the overlap, current clients
+2. Deploy the approved pin and progression Functions from the pinned
+   artifact using explicit selectors after the live retry gates are met.
+   Confirm the pin delete and image reconciliation revisions, drain old
+   revisions that could delete legacy images, and activate the upload callable
+   after transitional Rules are active. Provision the account-deletion
+   worker with legacy adoption disabled once its dependencies are verified.
+   Keep deletion intake paused until the compatible frontend and Storage
+   protections are effective.
+3. Publish the pinned AI Studio frontend. Confirm the deletion UI handles
+   both the previous synchronous response and the new queued response before
+   switching the deletion callable. Follow [account deletion rollout and
+   recovery](#account-deletion-rollout-and-recovery). During the overlap, current clients
    can still publish through the legacy path. Verified new clients can publish
    image and imageless pins, and read legacy pins. Confirm the real published
    assets and client adoption. With separate test-write approval, publish/read/
@@ -326,8 +361,8 @@ retained. A complete cascade for those children needs incarnation data.
 The historical Storage baseline was Rules v2 deny-all, us-west1, UBLA
 enabled, PAP not enforced and seven-day soft delete. Refresh that snapshot
 and inherited policy. Applying transitional Storage Rules is an access
-expansion. Explicitly approve public legacy/avatar reads and owner writes
-before opening the window. Wait for the named database indexes to be ready,
+expansion. Explicitly approve public legacy/avatar reads, owner avatar deletes
+and transitional legacy pin creates before opening the window. Avatar create and update remain server-only in both rulesets. Wait for the named database indexes to be ready,
 then verify transitional Firestore Rules before opening transitional Storage.
 If final Firestore succeeds and final Storage fails, pause, track potential
 orphan uploads and close the legacy create window after diagnosing the failure.
@@ -340,7 +375,10 @@ against the actual SDKs and effective policies before binding them.
 | pinImageUpload | objects.create/get under pin-images-v2/ | entities get/list/create/update | |
 | reconcilePinImageCleanup | objects.get/delete under pin-images-v2/ | entities get/list/create/update | |
 | onPinDeleted | objects.get/delete under pin-images-v2/ | entities get/list/create/update/delete | |
-| deleteUserAccount | objects.list at the bucket and objects.delete under profile-images/ | entities get/list/create/update/delete | firebaseauth.users.delete |
+| deleteUserAccount | none | entities get/create/update on deletion state | authenticated callable |
+| reconcileAccountDeletion | objects.list at the bucket and objects.delete under profile-images/ | entities get/list/create/update/delete, including the legacy scanner checkpoint | firebaseauth.users.delete |
+| uploadProfileAvatar | objects.create/delete under profile-images/ | entities get on profile and deletion lock | authenticated callable |
+| onAccountAvatarFinalized | generation-scoped objects.delete under profile-images/ | entities get on deletion lock | Storage Eventarc delivery in the bucket location |
 
 Use exact bucket and prefix IAM conditions with the trailing slash. The
 account deletion path lists at bucket scope even though the SDK requests
@@ -353,23 +391,100 @@ definitions. Verify effective access for these principals and denials on
 alternate prefixes and the default database. Separate build, deployment
 and invocation identities from runtime data permissions.
 
-Keep onPinDeleted at DO_NOT_RETRY initially. The scheduler recovers image
-cleanup, while child and progression failures require separate triage.
-Keep Scheduler request retries disabled initially and use the next tick.
-Watch overlap, queue lag and unresolved jobs. Preserve live progression
-retry settings until the seven redelivery changes receive separate approval.
-For the upload callable, retry finalization within the intent window.
-Interrupted begin or reserved uploads may require a fresh attempt and quota.
+Verify and preserve live retry policy for `onPinDeleted`. The image scheduler
+recovers missed image cleanup. Review child, counter and progression failures
+separately. Use the next scheduled tick for failed reconciliation invocations
+and track queue lag and unresolved jobs.
 
-Keep the deployed deleteUserAccount timeout in the first release. If live
-still matches 60 seconds, include the safer handler in a reviewed artifact
-that preserves 60 seconds. Both main and this PR declare 540 seconds, so
-deploying either as written would increase that historical live value.
-Keep the client at 550 seconds. Approve any server increase separately after
-staging timings, concurrent invocation, interruption and recovery testing.
-The deletion lock blocks new content but does not serialize callable
-invocations. Verify recovery of a stale lock after Auth deletion. A client
-timeout leaves the result unknown and image cleanup completes asynchronously.
+### Account deletion rollout and recovery
+
+1. Block account deletion rollout while either live dependency is unresolved.
+   For Gen1 `onAuthUserDeleted`, capture the Functions v1 API source and
+   trigger, region, runtime identity, failure policy and Auth delete side
+   effects. The worker uses a single-UID Auth delete, which can invoke
+   this trigger. Verify that retries and replays preserve the tombstone,
+   surviving users, and legacy pin images, and never recreate the profile
+   or avatar. A user-not-found response confirms Auth absence without
+   proving Gen1 delivery or cleanup. For Gen2 `onUserProfileUpdated`,
+   capture the Functions v2 API source, runtime and delivery identities,
+   location, database, namespace, user document filter, event type and
+   retry policy. Verify that delayed profile updates cannot touch another
+   UID or a newer avatar generation, remove the lock, or recreate data.
+   Unknown source, failure/retry policy, side effects or effective IAM
+   block the cutover. Keep both live dependencies outside every selector.
+2. Deploy the named Firestore rules and verify the Scheduler and named DB
+   IAM. Deploy the new avatar callable and retry-enabled
+   `onAccountAvatarFinalized` for the exact configured bucket. Confirm
+   bucket location, delivery identity, effective generation-scoped delete
+   permission, monitoring and Eventarc retry policy. Leave legacy adoption
+   off while the old synchronous callable can still run.
+3. Publish the deletion-aware UI and the callable-based avatar frontend.
+   Cut over Storage Rules to deny every direct avatar create and update,
+   including in the transitional rules. Record when those rules took
+   effect and confirm that no other ingress can write the avatar prefix
+   after a tombstone, including signed/resumable sessions issued by other
+   services, Admin writers, alternate buckets and public IAM. A stale tab
+   must refresh to upload avatars or interpret the pending response.
+   Verify Storage session lifetime and finalization behavior for this
+   bucket before enabling deletion. Keep the deletion intake paused until
+   the Storage rules and trigger are effective.
+4. Switch the callable to enqueue, preserving the observed live timeout.
+   Drain every previous synchronous invocation before enabling legacy
+   adoption with `ACCOUNT_DELETION_LEGACY_ADOPTION=true` on the scheduler
+   only. Verify that no old revision can still accept requests.
+   Unknown live retries for changed endpoints require explicit Functions
+   API verification and a matching source/manifest policy before release.
+
+The worker takes a 180-second lease against a 120-second runtime limit. It
+commits cursor and phase after successful side effects. It drains avatars
+once before removing profile and Auth, then parks at `verifyAvatars`
+until eight days after the lock was created or adopted. The allowance
+covers a documented week-long Cloud Storage resumable session and a day
+of margin. After the deadline, it deletes live and noncurrent avatar
+generations and requires an empty strongly consistent prefix listing
+before writing `deleted`. Confirm the actual Firebase upload transport,
+session expiry, retention, holds, caches and soft-delete policy as live
+gates. A late finalize event independently deletes only its own generation
+when the tombstone exists, including after completion. Previously issued
+bearer URLs can remain usable until a late generation is removed, and
+already cached or downloaded copies are outside the worker's control. Soft
+delete retention and managed pin cleanup have independent lifecycles.
+See [Cloud Storage resumable sessions](https://docs.cloud.google.com/storage/docs/resumable-uploads).
+
+For pending or unknown results, inspect the UID lock in the named database.
+A missing lock is distinct from a pending lock or a completed lock. Use
+phase, cursor, progressedAt, readyAt, leaseOwner, avatarDrainUntil and
+completedAt to distinguish backlog, scheduled drain, active work and
+completion. Alert on overdue work, unchanged progress outside the drain
+window, repeated errors and stale scan checkpoints. After a crash, let the
+lease expire and let the scheduler replay the same phase. Confirm the Auth
+state independently. Never recreate the UID or remove the tombstone.
+
+With adoption enabled, the scheduler scans `deleting` locks in
+document-ID order. It transactionally adopts legacy locks that lack both
+phase and readyAt and have no lease owner, preserving startedAt. Restarting
+from likes recovers partially applied cleanup, including when Auth is
+already gone. For malformed or mixed-schema locks that the scanner skips,
+an authorized operator must inspect the original deletion audit, verify
+the UID and database, and confirm that all prior writers and leases are
+inactive. For a confirmed pending request, transactionally restore phase
+to likes, clear cursor and leaseOwner, set readyAt to now, and set
+avatarDrainUntil to now plus eight days. Compare the lock snapshot before
+writing. Leave any unproven or terminal lock intact and escalate. Audit
+older terminal locks separately for already-existing avatar generations.
+
+For rollback, pause intake and retain compatible named rules, the deny
+on direct avatar writes, the finalize trigger, and the current worker
+through the last drain window and terminal job. Do not route pending UIDs
+to a synchronous delete handler or roll back to a frontend that requires
+direct avatar writes. Keep the image handshake frontend in place before
+changing pinImageUpload. It uses the incarnation returned by begin for
+upload, finish and the Firestore claim. Roll back between upload windows
+or pause image publishing while in-flight sessions drain. Mixed versions
+can leave unfinished receipts or unused authorizations. Restart failed
+image attempts with a fresh incarnation and let existing orphan cleanup
+expire abandoned slots. Preserve existing approvals and published claims.
+Keep ledger freeze and generation-scoped pin cleanup active.
 
 Production managed-image delivery verification remains open. Keep it separate
 from emulator CI. Rehearse actual browser rendering of pin feed, previews,

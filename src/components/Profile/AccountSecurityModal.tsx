@@ -439,8 +439,12 @@ export const AccountSecurityModal: React.FC<AccountSecurityModalProps> = ({
       execute: async () => {
         setIsDeletingAccount(true);
         try {
-          await executeDeleteUserAccount(firebaseUser, deleteConfirmationText);
-          await signOut();
+          const result = await executeDeleteUserAccount(firebaseUser, deleteConfirmationText);
+          if (result.status === 'deleting') {
+            setBanner({ type: 'success', title: 'Deletion request received', message: result.message });
+            return;
+          }
+          await signOut().catch(error => console.warn('Could not clear the local session after deletion:', error));
           onClose();
           if (onAccountDeleted) {
             onAccountDeleted();

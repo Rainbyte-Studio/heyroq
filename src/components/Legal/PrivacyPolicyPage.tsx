@@ -359,9 +359,10 @@ export const PrivacyPolicyPage: React.FC = () => {
               Authenticated users can permanently delete their account at any time from{' '}
               <strong>Profile &rarr; Settings &rarr; Account &amp; Security &rarr; Delete Account</strong>{' '}
               (after explicit confirmation and recent identity reauthentication). Invoking the{' '}
-              <code className="font-mono text-xs">deleteUserAccount</code> Cloud Function locks
-              account recreation and removes authored likes, comments, follow links, pins, profile
-              photos, public profile subcollections, and the Firebase Authentication account record.
+              <code className="font-mono text-xs">deleteUserAccount</code> Cloud Function queues
+              the request and locks account recreation. A background process removes authored likes,
+              comments, follow links, pins, profile photos, public profile subcollections, and the
+              Firebase Authentication account record.
               Pin photo cleanup follows the same reference checks as individual pin deletion.
             </li>
           </ul>

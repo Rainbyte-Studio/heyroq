@@ -2,7 +2,7 @@
 // Never connect this suite to production or use real service-account credentials.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { onPinCreatedProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
 
 if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
@@ -187,17 +187,22 @@ test('all compiled endpoints match the deployment manifest, including retry poli
   const manifest = require('../../docs/progression-deployment-manifest.json');
   const names = Object.keys(functions).filter(name => functions[name].__endpoint);
   assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
-  for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances }] of Object.entries(manifest.functions)) {
+  for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances, region, releaseGate }] of Object.entries(manifest.functions)) {
     const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
-    assert.deepEqual(endpoint.region, [manifest.region], name);
+    assert.deepEqual(endpoint.region, [region ?? manifest.region], name);
     assert.equal(endpoint.platform, manifest.platform, name);
-    assert.equal(endpoint.timeoutSeconds ?? 60, desiredTimeoutSeconds, name);
+    if (desiredTimeoutSeconds === null) {
+      assert.equal(endpoint.timeoutSeconds ?? null, null, name);
+    } else {
+      assert.equal(endpoint.timeoutSeconds ?? manifest.observedServiceDefaults.timeoutSeconds, desiredTimeoutSeconds, name);
+    }
     if (memoryMiB != null) assert.equal(endpoint.availableMemoryMb, memoryMiB, name);
     if (concurrency != null) assert.equal(endpoint.concurrency, concurrency, name);
     if (maxInstances != null) assert.equal(endpoint.maxInstances, maxInstances, name);
     if (trigger.type === 'schedule') {
       assert.equal(endpoint.scheduleTrigger.schedule, trigger.schedule, name);
       assert.equal(endpoint.scheduleTrigger.timeZone, trigger.timeZone, name);
+      if (trigger.retryCount != null) assert.equal(endpoint.scheduleTrigger.retryConfig.retryCount, trigger.retryCount, name);
       continue;
     }
     if (trigger.type === 'httpsCallable') {
@@ -205,10 +210,18 @@ test('all compiled endpoints match the deployment manifest, including retry poli
       continue;
     }
     assert.equal(endpoint.eventTrigger.eventType, trigger.type, name);
-    assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, trigger.document, name);
-    assert.equal(endpoint.eventTrigger.eventFilters.database, manifest.firestore.database, name);
-    assert.equal(endpoint.eventTrigger.eventFilters.namespace, manifest.firestore.namespace, name);
-    assert.equal(endpoint.eventTrigger.retry, trigger.retryPolicy === 'RETRY_POLICY_RETRY', name);
+    if (trigger.bucket) {
+      assert.equal(endpoint.eventTrigger.eventFilters.bucket, trigger.bucket, name);
+    } else {
+      assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, trigger.document, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.database, manifest.firestore.database, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.namespace, manifest.firestore.namespace, name);
+    }
+    if (trigger.retryPolicy === null) {
+      assert.ok(releaseGate, name);
+    } else {
+      assert.equal(endpoint.eventTrigger.retry, trigger.retryPolicy === 'RETRY_POLICY_RETRY', name);
+    }
   }
 });
 
@@ -232,9 +245,28 @@ test('account deletion and downstream replay preserve the surviving user ledger'
 
   const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
   const ledger = survivor.collection('xpEvents');
+  const lock = db.collection('accountDeletionLocks').doc(uid);
+  assert.deepEqual(await functions.deleteUserAccount.run(request), { success: false, status: 'deleting' });
+  assert.equal((await lock.get()).get('phase'), 'likes');
+  assert.equal((await departing.get()).exists, true);
+  for (let tick = 0; tick < 6 && (await lock.get()).get('phase') !== 'verifyAvatars'; tick++) {
+    await functions.reconcileAccountDeletion.run({});
+  }
+  const verifying = await lock.get();
+  assert.equal(verifying.get('phase'), 'verifyAvatars');
+  assert.equal(verifying.get('status'), 'deleting');
+  assert.equal(verifying.get('readyAt').isEqual(verifying.get('avatarDrainUntil')), true);
+  // Advance this existing fixture past the production drain window.
+  const past = Timestamp.fromMillis(Date.now() - 1000);
+  await lock.update({ avatarDrainUntil: past, readyAt: past });
+  await functions.reconcileAccountDeletion.run({});
+  const completed = await lock.get();
+  assert.equal(completed.get('status'), 'deleted');
+  assert.ok(completed.get('completedAt') instanceof Timestamp);
+
   let previousEvents;
   for (let delivery = 0; delivery < 2; delivery++) {
-    assert.equal((await functions.deleteUserAccount.run(request)).success, true);
+    assert.deepEqual(await functions.deleteUserAccount.run(request), { success: true, status: 'deleted' });
     assert.equal((await legacyImage.exists())[0], true);
     for (const ref of [departing, like, comment, follower]) assert.equal((await ref.get()).exists, false);
     await Promise.all([
@@ -698,9 +730,7 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
   await assert.rejects(call(finish, auth(foreign)), { code: 'permission-denied' });
   await assert.rejects(call(finish), { code: 'failed-precondition' });
   await assert.rejects(call({ ...upload, uploadId: randomUUID() }), { code: 'invalid-argument' });
-  const responses = await Promise.allSettled([call(upload), call(upload)]);
-  assert.equal(responses.filter(result => result.status === 'fulfilled').length, 1);
-  assert.equal(responses.find(result => result.status === 'rejected').reason.code, 'already-exists');
+  assert.deepEqual(await Promise.all([call(upload), call(upload)]), [{ uploaded: true }, { uploaded: true }]);
   const claim = await call(finish);
   assert.deepEqual(await call(finish), claim);
   const [metadata] = await file.getMetadata();
@@ -717,7 +747,7 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
   const invalidUpload = { action: 'upload', incarnation: invalidContent.incarnation,
     uploadId: invalidContent.uploadIds[0], content: Buffer.alloc(png.length).toString('base64') };
   await assert.rejects(call(invalidUpload), { code: 'invalid-argument' });
-  await assert.rejects(call(invalidUpload), { code: 'already-exists' });
+  await assert.rejects(call(invalidUpload), { code: 'invalid-argument' });
   await assert.rejects(call({ action: 'finish', incarnation: invalidContent.incarnation }), { code: 'failed-precondition' });
   assert.equal((await bucket.file(pinImagePath(uid, pinId, invalidContent.incarnation, invalidUpload.uploadId)).exists())[0], false);
 
@@ -730,7 +760,7 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
     return { async save(_bytes, options) {
       assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
       throw Object.assign(new Error('Precondition failed'), { code: 412 });
-    } };
+    }, getMetadata: () => occupied.getMetadata() };
   } };
   await assert.rejects(handlePinImageUpload(db, () => storageWithCollision, auth(uid), {
     ...upload, incarnation: collision.incarnation, uploadId: collision.uploadIds[0],
