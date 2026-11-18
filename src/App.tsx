@@ -130,6 +130,7 @@ function HeyroqMainApp() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   // Remember only the explicit action that opened authentication; never persist it.
+  const authSucceededRef = useRef(false);
   const [pendingAuthAction, setPendingAuthAction] = useState<{ type: 'like'; pinId: string } | { type: 'create' } | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isPickingLocationOnMap, setIsPickingLocationOnMap] = useState(false);
@@ -933,11 +934,11 @@ function HeyroqMainApp() {
       {/* 6. Authentication Modal */}
       <AuthModal
         isOpen={isAuthOpen}
+        onAuthenticated={() => { authSucceededRef.current = true; }}
         onClose={() => {
           setIsAuthOpen(false);
-          // On successful login the auth state effect already consumes this action.
-          // On dismissal it must not unexpectedly fire on a later login.
-          if (!user) setPendingAuthAction(null);
+          if (!authSucceededRef.current) setPendingAuthAction(null);
+          authSucceededRef.current = false;
         }}
         initialMode={authMode}
       />
