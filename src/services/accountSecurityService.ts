@@ -174,7 +174,8 @@ export const defaultFirebaseSecurityAdapter: AuthSecurityAdapter<User> = {
   async callDeleteUserAccount() {
     const callable = httpsCallable<Record<string, never>, { success: boolean; message?: string }>(
       functions,
-      'deleteUserAccount'
+      'deleteUserAccount',
+      { timeout: 550_000 }
     );
     const response = await callable({});
     return response.data;

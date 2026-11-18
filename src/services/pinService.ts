@@ -23,6 +23,7 @@ import {
   normalizeCategory,
   getCategoryQueryVariants,
 } from '../utils/categoryUtils';
+import { createSearchReadCache } from './searchReadCache';
 import { deletePinImages } from './storageService';
 import {
   computeGeohash,
@@ -43,6 +44,7 @@ export function formatDocDate(val: any): string {
 const PINS_COLLECTION = 'pins';
 const USERS_COLLECTION = 'users';
 const REPORTS_COLLECTION = 'reports';
+const searchPinRead = createSearchReadCache(() => getDocs(query(collection(db, PINS_COLLECTION), limit(150))), 5000);
 
 // Production Heyroq: SEED_PINS removed. All pins are derived strictly from real Firestore data.
 export const SEED_PINS_WITH_IDS: Pin[] = [];
@@ -73,6 +75,7 @@ export function seedSessionPins(pins: Pin[]): void {
  */
 export function evictSessionPin(pinId: string): void {
   if (!pinId) return;
+  searchPinRead.invalidate();
   sessionMemoryPinMap.delete(pinId);
   cachedPinsSnapshot = cachedPinsSnapshot.filter((p) => p.id !== pinId);
   hydratedCommentCountPinIds.delete(pinId);
@@ -282,8 +285,7 @@ export async function getAllKnownPins(): Promise<Pin[]> {
 
   // 2. Live Firestore pins
   try {
-    const pinsRef = collection(db, PINS_COLLECTION);
-    const snap = await getDocs(query(pinsRef, limit(150)));
+    const snap = await searchPinRead.read();
     snap.docs.forEach((d) => {
       const data = d.data() as Record<string, any>;
       combinedMap.set(d.id, {
@@ -422,6 +424,7 @@ export async function createPin(
 
   try {
     const docRef = await addDoc(collection(db, PINS_COLLECTION), firestorePin);
+    searchPinRead.invalidate();
     return docRef.id;
   } catch (err) {
     console.error('Firestore createPin error:', err);

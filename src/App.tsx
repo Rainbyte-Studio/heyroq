@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Pin, LatLngBounds, LatLngPoint, PinCategory, DiscoveryFilter } from './types';
@@ -11,7 +11,6 @@ import { CreatePinModal, CreatePinDraft } from './components/Pin/CreatePinModal'
 import { UserProfileModal } from './components/Profile/UserProfileModal';
 import { AccountSecurityModal } from './components/Profile/AccountSecurityModal';
 import { AchievementsModal } from './components/Profile/AchievementsModal';
-import { AdminModal } from './components/Admin/AdminModal';
 import { AuthModal } from './components/Auth/AuthModal';
 import { ReportModal } from './components/Report/ReportModal';
 import { DiscoverPeopleModal } from './components/Discovery/DiscoverPeopleModal';
@@ -41,6 +40,26 @@ import {
 } from './services/pinService';
 import { sortPins } from './utils/sortUtils';
 import { ListFilter, Map as MapIcon, Plus, Compass } from 'lucide-react';
+
+const AdminModal = lazy(() => import('./components/Admin/AdminModal').then(module => ({ default: module.AdminModal })));
+
+class AdminLoadBoundary extends React.Component<React.PropsWithChildren<{ onClose: () => void }>> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="fixed bottom-4 right-4 z-[100] rounded bg-white p-4 text-slate-900 shadow">
+        <p role="alert">Moderation could not load. Refresh the page to try again.</p>
+        <button type="button" onClick={this.props.onClose}>Dismiss</button>
+      </div>
+    );
+  }
+}
 
 function HeyroqMainApp() {
   const { user, profile } = useAuth();
@@ -912,13 +931,17 @@ function HeyroqMainApp() {
 
       {/* 4. Admin Moderation Modal */}
       {isAdminOpen && (
-        <AdminModal
-          onClose={() => setIsAdminOpen(false)}
-          onSelectPin={(pin) => {
-            handleSelectPin(pin);
-            setMapCenter({ lat: pin.latitude, lng: pin.longitude });
-          }}
-        />
+        <AdminLoadBoundary onClose={() => setIsAdminOpen(false)}>
+          <Suspense fallback={<p role="status" className="fixed bottom-4 right-4 z-[100] rounded bg-white p-4 text-slate-900 shadow">Loading moderation…</p>}>
+            <AdminModal
+              onClose={() => setIsAdminOpen(false)}
+              onSelectPin={(pin) => {
+                handleSelectPin(pin);
+                setMapCenter({ lat: pin.latitude, lng: pin.longitude });
+              }}
+            />
+          </Suspense>
+        </AdminLoadBoundary>
       )}
 
       {/* 5. Report Inappropriate Content Modal */}
