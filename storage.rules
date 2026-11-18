@@ -44,7 +44,7 @@ service firebase.storage {
     // Managed pin uploads are immutable for clients. Server deletion is conditional.
     match /pin-images/{userId}/{pinId}/{incarnation}/{uploadId} {
       allow read: if true;
-      allow create: if isOwner(userId) && isValidImage() &&
+      allow create: if resource == null && isOwner(userId) && isValidImage() &&
                     pinId.matches("[A-Za-z0-9]{20}") &&
                     isUploadId(incarnation) && isUploadId(uploadId) &&
                     request.resource.metadata.uploadedBy == userId &&
