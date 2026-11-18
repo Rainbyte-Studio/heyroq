@@ -1,7 +1,7 @@
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const projectId = 'demo-heyroq-counter-rules';
 let env;
@@ -29,6 +29,26 @@ const alice = () => env.authenticatedContext('alice').firestore();
 const bob = () => env.authenticatedContext('bob').firestore();
 const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
   await setDoc(doc(context.firestore(), 'users/alice'), profile());
+});
+
+it('follow and unfollow preserve both records in the same batch', async () => {
+  await seedAlice();
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users/bob'), profile({ uid: 'bob', username: 'bob' }));
+  });
+  const client = alice();
+  const follower = doc(client, 'users/bob/followers/alice');
+  const following = doc(client, 'users/alice/following/bob');
+  const createdAt = '2026-01-01T00:00:00.000Z';
+  const followerData = { followerId: 'alice', createdAt };
+  const followingData = { targetUserId: 'bob', createdAt };
+
+  await assertFails(setDoc(follower, followerData));
+  await assertFails(setDoc(following, followingData));
+  await assertSucceeds(writeBatch(client).set(follower, followerData).set(following, followingData).commit());
+  await assertFails(deleteDoc(follower));
+  await assertFails(deleteDoc(following));
+  await assertSucceeds(writeBatch(client).delete(follower).delete(following).commit());
 });
 
 describe('Firestore create-time server counter protection', () => {

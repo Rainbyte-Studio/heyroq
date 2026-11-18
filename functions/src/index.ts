@@ -572,242 +572,78 @@ function extractStoragePathFromUrl(url: string, expectedPrefix: string): string 
 }
 
 // ============================================================================
-// 1. PIN LIKE COUNTER (Server-Side Trigger - Idempotent Canonical Count)
+// 1–3. SOCIAL COUNTERS
 // ============================================================================
 
-export const onPinLikeCreated = onDocumentCreated(
-  {
-    document: 'pins/{pinId}/likes/{userId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-
-    try {
-      // Authoritative, idempotent count of existing like documents
-      const likesCountSnap = await pinRef.collection('likes').count().get();
-      const canonicalCount = likesCountSnap.data().count;
-
-      let authorId: string | null = null;
-      await db.runTransaction(async (transaction) => {
-        const pinDoc = await transaction.get(pinRef);
-        if (!pinDoc.exists) return;
-        authorId = pinDoc.data()?.userId || null;
-        transaction.update(pinRef, {
-          likeCount: canonicalCount,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      });
-      console.log(`Successfully synchronized likeCount to ${canonicalCount} for pin ${pinId}`);
-      if (authorId) {
-        await updateUserProgressionServer(authorId);
-      }
-    } catch (err) {
-      console.error(`Error synchronizing likeCount for pin ${pinId}:`, err);
-      throw err;
+async function syncPinCounter(pinId: string, collection: 'likes' | 'comments') {
+  const pinRef = db.collection('pins').doc(pinId);
+  const field = collection === 'likes' ? 'likeCount' : 'commentCount';
+  const authorId = await db.runTransaction(async transaction => {
+    const pin = await transaction.get(pinRef);
+    if (!pin.exists) return;
+    const count = await transaction.get(pinRef.collection(collection).count());
+    const canonicalCount = count.data().count;
+    if (pin.get(field) !== canonicalCount) {
+      transaction.update(pinRef, { [field]: canonicalCount, updatedAt: FieldValue.serverTimestamp() });
     }
+    return pin.get('userId');
+  });
+  if (collection === 'likes' && typeof authorId === 'string' && authorId) {
+    await updateUserProgressionServer(authorId);
   }
-);
+}
 
-export const onPinLikeDeleted = onDocumentDeleted(
-  {
-    document: 'pins/{pinId}/likes/{userId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
+const likesTrigger = {
+  document: 'pins/{pinId}/likes/{userId}',
+  database: FIRESTORE_DATABASE_ID,
+  region: FUNCTION_REGION,
+  retry: true,
+} as const;
 
-    try {
-      // Authoritative, idempotent count of existing like documents
-      const likesCountSnap = await pinRef.collection('likes').count().get();
-      const canonicalCount = likesCountSnap.data().count;
+export const onPinLikeCreated = onDocumentCreated(likesTrigger, event => syncPinCounter(event.params.pinId, 'likes'));
+export const onPinLikeDeleted = onDocumentDeleted(likesTrigger, event => syncPinCounter(event.params.pinId, 'likes'));
 
-      let authorId: string | null = null;
-      await db.runTransaction(async (transaction) => {
-        const pinDoc = await transaction.get(pinRef);
-        if (!pinDoc.exists) return;
-        authorId = pinDoc.data()?.userId || null;
-        transaction.update(pinRef, {
-          likeCount: canonicalCount,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      });
-      console.log(`Successfully synchronized likeCount to ${canonicalCount} for pin ${pinId}`);
-      if (authorId) {
-        await updateUserProgressionServer(authorId);
-      }
-    } catch (err) {
-      console.error(`Error synchronizing likeCount for pin ${pinId}:`, err);
-      throw err;
+const commentsTrigger = {
+  document: 'pins/{pinId}/comments/{commentId}',
+  database: FIRESTORE_DATABASE_ID,
+  region: FUNCTION_REGION,
+  retry: true,
+} as const;
+
+export const onPinCommentCreated = onDocumentCreated(commentsTrigger, event => syncPinCounter(event.params.pinId, 'comments'));
+export const onPinCommentDeleted = onDocumentDeleted(commentsTrigger, event => syncPinCounter(event.params.pinId, 'comments'));
+
+async function syncFollowCounters(targetUserId: string, followerId: string) {
+  if (targetUserId === followerId) return;
+  const targetRef = db.collection('users').doc(targetUserId);
+  const followerRef = db.collection('users').doc(followerId);
+  await db.runTransaction(async transaction => {
+    const [target, follower] = await transaction.getAll(targetRef, followerRef);
+    const [followers, following] = await Promise.all([
+      target.exists ? transaction.get(targetRef.collection('followers').count()) : undefined,
+      follower.exists ? transaction.get(followerRef.collection('following').count()) : undefined,
+    ]);
+    if (followers && target.get('followersCount') !== followers.data().count) {
+      transaction.update(targetRef, { followersCount: followers.data().count, updatedAt: FieldValue.serverTimestamp() });
     }
-  }
-);
-
-// ============================================================================
-// 2. PIN COMMENT COUNTER (Server-Side Trigger - Idempotent Canonical Count)
-// ============================================================================
-
-export const onPinCommentCreated = onDocumentCreated(
-  {
-    document: 'pins/{pinId}/comments/{commentId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
-
-    try {
-      // Authoritative, idempotent count of existing comment documents
-      const commentsCountSnap = await pinRef.collection('comments').count().get();
-      const canonicalCount = commentsCountSnap.data().count;
-
-      await db.runTransaction(async (transaction) => {
-        const pinDoc = await transaction.get(pinRef);
-        if (!pinDoc.exists) return;
-        transaction.update(pinRef, {
-          commentCount: canonicalCount,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      });
-      console.log(`Successfully synchronized commentCount to ${canonicalCount} for pin ${pinId}`);
-    } catch (err) {
-      console.error(`Error synchronizing commentCount for pin ${pinId}:`, err);
-      throw err;
+    if (following && follower.get('followingCount') !== following.data().count) {
+      transaction.update(followerRef, { followingCount: following.data().count, updatedAt: FieldValue.serverTimestamp() });
     }
-  }
-);
+  });
+  await updateUserProgressionServer(targetUserId);
+}
 
-export const onPinCommentDeleted = onDocumentDeleted(
-  {
-    document: 'pins/{pinId}/comments/{commentId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const pinId = event.params.pinId;
-    const pinRef = db.collection('pins').doc(pinId);
+const followersTrigger = {
+  document: 'users/{targetUserId}/followers/{followerId}',
+  database: FIRESTORE_DATABASE_ID,
+  region: FUNCTION_REGION,
+  retry: true,
+} as const;
 
-    try {
-      // Authoritative, idempotent count of existing comment documents
-      const commentsCountSnap = await pinRef.collection('comments').count().get();
-      const canonicalCount = commentsCountSnap.data().count;
-
-      await db.runTransaction(async (transaction) => {
-        const pinDoc = await transaction.get(pinRef);
-        if (!pinDoc.exists) return;
-        transaction.update(pinRef, {
-          commentCount: canonicalCount,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      });
-      console.log(`Successfully synchronized commentCount to ${canonicalCount} for pin ${pinId}`);
-    } catch (err) {
-      console.error(`Error synchronizing commentCount for pin ${pinId}:`, err);
-      throw err;
-    }
-  }
-);
-
-// ============================================================================
-// 3. FOLLOWER / FOLLOWING COUNTERS (Server-Side Trigger)
-// ============================================================================
-
-export const onUserFollowerCreated = onDocumentCreated(
-  {
-    document: 'users/{targetUserId}/followers/{followerId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const { targetUserId, followerId } = event.params;
-    if (targetUserId === followerId) return;
-
-    const targetUserRef = db.collection('users').doc(targetUserId);
-    const followerRef = db.collection('users').doc(followerId);
-
-    try {
-      await db.runTransaction(async (transaction) => {
-        const [targetDoc, followerDoc] = await Promise.all([
-          transaction.get(targetUserRef),
-          transaction.get(followerRef),
-        ]);
-
-        if (targetDoc.exists) {
-          const prev = Number(targetDoc.data()?.followersCount) || 0;
-          transaction.update(targetUserRef, {
-            followersCount: prev + 1,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-
-        if (followerDoc.exists) {
-          const prev = Number(followerDoc.data()?.followingCount) || 0;
-          transaction.update(followerRef, {
-            followingCount: prev + 1,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-      });
-
-      console.log(`Successfully updated follow counters for ${targetUserId}`);
-      await updateUserProgressionServer(targetUserId);
-    } catch (err) {
-      console.error(`Error updating follow counters on create:`, err);
-      throw err;
-    }
-  }
-);
-
-export const onUserFollowerDeleted = onDocumentDeleted(
-  {
-    document: 'users/{targetUserId}/followers/{followerId}',
-    database: FIRESTORE_DATABASE_ID,
-    region: FUNCTION_REGION,
-  },
-  async (event) => {
-    const { targetUserId, followerId } = event.params;
-    if (targetUserId === followerId) return;
-
-    const targetUserRef = db.collection('users').doc(targetUserId);
-    const followerRef = db.collection('users').doc(followerId);
-
-    try {
-      await db.runTransaction(async (transaction) => {
-        const [targetDoc, followerDoc] = await Promise.all([
-          transaction.get(targetUserRef),
-          transaction.get(followerRef),
-        ]);
-
-        if (targetDoc.exists) {
-          const prev = Number(targetDoc.data()?.followersCount) || 0;
-          transaction.update(targetUserRef, {
-            followersCount: Math.max(0, prev - 1),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-
-        if (followerDoc.exists) {
-          const prev = Number(followerDoc.data()?.followingCount) || 0;
-          transaction.update(followerRef, {
-            followingCount: Math.max(0, prev - 1),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-      });
-
-      console.log(`Successfully decremented follow counters for ${targetUserId}`);
-      await updateUserProgressionServer(targetUserId);
-    } catch (err) {
-      console.error(`Error updating follow counters on delete:`, err);
-      throw err;
-    }
-  }
-);
+export const onUserFollowerCreated = onDocumentCreated(followersTrigger, event =>
+  syncFollowCounters(event.params.targetUserId, event.params.followerId));
+export const onUserFollowerDeleted = onDocumentDeleted(followersTrigger, event =>
+  syncFollowCounters(event.params.targetUserId, event.params.followerId));
 
 // ============================================================================
 // 4. CASCADE DELETION ON PIN REMOVAL
@@ -986,9 +822,56 @@ export const recalculateProgression = onCall(
 // 7. ACCOUNT DELETION
 // ============================================================================
 
+async function forEachAccountDeletionPage(
+  query: FirebaseFirestore.Query,
+  handlePage: (docs: FirebaseFirestore.QueryDocumentSnapshot[]) => Promise<void>,
+) {
+  const ordered = query.orderBy('__name__').limit(200);
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  do {
+    const page = await (cursor ? ordered.startAfter(cursor) : ordered).get();
+    if (page.empty) return;
+    await handlePage(page.docs);
+    cursor = page.docs[page.docs.length - 1];
+    if (page.size < 200) return;
+  } while (cursor);
+}
+
+export async function cleanAccountReports(userId: string) {
+  const reports = db.collection('reports');
+  await forEachAccountDeletionPage(reports.where('reporterId', '==', userId), async docs => {
+    await db.runTransaction(async transaction => {
+      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+      for (const report of currentReports) {
+        if (report.get('reporterId') !== userId ||
+            (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt'))) continue;
+        transaction.update(report.ref, {
+          reporterEmail: FieldValue.delete(),
+          reporterDeletedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  });
+  await forEachAccountDeletionPage(reports.where('targetId', '==', userId), async docs => {
+    await db.runTransaction(async transaction => {
+      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+      for (const current of currentReports) {
+        if (current.get('targetId') !== userId || current.get('targetType') !== 'user' ||
+            current.get('status') !== 'pending') continue;
+        transaction.update(current.ref, {
+          status: 'resolved',
+          resolvedReason: 'target_account_deleted',
+          resolvedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  });
+}
+
 export const deleteUserAccount = onCall(
   {
     region: FUNCTION_REGION,
+    timeoutSeconds: 540,
   },
   async (request) => {
     if (!request.auth) {
@@ -1084,49 +967,12 @@ export const deleteUserAccount = onCall(
         }
       }
 
-      // Scrub private reporterEmail PII on moderation reports submitted by the departing user
-      // and resolve open user-target reports referencing the deleted profile.
-      const submittedReports = await db.collection('reports').where('reporterId', '==', userId).limit(200).get();
-      if (!submittedReports.empty) {
-        const reportBatch = db.batch();
-        submittedReports.docs.forEach((rep) => {
-          reportBatch.update(rep.ref, {
-            reporterEmail: FieldValue.delete(),
-            reporterDeletedAt: FieldValue.serverTimestamp(),
-          });
-        });
-        await reportBatch.commit();
-      }
+      await cleanAccountReports(userId);
 
-      const targetedUserReports = await db
-        .collection('reports')
-        .where('targetId', '==', userId)
-        .limit(200)
-        .get();
-      if (!targetedUserReports.empty) {
-        const targetBatch = db.batch();
-        let updatedTargets = 0;
-        targetedUserReports.docs.forEach((rep) => {
-          if (rep.data()?.targetType === 'user' && rep.data()?.status === 'pending') {
-            targetBatch.update(rep.ref, {
-              status: 'resolved',
-              resolvedReason: 'target_account_deleted',
-              resolvedAt: FieldValue.serverTimestamp(),
-            });
-            updatedTargets++;
-          }
-        });
-        if (updatedTargets > 0) {
-          await targetBatch.commit();
-        }
-      }
-
-      // Recursively remove each pin and its likes/comments; deleting only the
-      // parent document leaves orphaned subcollections in Firestore.
-      const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
-      for (const pinDoc of userPinsSnapshot.docs) {
-        await db.recursiveDelete(pinDoc.ref);
-      }
+      const userPins = db.collection('pins').where('userId', '==', userId);
+      await forEachAccountDeletionPage(userPins, async pins => {
+        for (const pin of pins) await db.recursiveDelete(pin.ref);
+      });
 
       // Avatar cleanup must succeed before reporting account deletion complete.
       // The caller can retry on transient Storage errors.

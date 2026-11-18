@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'firebase.json'
+      - 'package.json'
+      - 'package-lock.json'
       - 'tests/firestoreCounters.rules.test.mjs'
       - '.github/workflows/firestore-rules.yml'
   workflow_dispatch:
@@ -24,8 +28,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
       - name: Install test dependencies
-        run: |
-          npm install --no-save --package-lock=false @firebase/rules-unit-testing
+        run: npm ci
       - name: Test rules against local Firestore emulator
         run: |
-          npx --yes firebase-tools@14 emulators:exec --only firestore --project demo-heyroq-counter-rules 'node --test tests/firestoreCounters.rules.test.mjs'
+          npx --yes firebase-tools@14.27.0 emulators:exec --only firestore --project demo-heyroq-counter-rules 'node --test tests/firestoreCounters.rules.test.mjs'
