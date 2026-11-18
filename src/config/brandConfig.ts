@@ -36,20 +36,29 @@ export const BRAND_IDENTITY = Object.freeze({
     solarisPrimary: '#E87924',
     solarisHighlight: '#FF9B43',
     solarisDeep: '#B95318',
-    darkCanvas: '#0A0A0C',
-    darkSurface: '#111216',
-    darkElevated: '#181A20',
-    lightCanvas: '#F5F6F8',
+    darkCanvas: '#17181B',
+    darkSurface: '#222327',
+    darkElevated: '#2B2C31',
+    lightCanvas: '#FAF9F6',
     lightSurface: '#FFFFFF',
-    lightElevated: '#ECEEF2',
+    lightElevated: '#F3F1ED',
   }),
 });
 
+export const WORDMARK_ASSETS = Object.freeze({
+  light: '/brand/heyroq-wordmark-light.svg',
+  dark: '/brand/heyroq-wordmark-dark.svg',
+  mono: '/brand/heyroq-wordmark-mono.svg',
+  mark: '/brand/heyroq-mark.svg',
+  appIcon: '/brand/heyroq-app-icon.svg',
+  favicon: '/favicon.svg',
+} as const);
+
 export const FONT_FAMILIES = Object.freeze({
-  brand: 'Momo Signature',
-  heading: 'Space Grotesk',
-  body: 'Manrope',
-  mono: 'JetBrains Mono',
+  brand: 'Syne',
+  heading: 'Outfit',
+  body: 'DM Sans',
+  mono: 'ui-monospace',
 } as const);
 
 export const FONT_WEIGHTS = Object.freeze({
@@ -57,6 +66,7 @@ export const FONT_WEIGHTS = Object.freeze({
   medium: 500,
   semibold: 600,
   bold: 700,
+  extrabold: 800,
 } as const);
 
 /**

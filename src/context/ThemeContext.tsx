@@ -6,8 +6,8 @@ export type ResolvedTheme = 'light' | 'dark';
 export const HEYROQ_THEME_STORAGE_KEY = 'heyroq-theme-preference';
 
 export const THEME_COLOR_TOKENS: Record<ResolvedTheme, string> = {
-  light: '#F5F6F8',
-  dark: '#0A0A0C',
+  light: '#FAF9F6',
+  dark: '#17181B',
 };
 
 export function isValidThemePreference(value: unknown): value is ThemePreference {

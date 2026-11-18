@@ -111,7 +111,7 @@ test('Shared CloseButton enforces circular icon-only design, zero nested backdro
   // Embedded variant must NOT apply backdrop-filter (avoids nested blur inside glass surfaces)
   const embeddedLine = closeBtnSrc
     .split('\n')
-    .find((line) => line.includes('border-[var(--glass-border-strong)]') && line.includes('bg-slate-900'));
+    .find((line) => line.includes('border-[var(--glass-border-strong)]') && line.includes('bg-[#202124]'));
   assert.ok(embeddedLine, 'Embedded CloseButton surface classes must exist');
   assert.equal(
     embeddedLine.includes('backdrop-blur') || embeddedLine.includes('liquid-glass-floating'),
@@ -173,15 +173,14 @@ test('Shared CloseButton enforces circular icon-only design, zero nested backdro
   );
 });
 
-test('Momo Signature wordmark is configured cleanly with Solaris Orange #E87924, Regular 400, optical padding, and responsive presets', () => {
+test('Concept B Custom Signature SVG wordmark renders outlined paths with Solaris Orange #E87924 and responsive presets', () => {
   assert.equal(BRAND_IDENTITY.wordmarkText, 'heyroq');
   assert.equal(BRAND_IDENTITY.colors.solarisPrimary, '#E87924');
-  assert.equal(FONT_FAMILIES.brand, 'Momo Signature');
+  assert.equal(FONT_FAMILIES.brand, 'Syne');
 
   const indexCss = readFileSync(path.join(ROOT_DIR, 'src/index.css'), 'utf8');
-  assert.ok(indexCss.includes("--font-brand: 'Momo Signature', 'Momo Signature Fallback', cursive;"));
-  assert.ok(indexCss.includes("font-family: 'Momo Signature Fallback';"));
-  assert.ok(indexCss.includes('font-weight: 400;'));
+  assert.ok(indexCss.includes("--font-brand: 'Syne', 'Outfit Fallback', system-ui, sans-serif;"));
+  assert.ok(indexCss.includes('font-weight: 800;'));
   assert.ok(indexCss.includes('font-style: normal;'));
   assert.ok(indexCss.includes('font-synthesis: none;'));
   assert.ok(indexCss.includes('text-shadow: none;'));
@@ -191,8 +190,13 @@ test('Momo Signature wordmark is configured cleanly with Solaris Orange #E87924,
     'utf8'
   );
   assert.ok(
-    wordmarkSrc.includes("nav: 'text-[27px] sm:text-[30px] lg:text-[34px]'"),
-    'Wordmark nav preset must use calibrated 27px / 30px / 34px Momo Signature scale'
+    wordmarkSrc.includes('viewBox="0 0 545 99"') && wordmarkSrc.includes('viewBox="0 0 128 128"'),
+    'Wordmark must embed Concept B full vector viewBox and compact q mark viewBox'
+  );
+  assert.equal(
+    wordmarkSrc.includes('<text'),
+    false,
+    'Wordmark SVG must use pure outlined paths with zero <text> nodes'
   );
 });
 

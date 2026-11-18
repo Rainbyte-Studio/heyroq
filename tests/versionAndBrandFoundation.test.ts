@@ -219,18 +219,20 @@ test('Legal & Support config uses verified internal routes and confirmed operati
   assert.equal(verified.supportContact.mailtoHref, 'mailto:help@rainbyte.studio');
 });
 
-test('MINI Solaris Orange Metallic brand palette, 3+1 typography system, Wordmark component, and zero legacy coral or period wordmark remain', () => {
+test('MINI Solaris Orange Metallic palette, 3-font Editorial Exploration typography, SVG Wordmark, and zero legacy tokens remain', () => {
   assert.equal(BRAND_IDENTITY.productName, 'Heyroq');
   assert.equal(BRAND_IDENTITY.wordmarkText, 'heyroq');
   assert.equal(BRAND_IDENTITY.colors.solarisPrimary, '#E87924');
   assert.equal(BRAND_IDENTITY.colors.solarisHighlight, '#FF9B43');
   assert.equal(BRAND_IDENTITY.colors.solarisDeep, '#B95318');
+  assert.equal(BRAND_IDENTITY.colors.lightCanvas, '#FAF9F6');
+  assert.equal(BRAND_IDENTITY.colors.darkCanvas, '#17181B');
 
   assert.deepEqual(FONT_FAMILIES, {
-    brand: 'Momo Signature',
-    heading: 'Space Grotesk',
-    body: 'Manrope',
-    mono: 'JetBrains Mono',
+    brand: 'Syne',
+    heading: 'Outfit',
+    body: 'DM Sans',
+    mono: 'ui-monospace',
   });
 
   assert.deepEqual(FONT_WEIGHTS, {
@@ -238,43 +240,48 @@ test('MINI Solaris Orange Metallic brand palette, 3+1 typography system, Wordmar
     medium: 500,
     semibold: 600,
     bold: 700,
+    extrabold: 800,
   });
 
   const indexHtml = readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
   assert.ok(
-    indexHtml.includes('family=Momo+Signature'),
-    'index.html must load Momo Signature 400 for the heyroq wordmark'
-  );
-  assert.equal(
-    indexHtml.includes('Pacifico'),
-    false,
-    'index.html must not load retired Pacifico font'
+    indexHtml.includes('href="/favicon.svg"'),
+    'index.html must reference /favicon.svg'
   );
   assert.ok(
-    indexHtml.includes('family=Space+Grotesk:wght@500;600;700'),
-    'index.html must load Space Grotesk weights 500, 600, 700'
+    indexHtml.includes('family=Syne:wght@800'),
+    'index.html must load Syne 800 for the Concept B brand foundation'
   );
   assert.ok(
-    indexHtml.includes('family=Manrope:wght@400;500;600;700'),
-    'index.html must load Manrope weights 400, 500, 600, 700'
+    indexHtml.includes('family=Outfit:wght@600;700'),
+    'index.html must load Outfit weights 600 and 700'
   );
   assert.ok(
-    indexHtml.includes('family=JetBrains+Mono:wght@400;500'),
-    'index.html must load JetBrains Mono weights 400, 500'
+    indexHtml.includes('family=DM+Sans:wght@400;500;600'),
+    'index.html must load DM Sans weights 400, 500, 600'
   );
-  assert.equal(
-    indexHtml.includes('Plus+Jakarta+Sans'),
-    false,
-    'index.html must not load retired Plus Jakarta Sans'
-  );
+  for (const retiredFont of [
+    'Pacifico',
+    'Momo+Signature',
+    'Plus+Jakarta+Sans',
+    'Space+Grotesk',
+    'Manrope',
+    'JetBrains+Mono',
+  ]) {
+    assert.equal(
+      indexHtml.includes(retiredFont),
+      false,
+      `index.html must not load retired font ${retiredFont}`
+    );
+  }
   assert.ok(indexHtml.includes('display=swap'), 'Google Fonts must use display=swap');
 
   const cssSource = readFileSync(path.join(ROOT_DIR, 'src/index.css'), 'utf8');
   assert.ok(cssSource.includes('--brand-primary: #E87924'));
   assert.ok(cssSource.includes('--brand-highlight: #FF9B43'));
   assert.ok(cssSource.includes('--brand-deep: #B95318'));
-  assert.ok(cssSource.includes("font-family: 'Manrope Fallback'"));
-  assert.ok(cssSource.includes("font-family: 'Space Grotesk Fallback'"));
+  assert.ok(cssSource.includes("font-family: 'DM Sans Fallback'"));
+  assert.ok(cssSource.includes("font-family: 'Outfit Fallback'"));
   assert.ok(cssSource.includes('ascent-override:'));
   assert.ok(cssSource.includes('[data-theme="light"]'));
 
@@ -284,6 +291,8 @@ test('MINI Solaris Orange Metallic brand palette, 3+1 typography system, Wordmar
   );
   assert.ok(wordmarkSource.includes('BRAND_IDENTITY.wordmarkText'));
   assert.ok(wordmarkSource.includes('heyroq-wordmark'));
+  assert.ok(wordmarkSource.includes('<svg'));
+  assert.ok(wordmarkSource.includes('<path'));
 
   for (const tokenClass of Object.values(TYPOGRAPHY_TOKENS)) {
     assert.ok(
@@ -292,7 +301,7 @@ test('MINI Solaris Orange Metallic brand palette, 3+1 typography system, Wordmar
     );
   }
 
-  // Ensure zero legacy coral #FF5F40 or deprecated 'heyroq.' wordmark remain anywhere in src/
+  // Ensure zero legacy coral #FF5F40, deprecated 'heyroq.', or retired fonts remain anywhere in src/
   const allSrcFiles = collectFilesRecursively(path.join(ROOT_DIR, 'src'), ['.ts', '.tsx', '.css']);
   for (const file of allSrcFiles) {
     const content = readFileSync(file, 'utf8');
@@ -306,11 +315,13 @@ test('MINI Solaris Orange Metallic brand palette, 3+1 typography system, Wordmar
       false,
       `Deprecated trailing-period wordmark 'heyroq.' found in ${path.relative(ROOT_DIR, file)}`
     );
-    assert.equal(
-      content.includes('Pacifico'),
-      false,
-      `Retired Pacifico font reference found in ${path.relative(ROOT_DIR, file)}`
-    );
+    for (const retired of ['Pacifico', 'Momo Signature', 'Space Grotesk', 'Manrope', 'JetBrains Mono']) {
+      assert.equal(
+        content.includes(retired),
+        false,
+        `Retired font ${retired} reference found in ${path.relative(ROOT_DIR, file)}`
+      );
+    }
   }
 });
 

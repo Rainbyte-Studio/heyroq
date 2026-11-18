@@ -202,7 +202,7 @@ export const AboutHeyroqModal: React.FC<AboutHeyroqModalProps> = ({
           <div className="flex items-baseline gap-3 flex-wrap">
             <Wordmark id="about-heyroq-wordmark" size="modal" />
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--heyroq-text-muted)]">
-              <span className="font-mono tabular-nums">{versionConfig.displayVersion}</span>
+              <span className="font-sans tabular-nums">{versionConfig.displayVersion}</span>
               <span aria-hidden="true">·</span>
               <span className="font-semibold text-[var(--heyroq-accent-text)]">
                 {versionConfig.releaseChannel}

@@ -29,11 +29,11 @@ export const GeographicClusterBadge: React.FC<GeographicClusterBadgeProps> = ({
 
   const containerClass = isSelected
     ? isDark
-      ? 'bg-white text-slate-950 scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
-      : 'bg-slate-900 text-white scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
+      ? 'bg-[#F5F4F1] text-[#17181B] scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
+      : 'bg-[#202124] text-[#FAF9F6] scale-105 shadow-lg ring-2 ring-[var(--brand-primary)]'
     : isDark
-      ? 'bg-[#14161D]/92 hover:bg-[#1C1F29] text-white border border-white/20 hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]'
-      : 'bg-white/94 hover:bg-white text-slate-900 border border-slate-900/14 hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]';
+      ? 'bg-[#222327]/95 hover:bg-[#2B2C31] text-[#F5F4F1] border border-[#38393E] hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]'
+      : 'bg-[#FFFFFF]/95 hover:bg-[#FFFFFF] text-[#202124] border border-[#E6E3DE] hover:border-[var(--brand-primary)]/75 shadow-md backdrop-blur-md hover:scale-[1.03]';
 
   return (
     <button

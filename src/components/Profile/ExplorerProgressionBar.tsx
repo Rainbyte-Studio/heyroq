@@ -22,12 +22,12 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
 }) => {
   if (isLoading && !summary) {
     return (
-      <div className={`liquid-glass-card p-4 rounded-2xl animate-pulse ${className}`}>
+      <div className={`liquid-glass-card p-4 rounded-2xl ${className}`}>
         <div className="flex items-center justify-between mb-3">
-          <div className="h-5 w-32 bg-slate-900/10 dark:bg-white/10 rounded-full" />
-          <div className="h-5 w-20 bg-slate-900/10 dark:bg-white/10 rounded-full" />
+          <div className="h-5 w-32 bg-[#F3F1ED] dark:bg-[#2B2C31] rounded-full" />
+          <div className="h-5 w-20 bg-[#F3F1ED] dark:bg-[#2B2C31] rounded-full" />
         </div>
-        <div className="h-2 w-full bg-slate-900/10 dark:bg-white/10 rounded-full" />
+        <div className="h-2 w-full bg-[#F3F1ED] dark:bg-[#2B2C31] rounded-full" />
       </div>
     );
   }
@@ -116,7 +116,7 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
 
       {/* Progress Bar */}
       <div className="relative z-10 mb-3">
-        <div className="h-2 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden p-0.5 border border-slate-900/8 dark:border-white/10">
+        <div className="h-2 w-full bg-[#F3F1ED] dark:bg-[#2B2C31] rounded-full overflow-hidden p-0.5 border border-[var(--heyroq-border-subtle)]">
           <div
             className="h-full rounded-full transition-all duration-300 ease-out"
             style={{
@@ -126,7 +126,7 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
           />
         </div>
 
-        <div className="flex justify-between items-center text-[10px] font-medium tabular-nums text-slate-500 dark:text-white/45 mt-1.5">
+        <div className="flex justify-between items-center text-[10px] font-medium tabular-nums text-[var(--heyroq-text-muted)] mt-1.5">
           <span>{xp.toLocaleString()} XP</span>
           <span>{progressPercent}%</span>
           <span>{isMaxLevel ? 'MAX' : `${nextLevelXp.toLocaleString()} XP`}</span>
@@ -134,7 +134,7 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
       </div>
 
       {/* Quick Footprint Stats Row (clean hairline grid without nested bordered boxes) */}
-      <div className="grid grid-cols-4 divide-x divide-slate-900/8 dark:divide-white/10 pt-2.5 border-t border-slate-900/8 dark:border-white/10 text-center">
+      <div className="grid grid-cols-4 divide-x divide-[var(--heyroq-divider)] pt-2.5 border-t border-[var(--heyroq-divider)] text-center">
         <div className="px-1">
           <span className="font-heading tabular-nums text-xs font-bold text-slate-900 dark:text-white block">
             {summary?.totalSpotsCount ?? 0}

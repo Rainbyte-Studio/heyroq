@@ -1,40 +1,31 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Metric-matched local fallbacks to prevent Cumulative Layout Shift (CLS) while Manrope and Space Grotesk load */
+/* Metric-matched local fallbacks (including crisp Greek glyph coverage) to eliminate CLS while DM Sans and Outfit load */
 @font-face {
-  font-family: 'Manrope Fallback';
-  src: local('Segoe UI'), local('Roboto'), local('Helvetica Neue'), local('Arial');
-  size-adjust: 102.5%;
+  font-family: 'DM Sans Fallback';
+  src: local('SF Pro Text'), local('Segoe UI'), local('Roboto'), local('Noto Sans'), local('Helvetica Neue'), local('Arial');
+  size-adjust: 101%;
+  ascent-override: 97%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Outfit Fallback';
+  src: local('SF Pro Display'), local('Segoe UI'), local('Roboto'), local('Noto Sans'), local('Helvetica Neue'), local('Arial');
+  size-adjust: 100.5%;
   ascent-override: 96%;
   descent-override: 24%;
   line-gap-override: 0%;
 }
 
-@font-face {
-  font-family: 'Space Grotesk Fallback';
-  src: local('Segoe UI'), local('Roboto'), local('Helvetica Neue'), local('Arial');
-  size-adjust: 103%;
-  ascent-override: 95%;
-  descent-override: 23%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'Momo Signature Fallback';
-  src: local('Segoe Script'), local('Bradley Hand'), local('Snell Roundhand'), local('Apple Chancery'), local('cursive');
-  size-adjust: 100%;
-  ascent-override: 98%;
-  descent-override: 28%;
-  line-gap-override: 0%;
-}
-
 @theme {
-  --font-brand: 'Momo Signature', 'Momo Signature Fallback', cursive;
-  --font-heading: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-body: 'Manrope', 'Manrope Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-brand: 'Syne', 'Outfit Fallback', system-ui, sans-serif;
+  --font-heading: 'Outfit', 'Outfit Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  --font-body: 'DM Sans', 'DM Sans Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   --font-sans: var(--font-body);
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
   --color-solaris-primary: #E87924;
   --color-solaris-highlight: #FF9B43;
@@ -42,7 +33,8 @@
 }
 
 /* ==========================================================================
-   HEYROQ READABLE LIQUID GLASS DESIGN SYSTEM, SOLARIS ORANGE & ADAPTIVE TOKENS
+   HEYROQ EDITORIAL EXPLORATION DESIGN SYSTEM
+   Warm Minimalist Canvas + Restrained Liquid Glass + MINI Solaris Orange
    Light Mode (:root, [data-theme="light"], .light) + Dark Mode (.dark, [data-theme="dark"])
    ========================================================================== */
 
@@ -51,10 +43,10 @@
 .light,
 .theme-light {
   /* Typography family & weight tokens */
-  --font-brand: 'Momo Signature', 'Momo Signature Fallback', cursive;
-  --font-heading: 'Space Grotesk', 'Space Grotesk Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-body: 'Manrope', 'Manrope Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-brand: 'Syne', 'Outfit Fallback', system-ui, sans-serif;
+  --font-heading: 'Outfit', 'Outfit Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  --font-body: 'DM Sans', 'DM Sans Fallback', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
   --heyroq-font-brand: var(--font-brand);
   --heyroq-font-heading: var(--font-heading);
@@ -65,8 +57,9 @@
   --heyroq-weight-medium: 500;
   --heyroq-weight-semibold: 600;
   --heyroq-weight-bold: 700;
+  --heyroq-weight-extrabold: 800;
 
-  /* MINI Solaris Orange Metallic-inspired Brand Palette (Single Source of Truth) */
+  /* Solaris Orange Brand Palette (Single Source of Truth) */
   --brand-primary: #E87924;
   --brand-highlight: #FF9B43;
   --brand-deep: #B95318;
@@ -80,64 +73,65 @@
   --heyroq-brand-deep: var(--brand-deep);
   --heyroq-brand-primary-hover: #D46B1B;
   --heyroq-brand-primary-soft: var(--brand-highlight);
-  --heyroq-accent-text: #B34E15; /* >= 4.65:1 contrast on light canvas (#F5F6F8) and 5.04:1 on white */
+  --heyroq-accent-text: #B04C14; /* >= 4.79:1 contrast on light elevated #F3F1ED and 5.39:1 on #FFFFFF */
 
-  --heyroq-status-success: #059669;
-  --heyroq-status-warning: #D97706;
-  --heyroq-status-error: #DC2626;
-  --heyroq-status-info: #2563EB;
+  --heyroq-status-success: #047857;
+  --heyroq-status-warning: #B45309;
+  --heyroq-status-error: #C81E1E;
+  --heyroq-status-info: #1D4ED8;
 
-  /* Light Canvas & Surface Hierarchy */
-  --heyroq-bg-canvas: #F5F6F8;
+  /* Warm Editorial Light Canvas & Surface Hierarchy */
+  --heyroq-bg-canvas: #FAF9F6;
   --heyroq-bg-surface: #FFFFFF;
-  --heyroq-bg-elevated: #ECEEF2;
-  --heyroq-bg-subtle: rgba(15, 23, 42, 0.04);
-  --heyroq-bg-muted: rgba(15, 23, 42, 0.07);
+  --heyroq-bg-elevated: #F3F1ED;
+  --heyroq-bg-secondary: #F3F1ED;
+  --heyroq-bg-subtle: rgba(32, 33, 36, 0.04);
+  --heyroq-bg-muted: rgba(32, 33, 36, 0.07);
 
-  /* Light Text Hierarchy (WCAG AA compliant, 100% opaque foregrounds) */
-  --heyroq-text-primary: #0F172A;
-  --heyroq-text-secondary: #334155;
-  --heyroq-text-muted: #525866;
-  --heyroq-text-subtle: #64748B;
+  /* Light Text Hierarchy (WCAG AA compliant) */
+  --heyroq-text-primary: #202124;
+  --heyroq-text-secondary: #4D4E52;
+  --heyroq-text-muted: #5C5D61;
+  --heyroq-text-subtle: #66676B;
 
   /* Borders & Dividers */
-  --heyroq-border-subtle: rgba(15, 23, 42, 0.09);
-  --heyroq-border-strong: rgba(15, 23, 42, 0.16);
-  --heyroq-divider: rgba(15, 23, 42, 0.07);
+  --heyroq-border-subtle: #E6E3DE;
+  --heyroq-border-strong: rgba(32, 33, 36, 0.16);
+  --heyroq-divider: #ECE9E4;
 
-  /* Centralized Readable Liquid Glass Semantic Tokens (Light Mode) */
+  /* Restrained Subtle Liquid Glass Tokens (Light Mode) */
   --glass-nav-bg: rgba(255, 255, 255, 0.86);
-  --glass-sidebar-bg: rgba(255, 255, 255, 0.90);
+  --glass-sidebar-bg: rgba(255, 255, 255, 0.92);
   --glass-floating-bg: rgba(255, 255, 255, 0.95);
-  --glass-nav-blur: 26px;
-  --glass-sidebar-blur: 26px;
-  --glass-floating-blur: 20px;
+  --glass-nav-blur: 24px;
+  --glass-sidebar-blur: 18px;
+  --glass-floating-blur: 14px;
   --glass-saturation: 140%;
-  --glass-border: rgba(15, 23, 42, 0.09);
-  --glass-border-strong: rgba(15, 23, 42, 0.14);
-  --glass-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.11), 0 2px 6px -1px rgba(15, 23, 42, 0.05);
+  --glass-border: #E6E3DE;
+  --glass-border-strong: rgba(32, 33, 36, 0.14);
+  --glass-shadow: 0 8px 24px -6px rgba(32, 33, 36, 0.09), 0 2px 6px -1px rgba(32, 33, 36, 0.04);
 
-  /* Mapped Heyroq Glass Tokens (preserving full design-system compatibility) */
+  /* Mapped Heyroq Surface & Overlay Tokens */
   --heyroq-glass-nav-bg: var(--glass-nav-bg);
   --heyroq-glass-subbar-bg: transparent;
   --heyroq-glass-panel-bg: var(--glass-sidebar-bg);
   --heyroq-glass-floating-bg: var(--glass-floating-bg);
   --heyroq-glass-popover-bg: var(--glass-floating-bg);
-  --heyroq-glass-modal-bg: rgba(255, 255, 255, 0.97);
-  --heyroq-glass-card-bg: rgba(255, 255, 255, 0.92);
-  --heyroq-glass-input-bg: rgba(15, 23, 42, 0.045);
-  --heyroq-glass-pill-bg: rgba(15, 23, 42, 0.045);
-  --heyroq-glass-segmented-bg: rgba(15, 23, 42, 0.055);
+  --heyroq-glass-modal-bg: rgba(255, 255, 255, 0.94);
+  --heyroq-glass-card-bg: #FFFFFF;
+  --heyroq-glass-input-bg: #F3F1ED;
+  --heyroq-glass-pill-bg: #F3F1ED;
+  --heyroq-glass-segmented-bg: #F3F1ED;
   --heyroq-glass-border: var(--glass-border);
   --heyroq-glass-border-strong: var(--glass-border-strong);
   --heyroq-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --heyroq-backdrop-scrim: rgba(15, 23, 42, 0.42);
+  --heyroq-backdrop-scrim: rgba(32, 33, 36, 0.40);
 
   /* Elevation & Shadows */
-  --heyroq-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --heyroq-shadow-sm: 0 1px 2px rgba(32, 33, 36, 0.045);
   --heyroq-shadow-floating: var(--glass-shadow);
-  --heyroq-shadow-popover: 0 16px 38px -8px rgba(15, 23, 42, 0.16), 0 4px 12px -2px rgba(15, 23, 42, 0.07);
-  --heyroq-shadow-modal: 0 24px 56px -12px rgba(15, 23, 42, 0.22), 0 8px 20px -4px rgba(15, 23, 42, 0.08);
+  --heyroq-shadow-popover: 0 16px 38px -8px rgba(32, 33, 36, 0.14), 0 4px 12px -2px rgba(32, 33, 36, 0.06);
+  --heyroq-shadow-modal: 0 24px 56px -12px rgba(32, 33, 36, 0.20), 0 8px 20px -4px rgba(32, 33, 36, 0.08);
 
   /* Blur, Radius, Spacing & Motion Tokens */
   --heyroq-blur-sm: 12px;
@@ -149,14 +143,14 @@
   --heyroq-radius-xl: 1.5rem;
   --heyroq-radius-2xl: 1.75rem;
   --heyroq-duration-fast: 150ms;
-  --heyroq-duration-normal: 200ms;
+  --heyroq-duration-normal: 220ms;
   --heyroq-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --heyroq-focus-ring: rgba(232, 121, 36, 0.65);
 
   /* Scrollbar & Grid Dots */
-  --heyroq-scrollbar-thumb: rgba(15, 23, 42, 0.18);
-  --heyroq-scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
-  --heyroq-grid-dot: rgba(15, 23, 42, 0.12);
+  --heyroq-scrollbar-thumb: rgba(32, 33, 36, 0.16);
+  --heyroq-scrollbar-thumb-hover: rgba(32, 33, 36, 0.28);
+  --heyroq-grid-dot: rgba(32, 33, 36, 0.11);
 }
 
 .dark,
@@ -164,8 +158,8 @@
   --brand-primary: #E87924;
   --brand-highlight: #FF9B43;
   --brand-deep: #B95318;
-  --brand-cta-bg: #B95318; /* Solaris Deep: 4.79:1 WCAG AA contrast behind #FFFFFF text, zero neon glare */
-  --brand-cta-hover: #A64813; /* 5.35:1 contrast behind #FFFFFF text */
+  --brand-cta-bg: #B95318;
+  --brand-cta-hover: #A64813;
   --brand-cta-active: #8E3D10;
   --brand-on-primary: #FFFFFF;
 
@@ -174,69 +168,70 @@
   --heyroq-brand-deep: var(--brand-deep);
   --heyroq-brand-primary-hover: var(--brand-highlight);
   --heyroq-brand-primary-soft: var(--brand-highlight);
-  --heyroq-accent-text: #FF9B43; /* Solaris Highlight: >= 8.65:1 contrast on dark surfaces */
+  --heyroq-accent-text: #FF9B43;
 
   --heyroq-status-success: #34D399;
   --heyroq-status-warning: #FBBF24;
   --heyroq-status-error: #F87171;
   --heyroq-status-info: #60A5FA;
 
-  /* Dark Canvas & Surface Hierarchy */
-  --heyroq-bg-canvas: #0E0F12;
-  --heyroq-bg-surface: #18191C;
-  --heyroq-bg-elevated: #202227;
-  --heyroq-bg-subtle: rgba(255, 255, 255, 0.05);
-  --heyroq-bg-muted: rgba(255, 255, 255, 0.085);
+  /* Warm Charcoal Dark Canvas & Surface Hierarchy */
+  --heyroq-bg-canvas: #17181B;
+  --heyroq-bg-surface: #222327;
+  --heyroq-bg-elevated: #2B2C31;
+  --heyroq-bg-secondary: #2B2C31;
+  --heyroq-bg-subtle: rgba(245, 244, 241, 0.05);
+  --heyroq-bg-muted: rgba(245, 244, 241, 0.085);
 
-  /* Dark Text Hierarchy (WCAG AA compliant, crisp solid hex values for opaque legibility) */
-  --heyroq-text-primary: #F5F6F8;
-  --heyroq-text-secondary: #D1D5DB;
-  --heyroq-text-muted: #9CA3AF;
-  --heyroq-text-subtle: #6B7280;
+  /* Dark Text Hierarchy */
+  --heyroq-text-primary: #F5F4F1;
+  --heyroq-text-secondary: #B0B0B5;
+  --heyroq-text-muted: #9A9AA0;
+  --heyroq-text-subtle: #828389;
 
   /* Borders & Dividers */
-  --heyroq-border-subtle: rgba(255, 255, 255, 0.10);
-  --heyroq-border-strong: rgba(255, 255, 255, 0.17);
-  --heyroq-divider: rgba(255, 255, 255, 0.08);
+  --heyroq-border-subtle: #38393E;
+  --heyroq-border-strong: rgba(245, 244, 241, 0.16);
+  --heyroq-divider: rgba(245, 244, 241, 0.08);
 
-  /* Centralized Readable Liquid Glass Semantic Tokens (Dark Mode) */
+  /* Restrained Subtle Liquid Glass Tokens (Dark Mode) */
   --glass-nav-bg: rgba(24, 25, 28, 0.86);
-  --glass-sidebar-bg: rgba(24, 25, 28, 0.90);
+  --glass-sidebar-bg: rgba(24, 25, 28, 0.92);
   --glass-floating-bg: rgba(24, 25, 28, 0.95);
-  --glass-nav-blur: 26px;
-  --glass-sidebar-blur: 26px;
-  --glass-floating-blur: 20px;
+  --glass-nav-blur: 24px;
+  --glass-sidebar-blur: 18px;
+  --glass-floating-blur: 14px;
   --glass-saturation: 140%;
-  --glass-border: rgba(255, 255, 255, 0.10);
-  --glass-border-strong: rgba(255, 255, 255, 0.16);
-  --glass-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.52), 0 2px 8px -1px rgba(0, 0, 0, 0.32);
+  --glass-border: #38393E;
+  --glass-border-strong: rgba(245, 244, 241, 0.16);
+  --glass-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.48), 0 2px 8px -1px rgba(0, 0, 0, 0.30);
 
-  /* Mapped Heyroq Glass Tokens */
+  /* Mapped Heyroq Surface & Overlay Tokens */
   --heyroq-glass-nav-bg: var(--glass-nav-bg);
   --heyroq-glass-subbar-bg: transparent;
   --heyroq-glass-panel-bg: var(--glass-sidebar-bg);
   --heyroq-glass-floating-bg: var(--glass-floating-bg);
   --heyroq-glass-popover-bg: var(--glass-floating-bg);
-  --heyroq-glass-modal-bg: rgba(24, 25, 28, 0.97);
-  --heyroq-glass-card-bg: rgba(255, 255, 255, 0.045);
-  --heyroq-glass-input-bg: rgba(255, 255, 255, 0.065);
-  --heyroq-glass-pill-bg: rgba(255, 255, 255, 0.07);
-  --heyroq-glass-segmented-bg: rgba(255, 255, 255, 0.06);
+  --heyroq-glass-modal-bg: rgba(24, 25, 28, 0.94);
+  --heyroq-glass-card-bg: #222327;
+  --heyroq-glass-input-bg: #2B2C31;
+  --heyroq-glass-pill-bg: #2B2C31;
+  --heyroq-glass-segmented-bg: #2B2C31;
   --heyroq-glass-border: var(--glass-border);
   --heyroq-glass-border-strong: var(--glass-border-strong);
-  --heyroq-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --heyroq-backdrop-scrim: rgba(0, 0, 0, 0.66);
+  --heyroq-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --heyroq-backdrop-scrim: rgba(12, 13, 16, 0.66);
 
   /* Elevation & Shadows */
   --heyroq-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32);
   --heyroq-shadow-floating: var(--glass-shadow);
-  --heyroq-shadow-popover: 0 20px 46px -8px rgba(0, 0, 0, 0.65), 0 4px 14px -2px rgba(0, 0, 0, 0.42);
-  --heyroq-shadow-modal: 0 28px 68px -12px rgba(0, 0, 0, 0.76), 0 8px 24px -4px rgba(0, 0, 0, 0.48);
+  --heyroq-shadow-popover: 0 20px 46px -8px rgba(0, 0, 0, 0.62), 0 4px 14px -2px rgba(0, 0, 0, 0.40);
+  --heyroq-shadow-modal: 0 28px 68px -12px rgba(0, 0, 0, 0.74), 0 8px 24px -4px rgba(0, 0, 0, 0.46);
 
   /* Scrollbar & Grid Dots */
-  --heyroq-scrollbar-thumb: rgba(255, 255, 255, 0.18);
-  --heyroq-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
-  --heyroq-grid-dot: rgba(255, 255, 255, 0.14);
+  --heyroq-scrollbar-thumb: rgba(245, 244, 241, 0.16);
+  --heyroq-scrollbar-thumb-hover: rgba(245, 244, 241, 0.28);
+  --heyroq-grid-dot: rgba(245, 244, 241, 0.12);
 }
 
 @layer base {
@@ -275,11 +270,9 @@
 }
 
 /* ==========================================================================
-   READABLE LIQUID GLASS SURFACE PRIMITIVES
-   - Top Navigation: 86% alpha, 26px blur, 140% saturation
-   - Sidebars / Nearby Spots: 90% alpha, 26px blur, 140% saturation
-   - Menus, Popovers & Floating Map Controls: 95% alpha, 20px blur, 140% saturation
-   - Zero nested backdrop blurs & zero full-screen backdrop filters
+   RESTRAINED LIQUID GLASS SURFACE PRIMITIVES
+   - Reserved exclusively for navigation, floating controls, overlays & panels
+   - Interior cards, inputs, pills & segmented controls remain solid editorial surfaces
    ========================================================================== */
 
 .liquid-glass-nav {
@@ -290,7 +283,6 @@
   box-shadow: var(--heyroq-glass-highlight);
 }
 
-/* Subbar inside .liquid-glass-nav avoids nested backdrop-filter stacking */
 .liquid-glass-subbar {
   background-color: var(--heyroq-glass-subbar-bg);
   border-bottom: 1px solid var(--glass-border);
@@ -336,32 +328,32 @@
   box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
 }
 
-/* Inner cards & pills do NOT stack nested backdrop-filter over parent glass surfaces */
+/* Interior editorial surfaces — ZERO nested backdrop-filter */
 .liquid-glass-card {
   background-color: var(--heyroq-glass-card-bg);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--heyroq-shadow-sm), var(--heyroq-glass-highlight);
+  border: 1px solid var(--heyroq-border-subtle);
+  box-shadow: var(--heyroq-shadow-sm);
 }
 
 .liquid-glass-pill {
   background-color: var(--heyroq-glass-pill-bg);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--heyroq-border-subtle);
   box-shadow: var(--heyroq-shadow-sm);
 }
 
 .liquid-glass-input {
   background-color: var(--heyroq-glass-input-bg);
-  border: 1px solid var(--glass-border-strong);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+  border: 1px solid var(--heyroq-border-subtle);
+  box-shadow: inset 0 1px 2px rgba(32, 33, 36, 0.03);
 }
 
 .liquid-glass-segmented {
   background-color: var(--heyroq-glass-segmented-bg);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--heyroq-border-subtle);
+  box-shadow: inset 0 1px 2px rgba(32, 33, 36, 0.04);
 }
 
-/* Full-screen modal backdrop uses clean alpha scrim without expensive full-viewport blur */
+/* Modal backdrop scrim without full-viewport blur */
 .liquid-glass-backdrop {
   background-color: var(--heyroq-backdrop-scrim);
 }
@@ -372,7 +364,7 @@
   background-color: var(--brand-cta-bg);
   color: var(--brand-on-primary);
   border: 1px solid rgba(255, 155, 67, 0.24);
-  box-shadow: 0 3px 10px -2px rgba(185, 83, 24, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  box-shadow: 0 3px 10px -2px rgba(185, 83, 24, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   transition: background-color var(--heyroq-duration-fast) var(--heyroq-ease-out),
     transform var(--heyroq-duration-fast) var(--heyroq-ease-out),
     box-shadow var(--heyroq-duration-fast) var(--heyroq-ease-out);
@@ -380,12 +372,50 @@
 
 .heyroq-btn-primary:hover:not(:disabled) {
   background-color: var(--brand-cta-hover);
-  box-shadow: 0 5px 14px -3px rgba(185, 83, 24, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  box-shadow: 0 5px 14px -3px rgba(185, 83, 24, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 
 .heyroq-btn-primary:active:not(:disabled) {
   background-color: var(--brand-cta-active);
-  transform: scale(0.98);
+  transform: scale(0.985);
+}
+
+.heyroq-btn-secondary {
+  font-family: var(--font-body);
+  font-weight: 600;
+  background-color: var(--heyroq-bg-elevated);
+  color: var(--heyroq-text-primary);
+  border: 1px solid var(--heyroq-border-subtle);
+  transition: background-color var(--heyroq-duration-fast) var(--heyroq-ease-out),
+    border-color var(--heyroq-duration-fast) var(--heyroq-ease-out),
+    transform var(--heyroq-duration-fast) var(--heyroq-ease-out);
+}
+
+.heyroq-btn-secondary:hover:not(:disabled) {
+  background-color: var(--heyroq-bg-muted);
+  border-color: var(--heyroq-border-strong);
+}
+
+.heyroq-btn-secondary:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.heyroq-btn-destructive {
+  font-family: var(--font-body);
+  font-weight: 600;
+  background-color: var(--heyroq-status-error);
+  color: #FFFFFF;
+  border: 1px solid transparent;
+  transition: opacity var(--heyroq-duration-fast) var(--heyroq-ease-out),
+    transform var(--heyroq-duration-fast) var(--heyroq-ease-out);
+}
+
+.heyroq-btn-destructive:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.heyroq-btn-destructive:active:not(:disabled) {
+  transform: scale(0.985);
 }
 
 .heyroq-focus-ring:focus-visible,
@@ -399,36 +429,32 @@ summary:focus-visible {
 }
 
 /* ==========================================================================
-   Reusable Semantic Typography Tokens
-   - Brand Logo: Momo Signature (400)
-   - Headings / Display: Space Grotesk (500, 600, 700)
-   - Body / UI: Manrope (400, 500, 600, 700)
-   - Technical Metadata: JetBrains Mono (400, 500)
+   Semantic Typography Scale
+   - Brand Logo: Concept B Custom Signature Vector (Syne 800 base)
+   - Headings / Display: Outfit (600, 700)
+   - Body / UI: DM Sans (400, 500, 600)
+   - Technical Diagnostics: System Monospace
    ========================================================================== */
 
-/* Brand Wordmark ("heyroq") — strictly Momo Signature Regular (400), no shadows/bevels/blur/clipping */
 .heyroq-wordmark {
   font-family: var(--font-brand);
-  font-weight: 400;
+  font-weight: 800;
   font-style: normal;
   font-synthesis: none;
-  letter-spacing: 0em;
-  line-height: 1.15;
-  padding-top: 0.04em;
-  padding-bottom: 0.08em;
-  padding-inline: 0.03em;
+  letter-spacing: -0.02em;
+  line-height: 1;
   color: var(--brand-primary);
   text-shadow: none;
   vertical-align: middle;
 }
 
-/* Headings (Space Grotesk) */
+/* Headings (Outfit) */
 .type-display {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: clamp(1.75rem, 3vw, 2.5rem);
   line-height: 1.16;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 
@@ -437,7 +463,7 @@ summary:focus-visible {
   font-weight: 700;
   font-size: clamp(1.375rem, 2.2vw, 1.75rem);
   line-height: 1.22;
-  letter-spacing: -0.018em;
+  letter-spacing: -0.02em;
   text-wrap: balance;
 }
 
@@ -446,7 +472,7 @@ summary:focus-visible {
   font-weight: 600;
   font-size: clamp(1.125rem, 1.6vw, 1.375rem);
   line-height: 1.28;
-  letter-spacing: -0.014em;
+  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 
@@ -458,7 +484,7 @@ summary:focus-visible {
   letter-spacing: -0.01em;
 }
 
-/* Body Prose (Manrope) */
+/* Body Prose (DM Sans) */
 .type-body-lg {
   font-family: var(--font-body);
   font-weight: 400;
@@ -483,7 +509,7 @@ summary:focus-visible {
   letter-spacing: 0.002em;
 }
 
-/* Captions & Labels (Manrope) */
+/* Captions & Labels (DM Sans) */
 .type-caption {
   font-family: var(--font-body);
   font-weight: 400;
@@ -508,7 +534,7 @@ summary:focus-visible {
   letter-spacing: 0.01em;
 }
 
-/* Buttons & Navigation (Manrope) */
+/* Buttons & Navigation (DM Sans) */
 .type-button {
   font-family: var(--font-body);
   font-weight: 600;
@@ -535,7 +561,7 @@ summary:focus-visible {
   letter-spacing: 0.003em;
 }
 
-/* Technical Metadata (JetBrains Mono) */
+/* Technical Metadata (System Monospace, reserved strictly for IDs, SHAs & code paths) */
 .type-mono-meta {
   font-family: var(--font-mono);
   font-weight: 500;
@@ -622,11 +648,11 @@ summary:focus-visible {
 
   .dark,
   [data-theme="dark"] {
-    --glass-nav-bg: #18191C;
-    --glass-sidebar-bg: #18191C;
-    --glass-floating-bg: #1C1E24;
-    --heyroq-glass-modal-bg: #18191C;
-    --heyroq-glass-card-bg: #202227;
+    --glass-nav-bg: #17181B;
+    --glass-sidebar-bg: #17181B;
+    --glass-floating-bg: #222327;
+    --heyroq-glass-modal-bg: #17181B;
+    --heyroq-glass-card-bg: #222327;
   }
 }
 
@@ -639,28 +665,28 @@ summary:focus-visible {
     --glass-sidebar-bg: #FFFFFF;
     --glass-floating-bg: #FFFFFF;
     --heyroq-glass-nav-bg: #FFFFFF;
-    --heyroq-glass-subbar-bg: #F8FAFC;
+    --heyroq-glass-subbar-bg: #FAF9F6;
     --heyroq-glass-panel-bg: #FFFFFF;
     --heyroq-glass-floating-bg: #FFFFFF;
     --heyroq-glass-popover-bg: #FFFFFF;
     --heyroq-glass-modal-bg: #FFFFFF;
     --heyroq-glass-card-bg: #FFFFFF;
-    --heyroq-glass-pill-bg: #F1F5F9;
+    --heyroq-glass-pill-bg: #F3F1ED;
   }
 
   .dark,
   [data-theme="dark"] {
-    --glass-nav-bg: #18191C;
-    --glass-sidebar-bg: #18191C;
-    --glass-floating-bg: #1C1E24;
-    --heyroq-glass-nav-bg: #18191C;
-    --heyroq-glass-subbar-bg: #18191C;
-    --heyroq-glass-panel-bg: #18191C;
-    --heyroq-glass-floating-bg: #1C1E24;
-    --heyroq-glass-popover-bg: #1C1E24;
-    --heyroq-glass-modal-bg: #18191C;
-    --heyroq-glass-card-bg: #202227;
-    --heyroq-glass-pill-bg: #24262D;
+    --glass-nav-bg: #17181B;
+    --glass-sidebar-bg: #17181B;
+    --glass-floating-bg: #222327;
+    --heyroq-glass-nav-bg: #17181B;
+    --heyroq-glass-subbar-bg: #17181B;
+    --heyroq-glass-panel-bg: #17181B;
+    --heyroq-glass-floating-bg: #222327;
+    --heyroq-glass-popover-bg: #222327;
+    --heyroq-glass-modal-bg: #17181B;
+    --heyroq-glass-card-bg: #222327;
+    --heyroq-glass-pill-bg: #2B2C31;
   }
 
   .liquid-glass-nav,
@@ -699,7 +725,9 @@ summary:focus-visible {
   .liquid-glass-card,
   .liquid-glass-pill,
   .liquid-glass-input,
-  .heyroq-btn-primary {
+  .heyroq-btn-primary,
+  .heyroq-btn-secondary,
+  .heyroq-btn-destructive {
     border: 1px solid CanvasText;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;

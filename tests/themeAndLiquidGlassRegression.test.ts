@@ -123,8 +123,8 @@ test('applyResolvedThemeToRoot synchronizes .dark/.light classes, dataset attrib
   assert.equal(mockRoot.dataset.themePreference, 'dark');
   assert.equal(mockRoot.style.colorScheme, 'dark');
 
-  assert.equal(THEME_COLOR_TOKENS.light, '#F5F6F8');
-  assert.equal(THEME_COLOR_TOKENS.dark, '#0A0A0C');
+  assert.equal(THEME_COLOR_TOKENS.light, '#FAF9F6');
+  assert.equal(THEME_COLOR_TOKENS.dark, '#17181B');
 });
 
 test('index.html contains flash-free pre-paint theme initialization and src/index.css defines Liquid Glass & accessibility tokens', () => {
@@ -144,9 +144,9 @@ test('index.html contains flash-free pre-paint theme initialization and src/inde
   assert.ok(indexCss.includes('--glass-nav-bg:'));
   assert.ok(indexCss.includes('--glass-sidebar-bg:'));
   assert.ok(indexCss.includes('--glass-floating-bg:'));
-  assert.ok(indexCss.includes('--glass-nav-blur: 26px'));
-  assert.ok(indexCss.includes('--glass-sidebar-blur: 26px'));
-  assert.ok(indexCss.includes('--glass-floating-blur: 20px'));
+  assert.ok(indexCss.includes('--glass-nav-blur: 24px'));
+  assert.ok(indexCss.includes('--glass-sidebar-blur: 18px'));
+  assert.ok(indexCss.includes('--glass-floating-blur: 14px'));
   assert.ok(indexCss.includes('--glass-saturation: 140%'));
   assert.ok(indexCss.includes('--glass-border:'));
   assert.ok(indexCss.includes('--glass-shadow:'));

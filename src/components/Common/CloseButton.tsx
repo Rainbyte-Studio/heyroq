@@ -54,7 +54,7 @@ export const CloseButton = React.forwardRef<HTMLButtonElement, CloseButtonProps>
     const surfaceClasses =
       surface === 'floating'
         ? 'liquid-glass-floating text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:border-[var(--heyroq-border-strong)] active:scale-95'
-        : 'bg-slate-900/[0.05] hover:bg-slate-900/[0.10] active:bg-slate-900/[0.15] dark:bg-white/[0.08] dark:hover:bg-white/[0.14] dark:active:bg-white/[0.20] border border-[var(--glass-border-strong)] text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] active:scale-95';
+        : 'bg-[#202124]/[0.05] hover:bg-[#202124]/[0.10] active:bg-[#202124]/[0.14] dark:bg-white/[0.08] dark:hover:bg-white/[0.14] dark:active:bg-white/[0.20] border border-[var(--glass-border-strong)] text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] active:scale-95';
 
     const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
       if (stopPropagation) {

@@ -309,7 +309,7 @@ export const InfoPageLayout: React.FC<InfoPageLayoutProps> = ({
                 {OPERATOR_IDENTITY.name}
               </a>
             </p>
-            <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums text-[11px] text-[var(--heyroq-text-muted)]">
+            <div className="flex flex-wrap items-center gap-2 font-sans tabular-nums text-[11px] text-[var(--heyroq-text-muted)]">
               <span>{APP_VERSION.packageName}</span>
               <span aria-hidden="true">·</span>
               <span>{APP_VERSION.displayVersion}</span>

@@ -527,11 +527,12 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left heyroq-focus-ring ${
                     mapStyle === 'standard'
                       ? 'bg-[var(--brand-primary)]/12 border-[var(--brand-primary)]/60 text-[var(--heyroq-text-primary)]'
-                      : 'bg-slate-900/[0.03] dark:bg-white/5 border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.06] dark:hover:bg-white/10'
+                      : 'bg-[#F3F1ED] dark:bg-[#2B2C31] border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[#ECE9E3] dark:hover:bg-[#33343A]'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <MapPin
+                      strokeWidth={1.75}
                       className={`w-4 h-4 ${
                         mapStyle === 'standard'
                           ? 'text-[var(--brand-primary)]'
@@ -570,7 +571,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all cursor-pointer text-left heyroq-focus-ring ${
                     mapStyle === 'satellite'
                       ? 'bg-[var(--brand-primary)]/12 border-[var(--brand-primary)]/60 text-[var(--heyroq-text-primary)]'
-                      : 'bg-slate-900/[0.03] dark:bg-white/5 border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.06] dark:hover:bg-white/10'
+                      : 'bg-[#F3F1ED] dark:bg-[#2B2C31] border-transparent text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[#ECE9E3] dark:hover:bg-[#33343A]'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -714,7 +715,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
           maxZoom={18}
           reuseMaps={true}
           colorScheme={resolvedTheme === 'dark' ? ColorScheme.DARK : ColorScheme.LIGHT}
-          backgroundColor={resolvedTheme === 'dark' ? '#0A0A0C' : '#ECEEF2'}
+          backgroundColor={resolvedTheme === 'dark' ? '#17181B' : '#F3F1ED'}
           mapId="DEMO_MAP_ID"
           mapTypeId={mapStyle === 'satellite' ? 'hybrid' : 'roadmap'}
           internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
@@ -758,9 +759,9 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
               position={{ lat: createLocation.lat, lng: createLocation.lng }}
               title="New Pin Location"
             >
-              <div className="flex flex-col items-center animate-bounce">
-                <div className="bg-[var(--brand-cta-bg)] text-white p-2 rounded-full shadow-xl border-2 border-white">
-                  <MapPin className="w-6 h-6" />
+              <div className="flex flex-col items-center transition-transform duration-200 ease-out">
+                <div className="bg-[var(--brand-cta-bg)] text-white p-2 rounded-full shadow-lg border-2 border-[#FAF9F6]">
+                  <MapPin className="w-6 h-6" strokeWidth={1.75} />
                 </div>
                 <span className="liquid-glass-floating text-[var(--heyroq-text-primary)] text-[11px] font-semibold px-2.5 py-0.5 rounded-full mt-1">
                   Drop Pin Here
@@ -796,7 +797,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
           <p className="text-[var(--heyroq-text-secondary)] mt-0.5 leading-relaxed">
             Discovery pins, social likes, comments, and profile features are 100% active. To render
             high-resolution Google Maps vector tiles, set{' '}
-            <code className="bg-slate-900/8 dark:bg-white/10 text-[var(--heyroq-accent-text)] px-1.5 py-0.5 rounded font-mono">
+            <code className="bg-[#F3F1ED] dark:bg-[#2B2C31] text-[var(--heyroq-accent-text)] px-1.5 py-0.5 rounded font-mono">
               VITE_GOOGLE_MAPS_API_KEY
             </code>
             .
@@ -852,7 +853,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
               <div
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-tight border transition-all ${
                   isSelected
-                    ? 'bg-slate-950 dark:bg-white text-white dark:text-slate-950 border-transparent ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+                    ? 'bg-[#202124] dark:bg-[#F5F4F1] text-[#FAF9F6] dark:text-[#17181B] border-transparent ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
                     : 'liquid-glass-floating text-[var(--heyroq-text-primary)]'
                 }`}
               >
@@ -870,10 +871,10 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
               left: `${latLngToPercent(createLocation.lat, createLocation.lng).x}%`,
               top: `${latLngToPercent(createLocation.lat, createLocation.lng).y}%`,
             }}
-            className="absolute -translate-x-1/2 -translate-y-full z-30 pointer-events-none animate-bounce"
+            className="absolute -translate-x-1/2 -translate-y-full z-30 pointer-events-none transition-transform duration-200 ease-out"
           >
-            <div className="bg-[var(--brand-cta-bg)] text-white p-2.5 rounded-full shadow-xl border-2 border-white">
-              <MapPin className="w-6 h-6" />
+            <div className="bg-[var(--brand-cta-bg)] text-white p-2.5 rounded-full shadow-lg border-2 border-[#FAF9F6]">
+              <MapPin className="w-6 h-6" strokeWidth={1.75} />
             </div>
             <div className="liquid-glass-floating text-[var(--heyroq-text-primary)] text-[11px] font-semibold px-2.5 py-0.5 rounded-full mt-1 text-center whitespace-nowrap">
               Drop Location

@@ -21,6 +21,7 @@ import { LikeButton } from './LikeButton';
 import { DeleteConfirmationModal } from '../Common/DeleteConfirmationModal';
 import { UserAvatar } from '../Common/UserAvatar';
 import { CloseButton } from '../Common/CloseButton';
+import { SpotPhotoFallback } from '../Common/SpotPhotoFallback';
 import {
   Heart,
   MessageCircle,
@@ -124,10 +125,13 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
   // Guards against race conditions
   const activePinIdRef = useRef(pin.id);
 
-  const images =
-    pin.imageUrls && pin.imageUrls.length > 0
-      ? pin.imageUrls
-      : ['https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1200&auto=format&fit=crop&q=80'];
+  const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
+  const images = (pin.imageUrls || []).filter((url) => typeof url === 'string' && url.trim().length > 0);
+
+  useEffect(() => {
+    setFailedImages(new Set());
+    setActiveImageIndex(0);
+  }, [pin.id]);
 
   // Load real-time authoritative like status, follow status and comments
   useEffect(() => {
@@ -666,75 +670,97 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
       ? pin.commentCount
       : 0;
 
-  const renderGallery = (isMobile: boolean) => (
-    <div
-      className={`w-full ${
-        isMobile ? '' : 'h-full'
-      } bg-slate-950 relative flex flex-col justify-center shrink-0 overflow-hidden group`}
-    >
-      <div
-        className={`relative w-full ${
-          isMobile
-            ? 'aspect-[16/10] max-h-[42vh] landscape:max-h-[50vh]'
-            : 'aspect-auto max-h-none h-full'
-        } flex items-center justify-center overflow-hidden bg-slate-950`}
-      >
-        <img
-          src={images[activeImageIndex]}
-          alt={pin.title}
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/25 pointer-events-none" />
+  const renderGallery = (isMobile: boolean) => {
+    const activeUrl = images[activeImageIndex];
+    const showFallback = !activeUrl || failedImages.has(activeImageIndex);
 
+    return (
+      <div
+        className={`w-full ${
+          isMobile ? '' : 'h-full'
+        } bg-[#F3F1ED] dark:bg-[#17181B] relative flex flex-col justify-center shrink-0 overflow-hidden group`}
+      >
+        <div
+          className={`relative w-full ${
+            isMobile
+              ? 'aspect-[16/10] max-h-[42vh] landscape:max-h-[50vh]'
+              : 'aspect-auto max-h-none h-full'
+          } flex items-center justify-center overflow-hidden bg-[#F3F1ED] dark:bg-[#17181B]`}
+        >
+          {showFallback ? (
+            <SpotPhotoFallback
+              category={pin.category}
+              title={pin.title}
+              className="w-full h-full"
+            />
+          ) : (
+            <>
+              <img
+                src={activeUrl}
+                alt={pin.title}
+                referrerPolicy="no-referrer"
+                onError={() =>
+                  setFailedImages((prev) => {
+                    const next = new Set(prev);
+                    next.add(activeImageIndex);
+                    return next;
+                  })
+                }
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
+            </>
+          )}
+
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))
+                }
+                className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
+                aria-label="Previous image"
+              >
+                <ChevronLeft className="w-5 h-5" strokeWidth={1.75} />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))
+                }
+                className="absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
+                aria-label="Next image"
+              >
+                <ChevronRight className="w-5 h-5" strokeWidth={1.75} />
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Thumbnail navigation */}
         {images.length > 1 && (
-          <>
-            <button
-              type="button"
-              onClick={() =>
-                setActiveImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1))
-              }
-              className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
-              aria-label="Previous image"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setActiveImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0))
-              }
-              className="absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2 p-2 min-w-[40px] min-h-[40px] md:min-w-[38px] md:min-h-[38px] flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition border border-white/20 cursor-pointer z-10 touch-manipulation"
-              aria-label="Next image"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </>
+          <div className="absolute bottom-3 inset-x-0 flex justify-center gap-2 px-4 z-10">
+            {images.map((img, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveImageIndex(i)}
+                className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-xl overflow-hidden border-2 transition cursor-pointer touch-manipulation ${
+                  activeImageIndex === i
+                    ? 'border-[var(--brand-primary)] scale-105 shadow-md'
+                    : 'border-white/25 opacity-65 hover:opacity-90'
+                }`}
+                aria-label={`View photo ${i + 1}`}
+              >
+                <img src={img} alt="" className="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
         )}
       </div>
-
-      {/* Thumbnail navigation */}
-      {images.length > 1 && (
-        <div className="absolute bottom-3 inset-x-0 flex justify-center gap-2 px-4 z-10">
-          {images.map((img, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setActiveImageIndex(i)}
-              className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-xl overflow-hidden border-2 transition cursor-pointer touch-manipulation ${
-                activeImageIndex === i
-                  ? 'border-[var(--brand-primary)] scale-105 shadow-md'
-                  : 'border-white/25 opacity-65 hover:opacity-90'
-              }`}
-              aria-label={`View photo ${i + 1}`}
-            >
-              <img src={img} alt="" className="w-full h-full object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    );
+  };
 
   const renderAuthorBar = (isDesktop: boolean) => (
     <div className="p-3.5 sm:p-5 border-b border-[var(--heyroq-divider)] flex items-center justify-between bg-slate-900/[0.02] dark:bg-white/[0.02] shrink-0">
@@ -1138,7 +1164,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         {/* ========================================================= */}
         <div className="hidden md:flex flex-row w-full h-full min-h-0 overflow-hidden">
           {/* Left Column: Photos Gallery */}
-          <div className="w-1/2 h-full bg-slate-950 relative flex flex-col justify-center shrink-0 overflow-hidden group">
+          <div className="w-1/2 h-full bg-[#F3F1ED] dark:bg-[#17181B] relative flex flex-col justify-center shrink-0 overflow-hidden group">
             {renderGallery(false)}
           </div>
 

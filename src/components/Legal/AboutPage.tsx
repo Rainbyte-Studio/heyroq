@@ -140,7 +140,7 @@ export const AboutPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10">
             {KEY_FEATURES.map((feature) => (
               <div key={feature.index} className="pt-5 border-t border-[var(--heyroq-border-subtle)]">
-                <span className="font-mono text-xs text-[var(--heyroq-accent-text)] font-semibold tabular-nums">
+                <span className="font-sans text-xs text-[var(--heyroq-accent-text)] font-semibold tabular-nums">
                   {feature.index}.
                 </span>
                 <h3 className={`${TYPOGRAPHY_TOKENS.heading3} text-[var(--heyroq-text-primary)] mt-2`}>

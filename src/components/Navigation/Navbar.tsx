@@ -721,7 +721,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <Info className="w-4 h-4 text-[var(--heyroq-text-muted)]" />
                         <span>About Heyroq</span>
                       </span>
-                      <span className="text-[10px] font-mono text-[var(--heyroq-text-muted)] tabular-nums">
+                      <span className="text-[11px] font-sans font-medium text-[var(--heyroq-text-muted)] tabular-nums">
                         {APP_VERSION.displayVersion}
                       </span>
                     </button>
@@ -768,7 +768,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="nav-signup-btn"
                 type="button"
                 onClick={() => onOpenAuth('signup')}
-                className="hidden min-[400px]:flex h-10 min-h-[40px] px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-950 hover:opacity-90 rounded-full text-xs font-semibold shadow-sm transition cursor-pointer whitespace-nowrap shrink-0 items-center heyroq-focus-ring"
+                className="hidden min-[400px]:flex h-10 min-h-[40px] px-4 bg-[#202124] dark:bg-[#F5F4F1] text-[#FAF9F6] dark:text-[#17181B] hover:opacity-90 rounded-full text-xs font-semibold shadow-sm transition cursor-pointer whitespace-nowrap shrink-0 items-center heyroq-focus-ring"
               >
                 Sign Up
               </button>
@@ -937,11 +937,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onClick={() => onFilterChange('recent')}
                     className={`h-7 px-3 rounded-full text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 whitespace-nowrap heyroq-focus-ring ${
                       discoveryFilter === 'recent'
-                        ? 'bg-white dark:bg-white text-slate-950 font-semibold shadow-sm'
+                        ? 'bg-[#FFFFFF] dark:bg-[#222327] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-sm border border-[#E6E3DE] dark:border-[#38393E]'
                         : 'font-medium text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)]'
                     }`}
                   >
-                    <Clock className="w-3.5 h-3.5" />
+                    <Clock className="w-3.5 h-3.5" strokeWidth={1.75} />
                     <span>Recent</span>
                   </button>
                   <button
@@ -950,11 +950,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onClick={() => onFilterChange('popular')}
                     className={`h-7 px-3 rounded-full text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 whitespace-nowrap heyroq-focus-ring ${
                       discoveryFilter === 'popular'
-                        ? 'bg-white dark:bg-white text-slate-950 font-semibold shadow-sm'
+                        ? 'bg-[#FFFFFF] dark:bg-[#222327] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-sm border border-[#E6E3DE] dark:border-[#38393E]'
                         : 'font-medium text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)]'
                     }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Sparkles className="w-3.5 h-3.5" strokeWidth={1.75} />
                     <span>Popular</span>
                   </button>
                   <button
@@ -963,11 +963,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onClick={() => onFilterChange('trending')}
                     className={`h-7 px-3 rounded-full text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 whitespace-nowrap heyroq-focus-ring ${
                       discoveryFilter === 'trending'
-                        ? 'bg-white dark:bg-white text-slate-950 font-semibold shadow-sm'
+                        ? 'bg-[#FFFFFF] dark:bg-[#222327] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-sm border border-[#E6E3DE] dark:border-[#38393E]'
                         : 'font-medium text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)]'
                     }`}
                   >
                     <Flame
+                      strokeWidth={1.75}
                       className={`w-3.5 h-3.5 ${
                         discoveryFilter === 'trending'
                           ? 'text-[var(--brand-primary)]'
@@ -997,20 +998,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => onCategoryChange(null)}
                 className={`h-8 px-3 rounded-full text-xs whitespace-nowrap transition-colors duration-150 cursor-pointer shrink-0 flex items-center gap-1.5 heyroq-focus-ring ${
                   canonicalSelected === null
-                    ? 'bg-[var(--brand-primary)]/14 dark:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)] text-slate-950 dark:text-white font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
-                    : 'bg-slate-900/[0.035] dark:bg-white/[0.06] text-slate-700 dark:text-white/82 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.07] dark:hover:bg-white/[0.11] border border-slate-900/10 dark:border-white/12 font-medium'
+                    ? 'bg-[var(--brand-primary)]/12 dark:bg-[var(--brand-primary)]/18 border border-[var(--brand-primary)] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
+                    : 'bg-[#F3F1ED] dark:bg-[#2B2C31] text-[#4D4E52] dark:text-[#B0B0B5] hover:text-[#202124] dark:hover:text-[#F5F4F1] hover:bg-[#ECE9E3] dark:hover:bg-[#33343A] border border-[#E6E3DE] dark:border-[#38393E] font-medium'
                 }`}
               >
                 <Compass
+                  strokeWidth={1.75}
                   className={`w-3.5 h-3.5 ${
                     canonicalSelected === null
                       ? 'text-[var(--brand-primary)]'
-                      : 'text-slate-500 dark:text-white/70'
+                      : 'text-[#5C5D61] dark:text-[#B0B0B5]'
                   }`}
                 />
                 <span>All Spots</span>
                 {canonicalSelected === null && (
-                  <Check className="w-3 h-3 text-[var(--brand-primary)] stroke-[2.5] shrink-0" />
+                  <Check className="w-3 h-3 text-[var(--brand-primary)] shrink-0" strokeWidth={2.5} />
                 )}
               </button>
 
@@ -1038,10 +1040,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onClick={() => setMoreDropdownOpen((prev) => !prev)}
                     className={`h-8 px-3 rounded-full text-xs whitespace-nowrap transition-colors duration-150 cursor-pointer shrink-0 flex items-center gap-1.5 heyroq-focus-ring ${
                       isOverflowSelected
-                        ? 'bg-[var(--brand-primary)]/14 dark:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)] text-slate-950 dark:text-white font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
+                        ? 'bg-[var(--brand-primary)]/12 dark:bg-[var(--brand-primary)]/18 border border-[var(--brand-primary)] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
                         : moreDropdownOpen
-                          ? 'bg-slate-900/[0.08] dark:bg-white/[0.16] text-[var(--heyroq-text-primary)] border border-[var(--heyroq-border-strong)] font-semibold'
-                          : 'bg-slate-900/[0.035] dark:bg-white/[0.06] text-slate-700 dark:text-white/82 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.07] dark:hover:bg-white/[0.11] border border-slate-900/10 dark:border-white/12 font-medium'
+                          ? 'bg-[#ECE9E3] dark:bg-[#33343A] text-[var(--heyroq-text-primary)] border border-[var(--heyroq-border-strong)] font-semibold'
+                          : 'bg-[#F3F1ED] dark:bg-[#2B2C31] text-[#4D4E52] dark:text-[#B0B0B5] hover:text-[#202124] dark:hover:text-[#F5F4F1] hover:bg-[#ECE9E3] dark:hover:bg-[#33343A] border border-[#E6E3DE] dark:border-[#38393E] font-medium'
                     }`}
                     aria-expanded={moreDropdownOpen}
                     aria-haspopup="true"

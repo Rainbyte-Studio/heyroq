@@ -60,8 +60,8 @@ const ProfilePinImage: React.FC<{ src?: string; alt: string }> = ({ src, alt }) 
 
   if (!src || failed) {
     return (
-      <div className="w-full h-full bg-gradient-to-br from-slate-200/80 via-slate-100 to-slate-200/60 dark:from-white/[0.06] dark:via-white/[0.02] dark:to-white/[0.05] flex items-center justify-center text-slate-400 dark:text-white/30">
-        <MapPin className="w-6 h-6 text-[var(--brand-primary)]/75" />
+      <div className="w-full h-full bg-[#F3F1ED] dark:bg-[#2B2C31] flex items-center justify-center text-[var(--heyroq-text-muted)]">
+        <MapPin className="w-5 h-5 text-[var(--brand-primary)]/80" strokeWidth={1.75} />
       </div>
     );
   }
@@ -1017,7 +1017,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             {onOpenAbout && (
               <div className="mt-6 pt-4 border-t border-slate-900/8 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 dark:text-white/55">
                 <div className="space-y-1">
-                  <div className="type-mono-meta text-slate-600 dark:text-white/60">
+                  <div className="text-xs font-sans font-medium tabular-nums text-[var(--heyroq-text-secondary)]">
                     {APP_VERSION.productName} {APP_VERSION.displayVersion} ·{' '}
                     {APP_VERSION.releaseChannel} · Operated by {OPERATOR_IDENTITY.name}
                   </div>

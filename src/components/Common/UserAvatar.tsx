@@ -103,7 +103,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
       aria-label={editable ? undefined : ariaLabel || descriptor.ariaLabel}
       style={descriptor.mode !== 'image' ? gradientStyle : undefined}
       className={`${preset.container} rounded-full relative overflow-hidden shrink-0 select-none flex items-center justify-center ${
-        descriptor.mode === 'image' ? 'bg-slate-200 dark:bg-neutral-800' : ''
+        descriptor.mode === 'image' ? 'bg-[#F3F1ED] dark:bg-[#2B2C31]' : ''
       } ${ringClassName} ${className}`}
     >
       {descriptor.mode === 'image' && descriptor.imageUrl ? (
@@ -111,7 +111,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
           {!imageLoaded && (
             <div
               aria-hidden="true"
-              className="absolute inset-0 bg-slate-200 dark:bg-white/10 animate-pulse"
+              className="absolute inset-0 bg-[#F3F1ED] dark:bg-[#2B2C31]"
             />
           )}
           <img

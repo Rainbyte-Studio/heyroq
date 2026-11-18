@@ -404,16 +404,16 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
   const spotPillClass = (isSelected: boolean) =>
     isSelected
       ? isDark
-        ? 'bg-white text-slate-950 border-white ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
-        : 'bg-slate-900 text-white border-slate-900 ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+        ? 'bg-[#F5F4F1] text-[#17181B] border-[#F5F4F1] ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
+        : 'bg-[#202124] text-[#FAF9F6] border-[#202124] ring-2 ring-[var(--brand-primary)] shadow-lg scale-105'
       : isDark
-        ? 'bg-[#14161D]/92 text-white border-white/18 hover:border-white/50 backdrop-blur-md shadow-md'
-        : 'bg-white/94 text-slate-900 border-slate-900/14 hover:border-[var(--brand-primary)]/60 backdrop-blur-md shadow-md';
+        ? 'bg-[#222327]/95 text-[#F5F4F1] border-[#38393E] hover:border-[#F5F4F1]/40 backdrop-blur-md shadow-md'
+        : 'bg-[#FFFFFF]/95 text-[#202124] border-[#E6E3DE] hover:border-[var(--brand-primary)]/60 backdrop-blur-md shadow-md';
 
   return (
     <div
       id="footprint-interactive-map-container"
-      className="relative w-full h-[320px] sm:h-[380px] rounded-2xl overflow-hidden bg-[#ECEEF2] dark:bg-[#0B0F17] border border-slate-900/10 dark:border-white/12 shadow-inner group"
+      className="relative w-full h-[320px] sm:h-[380px] rounded-2xl overflow-hidden bg-[#F3F1ED] dark:bg-[#17181B] border border-[var(--heyroq-border-subtle)] shadow-inner group"
       onClick={() => {
         if (selectedCluster) setSelectedCluster(null);
         if (selectedPin) setSelectedPin(null);
@@ -488,7 +488,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
               },
               strictBounds: true,
             }}
-            backgroundColor={isDark ? '#0B0F17' : '#ECEEF2'}
+            backgroundColor={isDark ? '#17181B' : '#F3F1ED'}
             mapTypeId={mapType}
             disableDefaultUI={true}
             gestureHandling="cooperative"
@@ -590,7 +590,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
         /* 2. Interactive Fallback Canvas (When API Key is not configured yet) */
         <div
           id="footprint-vector-canvas"
-          className="relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing bg-[#ECEEF2] dark:bg-[#0B0F17]"
+          className="relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing bg-[#F3F1ED] dark:bg-[#17181B]"
           onMouseDown={handleFallbackMouseDown}
           onMouseMove={handleFallbackMouseMove}
           onMouseUp={handleFallbackMouseUp}

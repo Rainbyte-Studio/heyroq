@@ -20,63 +20,63 @@ export const CATEGORY_CONFIG: Record<
     bg: string;
     text: string;
     ring: string;
-    icon: React.ComponentType<{ className?: string }>;
+    icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   }
 > = {
   Food: {
     label: 'Food',
-    bg: 'bg-amber-500 dark:bg-amber-400',
-    text: 'text-amber-600 dark:text-amber-400',
-    ring: 'ring-amber-500 dark:ring-amber-400',
+    bg: 'bg-[#D97706]',
+    text: 'text-[#B45309] dark:text-[#FBBF24]',
+    ring: 'ring-[#D97706]',
     icon: Utensils,
   },
   Travel: {
     label: 'Travel',
-    bg: 'bg-blue-500 dark:bg-blue-400',
-    text: 'text-blue-600 dark:text-blue-400',
-    ring: 'ring-blue-500 dark:ring-blue-400',
+    bg: 'bg-[#2563EB]',
+    text: 'text-[#1D4ED8] dark:text-[#60A5FA]',
+    ring: 'ring-[#2563EB]',
     icon: Compass,
   },
   Nature: {
     label: 'Nature',
-    bg: 'bg-emerald-500 dark:bg-emerald-400',
-    text: 'text-emerald-600 dark:text-emerald-400',
-    ring: 'ring-emerald-500 dark:ring-emerald-400',
+    bg: 'bg-[#059669]',
+    text: 'text-[#047857] dark:text-[#34D399]',
+    ring: 'ring-[#059669]',
     icon: Trees,
   },
   Events: {
     label: 'Events',
-    bg: 'bg-purple-500 dark:bg-purple-400',
-    text: 'text-purple-600 dark:text-purple-400',
-    ring: 'ring-purple-500 dark:ring-purple-400',
+    bg: 'bg-[#7C3AED]',
+    text: 'text-[#6D28D9] dark:text-[#A78BFA]',
+    ring: 'ring-[#7C3AED]',
     icon: Sparkles,
   },
   Activities: {
     label: 'Activities',
-    bg: 'bg-rose-500 dark:bg-rose-400',
-    text: 'text-rose-600 dark:text-rose-400',
-    ring: 'ring-rose-500 dark:ring-rose-400',
+    bg: 'bg-[#E11D48]',
+    text: 'text-[#BE123C] dark:text-[#FB7185]',
+    ring: 'ring-[#E11D48]',
     icon: Flame,
   },
   'Hidden Gems': {
     label: 'Hidden Gems',
-    bg: 'bg-indigo-500 dark:bg-indigo-400',
-    text: 'text-indigo-600 dark:text-indigo-400',
-    ring: 'ring-indigo-500 dark:ring-indigo-400',
+    bg: 'bg-[#E87924]',
+    text: 'text-[#B95318] dark:text-[#FF9B43]',
+    ring: 'ring-[#E87924]',
     icon: Gem,
   },
   Photography: {
     label: 'Photography',
-    bg: 'bg-cyan-600 dark:bg-cyan-400',
-    text: 'text-cyan-700 dark:text-cyan-400',
-    ring: 'ring-cyan-600 dark:ring-cyan-400',
+    bg: 'bg-[#0891B2]',
+    text: 'text-[#0E7490] dark:text-[#22D3EE]',
+    ring: 'ring-[#0891B2]',
     icon: Camera,
   },
   Other: {
     label: 'Other',
-    bg: 'bg-slate-500 dark:bg-slate-400',
-    text: 'text-slate-600 dark:text-slate-400',
-    ring: 'ring-slate-500 dark:ring-slate-400',
+    bg: 'bg-[#66676B]',
+    text: 'text-[#5C5D61] dark:text-[#B0B0B5]',
+    ring: 'ring-[#66676B]',
     icon: MapPin,
   },
 };
@@ -97,7 +97,7 @@ export const CategoryBadge: React.FC<CategoryBadgeProps> = ({
   onClick,
   size = 'md',
   className = '',
-  showDot = true,
+  showDot = false,
   showIcon = true,
 }) => {
   const normalizedKey = normalizeCategory(category) || 'Other';
@@ -124,10 +124,10 @@ export const CategoryBadge: React.FC<CategoryBadgeProps> = ({
   }[size];
 
   const stateClasses = active
-    ? 'bg-[var(--brand-primary)]/14 dark:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)] text-slate-950 dark:text-white font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
+    ? 'bg-[var(--brand-primary)]/12 dark:bg-[var(--brand-primary)]/18 border border-[var(--brand-primary)] text-[#202124] dark:text-[#F5F4F1] font-semibold shadow-[0_1px_4px_rgba(232,121,36,0.14)]'
     : onClick
-      ? 'bg-slate-900/[0.035] dark:bg-white/[0.06] text-slate-700 dark:text-white/82 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.07] dark:hover:bg-white/[0.11] border border-slate-900/10 dark:border-white/12 font-medium'
-      : 'bg-white/95 dark:bg-[#18191C]/92 text-slate-800 dark:text-white/92 border border-slate-900/10 dark:border-white/14 font-semibold shadow-sm';
+      ? 'bg-[#F3F1ED] dark:bg-[#2B2C31] text-[#4D4E52] dark:text-[#B0B0B5] hover:text-[#202124] dark:hover:text-[#F5F4F1] hover:bg-[#ECE9E3] dark:hover:bg-[#33343A] border border-[#E6E3DE] dark:border-[#38393E] font-medium'
+      : 'bg-[#FFFFFF]/95 dark:bg-[#222327]/95 text-[#202124] dark:text-[#F5F4F1] border border-[#E6E3DE] dark:border-[#38393E] font-medium shadow-sm';
 
   const badgeClasses = `inline-flex items-center whitespace-nowrap tracking-normal shrink-0 transition-colors duration-150 ${sizeClasses} ${stateClasses} ${className}`;
 
@@ -135,8 +135,9 @@ export const CategoryBadge: React.FC<CategoryBadgeProps> = ({
     <>
       {showIcon && (
         <Icon
+          strokeWidth={1.75}
           className={`${iconSizes} ${
-            active ? 'text-[var(--brand-primary)]' : config.text
+            active ? 'text-[var(--brand-primary)]' : 'text-[#5C5D61] dark:text-[#B0B0B5]'
           } shrink-0`}
         />
       )}
@@ -147,7 +148,7 @@ export const CategoryBadge: React.FC<CategoryBadgeProps> = ({
         />
       )}
       {active && onClick && (
-        <Check className="w-3 h-3 text-[var(--brand-primary)] stroke-[2.5] shrink-0" />
+        <Check className="w-3 h-3 text-[var(--brand-primary)] shrink-0" strokeWidth={2.5} />
       )}
     </>
   );

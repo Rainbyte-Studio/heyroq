@@ -75,16 +75,16 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
 
       const pillClass = isSelected
         ? isDark
-          ? 'bg-white text-slate-950 border-white ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(232,121,36,0.38)] scale-105'
-          : 'bg-slate-950 text-white border-slate-950 ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(15,23,42,0.28)] scale-105'
+          ? 'bg-[#F5F4F1] text-[#17181B] border-[#F5F4F1] ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(232,121,36,0.34)] scale-105'
+          : 'bg-[#202124] text-[#FAF9F6] border-[#202124] ring-2 ring-[#E87924] shadow-[0_8px_22px_rgba(32,33,36,0.24)] scale-105'
         : isDark
-          ? 'bg-[#18191C]/95 text-white border-white/18 hover:border-white/40 shadow-[0_6px_18px_rgba(0,0,0,0.52)]'
-          : 'bg-white/95 text-slate-900 border-slate-900/14 hover:border-slate-900/32 shadow-[0_4px_14px_rgba(15,23,42,0.14)]';
+          ? 'bg-[#222327]/95 text-[#F5F4F1] border-[#38393E] hover:border-[#F5F4F1]/35 shadow-[0_6px_18px_rgba(0,0,0,0.48)]'
+          : 'bg-[#FFFFFF]/95 text-[#202124] border-[#E6E3DE] hover:border-[#202124]/30 shadow-[0_4px_14px_rgba(32,33,36,0.12)]';
 
       const pointerTipClass = isSelected
         ? isDark
-          ? 'bg-white'
-          : 'bg-slate-950'
+          ? 'bg-[#F5F4F1]'
+          : 'bg-[#202124]'
         : 'hidden';
 
       const pinContent = `

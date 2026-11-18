@@ -174,17 +174,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     setIsSubmitting(true);
     console.log('[CreatePinModal] Starting pin publish flow. Files count:', files.length);
     try {
-      // 1. Upload photos to Firebase Storage
       let uploadedUrls: string[] = [];
       if (files.length > 0) {
         console.log('[CreatePinModal] Step 1: Uploading photos to Firebase Storage...');
         uploadedUrls = await uploadMultipleImages(files, user.uid);
         console.log('[CreatePinModal] Step 1 Complete: Photos uploaded successfully:', uploadedUrls);
-      } else {
-        // Sample default image matching category if no photo was uploaded
-        uploadedUrls = [
-          'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1000&auto=format&fit=crop&q=80',
-        ];
       }
 
       // Extract structured geographic metadata for normalization
@@ -382,9 +376,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                   <p className="text-xs text-slate-600 dark:text-white/65 mt-1 line-clamp-2 leading-relaxed">
                     {description || 'Your description will appear here...'}
                   </p>
-                  <div className="flex items-center gap-1 mt-3 text-xs font-medium text-slate-500 dark:text-white/45 tabular-nums">
-                    <MapPin className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
-                    <span className={locationName ? '' : 'font-mono'}>
+                  <div className="flex items-center gap-1 mt-3 text-xs font-medium text-[var(--heyroq-text-muted)] tabular-nums">
+                    <MapPin className="w-3.5 h-3.5 text-[var(--brand-primary)]" strokeWidth={1.75} />
+                    <span>
                       {locationName || `${customLat.toFixed(4)}, ${customLng.toFixed(4)}`}
                     </span>
                   </div>
@@ -452,11 +446,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         setCustomLat(val);
                         onLocationSelect?.({ lat: val, lng: customLng }, locationName);
                       }}
-                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-mono tabular-nums"
+                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-sans tabular-nums"
                     />
                   </div>
                   <div>
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
+                    <span className="text-[11px] font-semibold text-[var(--heyroq-text-muted)]">
                       Longitude
                     </span>
                     <input
@@ -468,7 +462,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         setCustomLng(val);
                         onLocationSelect?.({ lat: customLat, lng: val }, locationName);
                       }}
-                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-mono tabular-nums"
+                      className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-sans tabular-nums"
                     />
                   </div>
                 </div>

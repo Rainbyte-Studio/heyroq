@@ -1,10 +1,11 @@
-import React, { useRef, useLayoutEffect } from 'react';
+import React, { useRef, useLayoutEffect, useState } from 'react';
 import { Pin } from '../../types';
 import { CategoryBadge } from '../Map/CategoryBadge';
 import { LikeIndicator } from './LikeButton';
 import { MessageCircle, MapPin, Navigation } from 'lucide-react';
 import { UserAvatar } from '../Common/UserAvatar';
 import { CloseButton } from '../Common/CloseButton';
+import { SpotPhotoFallback } from '../Common/SpotPhotoFallback';
 
 interface PinFeedListProps {
   pins: Pin[];
@@ -21,6 +22,32 @@ interface PinFeedListProps {
   isError?: boolean;
   onRetry?: () => void;
 }
+
+const FeedThumbnail: React.FC<{ pin: Pin }> = ({ pin }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = pin.imageUrls?.[0];
+
+  if (!src || imgFailed) {
+    return (
+      <SpotPhotoFallback
+        category={pin.category}
+        title={pin.title}
+        compact
+        className="w-full h-full"
+      />
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={pin.title}
+      referrerPolicy="no-referrer"
+      onError={() => setImgFailed(true)}
+      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+    />
+  );
+};
 
 export const PinFeedList: React.FC<PinFeedListProps> = ({
   pins,
@@ -109,7 +136,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
           isError ? (
             <div className="text-center py-6 lg:py-12 text-[var(--heyroq-text-muted)] text-xs px-4">
               <div className="w-9 h-9 rounded-xl liquid-glass-card mx-auto mb-2.5 flex items-center justify-center text-[var(--brand-primary)]">
-                <MapPin className="w-4 h-4" />
+                <MapPin className="w-4 h-4" strokeWidth={1.75} />
               </div>
               <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">
                 Discovery feed offline
@@ -133,7 +160,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
               className="text-center py-5 lg:py-10 text-[var(--heyroq-text-muted)] text-xs px-4"
             >
               <div className="w-9 h-9 rounded-xl liquid-glass-card mx-auto mb-2.5 flex items-center justify-center text-[var(--brand-primary)]">
-                <MapPin className="w-4 h-4" aria-hidden="true" />
+                <MapPin className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
               </div>
               <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">
                 No spots in this area
@@ -146,9 +173,6 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
         ) : (
           pins.map((pin) => {
             const isSelected = selectedPin?.id === pin.id;
-            const img =
-              pin.imageUrls?.[0] ||
-              'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=80';
 
             return (
               <div
@@ -162,24 +186,19 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                 }}
                 className={`flex gap-3.5 p-3.5 rounded-2xl transition-all duration-150 cursor-pointer group ${
                   isSelected
-                    ? 'bg-white dark:bg-white/[0.10] border border-[var(--brand-primary)]/75 ring-1 ring-[var(--brand-primary)]/50 shadow-[var(--heyroq-shadow-floating)]'
-                    : 'liquid-glass-card hover:bg-white/95 dark:hover:bg-white/[0.07] hover:border-slate-900/15 dark:hover:border-white/20'
+                    ? 'bg-[#FFFFFF] dark:bg-[#2B2C31] border border-[var(--brand-primary)]/75 ring-1 ring-[var(--brand-primary)]/45 shadow-[var(--heyroq-shadow-floating)]'
+                    : 'liquid-glass-card hover:border-[#202124]/20 dark:hover:border-[#F5F4F1]/22'
                 }`}
               >
-                <div className="w-20 h-20 rounded-xl bg-slate-200 dark:bg-neutral-900 relative overflow-hidden shrink-0 border border-slate-900/10 dark:border-white/10">
-                  <img
-                    src={img}
-                    alt={pin.title}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
+                <div className="w-20 h-20 rounded-xl bg-[#F3F1ED] dark:bg-[#2B2C31] relative overflow-hidden shrink-0 border border-[var(--heyroq-border-subtle)]">
+                  <FeedThumbnail pin={pin} />
                 </div>
 
                 <div className="flex-1 min-w-0 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between gap-1.5 mb-1">
                       <CategoryBadge category={pin.category} size="xs" />
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-white/45 min-w-0">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--heyroq-text-muted)] min-w-0">
                         <UserAvatar
                           uid={pin.userId}
                           displayName={pin.userName}
@@ -190,19 +209,19 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                         <span className="truncate">@{pin.userName}</span>
                       </span>
                     </div>
-                    <h3 className="font-heading font-semibold text-sm tracking-tight text-slate-900 dark:text-white group-hover:text-[var(--heyroq-accent-text)] transition truncate leading-snug">
+                    <h3 className="font-heading font-semibold text-sm tracking-tight text-[var(--heyroq-text-primary)] group-hover:text-[var(--heyroq-accent-text)] transition truncate leading-snug">
                       {pin.title}
                     </h3>
-                    <p className="text-xs text-slate-600 dark:text-white/60 line-clamp-1 mt-0.5">
+                    <p className="text-xs text-[var(--heyroq-text-secondary)] line-clamp-1 mt-0.5">
                       {pin.description}
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 mt-1 border-t border-[var(--heyroq-divider)] text-xs text-slate-500 dark:text-white/45">
+                  <div className="flex items-center justify-between pt-2 mt-1 border-t border-[var(--heyroq-divider)] text-xs text-[var(--heyroq-text-muted)]">
                     <div className="flex items-center gap-3 tabular-nums">
                       <LikeIndicator count={pin.likeCount || 0} variant="feed" />
-                      <span className="flex items-center gap-1 font-semibold text-xs text-slate-500 dark:text-white/55">
-                        <MessageCircle className="w-3.5 h-3.5" />
+                      <span className="flex items-center gap-1 font-semibold text-xs text-[var(--heyroq-text-muted)]">
+                        <MessageCircle className="w-3.5 h-3.5" strokeWidth={1.75} />
                         <span>{pin.commentCount || 0}</span>
                       </span>
                     </div>
@@ -214,11 +233,11 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                           e.stopPropagation();
                           onFlyToPin(pin);
                         }}
-                        className="p-1.5 text-slate-500 dark:text-white/55 hover:text-slate-900 dark:hover:text-white transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-slate-900/[0.05] dark:hover:bg-white/10"
+                        className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-[#F3F1ED] dark:hover:bg-[#2B2C31]"
                         title="Center on Map"
                         aria-label="Center on Map"
                       >
-                        <Navigation className="w-3.5 h-3.5" />
+                        <Navigation className="w-3.5 h-3.5" strokeWidth={1.75} />
                       </button>
                       <button
                         type="button"

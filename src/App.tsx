@@ -731,7 +731,7 @@ function HeyroqMainApp() {
 
       {/* Discovery Coordinates, Legal Navigation & Rainbyte Studio Attribution Footer */}
       <footer className="h-9 bg-[var(--heyroq-bg-surface)] border-t border-[var(--heyroq-border-subtle)] px-3.5 sm:px-5 lg:px-6 flex items-center justify-between gap-3 z-40 text-xs font-medium text-[var(--heyroq-text-muted)] shrink-0">
-        <div className="hidden md:flex items-center gap-3 font-mono tabular-nums text-[11px] text-[var(--heyroq-text-muted)] shrink-0">
+        <div className="hidden md:flex items-center gap-3 font-sans tabular-nums text-[11px] text-[var(--heyroq-text-muted)] shrink-0">
           <span>
             {Math.abs(mapCenter.lat).toFixed(4)}° {mapCenter.lat >= 0 ? 'N' : 'S'},{' '}
             {Math.abs(mapCenter.lng).toFixed(4)}° {mapCenter.lng >= 0 ? 'E' : 'W'}
@@ -773,7 +773,7 @@ function HeyroqMainApp() {
           type="button"
           onClick={() => setIsAboutOpen(true)}
           aria-label={`About ${APP_VERSION.productName} ${APP_VERSION.displayVersion}`}
-          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] transition-colors cursor-pointer font-mono tabular-nums heyroq-focus-ring rounded px-1.5 py-0.5 shrink-0"
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] transition-colors cursor-pointer font-sans tabular-nums heyroq-focus-ring rounded px-1.5 py-0.5 shrink-0"
         >
           <span className="hidden sm:inline">{APP_VERSION.productName}</span>
           <span aria-hidden="true" className="hidden sm:inline opacity-45">·</span>
