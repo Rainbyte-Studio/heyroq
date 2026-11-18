@@ -1004,15 +1004,17 @@ async function forEachAccountDeletionPage(
 export async function cleanAccountReports(userId: string) {
   const reports = db.collection('reports');
   await forEachAccountDeletionPage(reports.where('reporterId', '==', userId), async docs => {
-    const batch = db.batch();
-    for (const report of docs) {
-      if (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt')) continue;
-      batch.update(report.ref, {
-        reporterEmail: FieldValue.delete(),
-        reporterDeletedAt: FieldValue.serverTimestamp(),
-      });
-    }
-    await batch.commit();
+    await db.runTransaction(async transaction => {
+      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+      for (const report of currentReports) {
+        if (report.get('reporterId') !== userId ||
+            (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt'))) continue;
+        transaction.update(report.ref, {
+          reporterEmail: FieldValue.delete(),
+          reporterDeletedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    });
   });
   await forEachAccountDeletionPage(reports.where('targetId', '==', userId), async docs => {
     await db.runTransaction(async transaction => {
