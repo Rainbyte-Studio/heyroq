@@ -986,9 +986,54 @@ export const recalculateProgression = onCall(
 // 7. ACCOUNT DELETION
 // ============================================================================
 
+async function forEachAccountDeletionPage(
+  query: FirebaseFirestore.Query,
+  handlePage: (docs: FirebaseFirestore.QueryDocumentSnapshot[]) => Promise<void>,
+) {
+  const ordered = query.orderBy('__name__').limit(200);
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  do {
+    const page = await (cursor ? ordered.startAfter(cursor) : ordered).get();
+    if (page.empty) return;
+    await handlePage(page.docs);
+    cursor = page.docs[page.docs.length - 1];
+    if (page.size < 200) return;
+  } while (cursor);
+}
+
+export async function cleanAccountReports(userId: string) {
+  const reports = db.collection('reports');
+  await forEachAccountDeletionPage(reports.where('reporterId', '==', userId), async docs => {
+    const batch = db.batch();
+    for (const report of docs) {
+      if (report.get('reporterEmail') === undefined && report.get('reporterDeletedAt')) continue;
+      batch.update(report.ref, {
+        reporterEmail: FieldValue.delete(),
+        reporterDeletedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  });
+  await forEachAccountDeletionPage(reports.where('targetId', '==', userId), async docs => {
+    await db.runTransaction(async transaction => {
+      const currentReports = await transaction.getAll(...docs.map(report => report.ref));
+      for (const current of currentReports) {
+        if (current.get('targetId') !== userId || current.get('targetType') !== 'user' ||
+            current.get('status') !== 'pending') continue;
+        transaction.update(current.ref, {
+          status: 'resolved',
+          resolvedReason: 'target_account_deleted',
+          resolvedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  });
+}
+
 export const deleteUserAccount = onCall(
   {
     region: FUNCTION_REGION,
+    timeoutSeconds: 540,
   },
   async (request) => {
     if (!request.auth) {
@@ -1084,49 +1129,12 @@ export const deleteUserAccount = onCall(
         }
       }
 
-      // Scrub private reporterEmail PII on moderation reports submitted by the departing user
-      // and resolve open user-target reports referencing the deleted profile.
-      const submittedReports = await db.collection('reports').where('reporterId', '==', userId).limit(200).get();
-      if (!submittedReports.empty) {
-        const reportBatch = db.batch();
-        submittedReports.docs.forEach((rep) => {
-          reportBatch.update(rep.ref, {
-            reporterEmail: FieldValue.delete(),
-            reporterDeletedAt: FieldValue.serverTimestamp(),
-          });
-        });
-        await reportBatch.commit();
-      }
+      await cleanAccountReports(userId);
 
-      const targetedUserReports = await db
-        .collection('reports')
-        .where('targetId', '==', userId)
-        .limit(200)
-        .get();
-      if (!targetedUserReports.empty) {
-        const targetBatch = db.batch();
-        let updatedTargets = 0;
-        targetedUserReports.docs.forEach((rep) => {
-          if (rep.data()?.targetType === 'user' && rep.data()?.status === 'pending') {
-            targetBatch.update(rep.ref, {
-              status: 'resolved',
-              resolvedReason: 'target_account_deleted',
-              resolvedAt: FieldValue.serverTimestamp(),
-            });
-            updatedTargets++;
-          }
-        });
-        if (updatedTargets > 0) {
-          await targetBatch.commit();
-        }
-      }
-
-      // Recursively remove each pin and its likes/comments; deleting only the
-      // parent document leaves orphaned subcollections in Firestore.
-      const userPinsSnapshot = await db.collection('pins').where('userId', '==', userId).get();
-      for (const pinDoc of userPinsSnapshot.docs) {
-        await db.recursiveDelete(pinDoc.ref);
-      }
+      const userPins = db.collection('pins').where('userId', '==', userId);
+      await forEachAccountDeletionPage(userPins, async pins => {
+        for (const pin of pins) await db.recursiveDelete(pin.ref);
+      });
 
       // Avatar cleanup must succeed before reporting account deletion complete.
       // The caller can retry on transient Storage errors.
