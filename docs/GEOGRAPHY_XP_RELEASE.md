@@ -212,16 +212,41 @@ partial failure. Missing objects count as already complete. Mismatches are
 recorded as unresolved. Legacy image URLs are reported in logs without their
 download tokens and do not schedule Storage requests.
 
-The delete trigger retains its manifest retry policy. A failed invocation with
-a recorded job leaves its status pending. A replay of the original event or
-the internal resumePinImageCleanup helper can resume that single incarnation.
-In a demo or separately approved staging environment, verify monitoring for
-failed invocations and pending jobs, including failure before the job is
-recorded. Confirm both unknown live retry settings separately before rollout.
+The delete trigger retains its manifest retry policy. The scheduled Function
+pages through claims and upload intents every five minutes. It recovers jobs
+even when the delete event was lost and resumes pending work up to the durable
+attempt limit of eight. The sweep is paginated, so revisit time grows with
+collection size.
 
-Managed uploads that never reach publication have no claim. They remain
-unresolved by pin deletion. A cleanup design for abandoned uploads requires
-generation-conditional deletion and its own recovery path.
+The normal frontend records an intent before upload and an immutable receipt
+before retrieving the download URL. After the one-hour publication window,
+the scheduler can clean up an unpublished upload only with a matching receipt,
+object identity, generation and metageneration. A successful upload can outlive
+a timeout or lost receipt write. Retaining that object is an accepted limitation
+of automatic cleanup. It is recorded as missing-upload-generation without a
+Storage delete. A job can be complete and still contain unresolved objects.
+
+In demo or separately approved staging, validate alerts for reconciliation
+errors, unresolved warnings, growing pending-job age, and retry-limit jobs.
+Check both jobs with status unresolved and jobs with unresolved entries. Track
+Storage object count, bytes, request volume and spend separately. Direct uploads
+without an intent are invisible to reconciliation. During authorized manual
+triage, record the job, pin, incarnation, upload ID and reason without download
+tokens. Check current references and establish the original object generation
+from independent evidence. If ownership, generation or absence of live references
+is ambiguous, retain the object. Any separately approved manual deletion must
+match the verified generation and metageneration. Do not use age-based or
+prefix-wide deletion.
+
+Merge remains blocked on direct client uploads. Storage Rules permit
+authenticated creates in the caller's managed prefix with matching metadata
+without proving an intent or applying an aggregate quota. The legacy upload
+path also accepts direct owner uploads. Storage Rules support Firestore lookups
+only in the default database, while Heyroq uses a named database. The per-file
+limit does not bound aggregate writes, retained bytes or public read costs.
+Firestore also accepts image URLs independently of a managed claim, so arbitrary
+cross-pin URL reuse is outside the active-incarnation protection. Confirm both
+unknown live retry settings separately before rollout.
 
 Firestore child cleanup checks parent absence and child versions together.
 Legacy children updated after the deleted parent remain ambiguous and are
