@@ -347,8 +347,8 @@ export const PrivacyPolicyPage: React.FC = () => {
             <li>
               <strong className="text-[var(--heyroq-text-primary)]">Pins &amp; Comments:</strong>{' '}
               You can delete your own pins and comments directly inside Heyroq at any time. Deleting
-              a pin triggers cleanup of its likes, comments, and associated Firebase Storage photos
-              under <code className="font-mono text-xs">pins/&#123;userId&#125;/</code>. Replacing a
+              a pin triggers cleanup of its likes, comments, and verified pin photos. Older photos
+              may remain accessible if their references are shared or unverified. Replacing a
               custom profile photo removes the superseded file in{' '}
               <code className="font-mono text-xs">profile-images/&#123;userId&#125;/</code>.
             </li>
@@ -360,8 +360,9 @@ export const PrivacyPolicyPage: React.FC = () => {
               <strong>Profile &rarr; Settings &rarr; Account &amp; Security &rarr; Delete Account</strong>{' '}
               (after explicit confirmation and recent identity reauthentication). Invoking the{' '}
               <code className="font-mono text-xs">deleteUserAccount</code> Cloud Function locks
-              account recreation, removes authored likes, comments, follow links, pins, Storage
-              files, public profile subcollections, and the Firebase Authentication account record.
+              account recreation and removes authored likes, comments, follow links, pins, profile
+              photos, public profile subcollections, and the Firebase Authentication account record.
+              Pin photo cleanup follows the same reference checks as individual pin deletion.
             </li>
           </ul>
           <div className="liquid-glass-card rounded-xl p-4 space-y-1.5">

@@ -435,7 +435,7 @@ export const AccountSecurityModal: React.FC<AccountSecurityModalProps> = ({
     setBanner(null);
 
     setPendingReauthTask({
-      description: 'permanently delete your Heyroq account and all data',
+      description: 'permanently delete your Heyroq account',
       execute: async () => {
         setIsDeletingAccount(true);
         try {
@@ -1196,8 +1196,9 @@ export const AccountSecurityModal: React.FC<AccountSecurityModalProps> = ({
                     Delete Heyroq Account
                   </p>
                   <p className="text-xs text-slate-600 dark:text-white/70 leading-relaxed">
-                    Permanently deletes your profile, published spots, uploaded photos, comments,
-                    likes, follow connections, Explorer Progression XP, and sign-in credentials.
+                    Permanently deletes your profile, published spots, comments, likes, follow
+                    connections, Explorer Progression XP, and sign-in credentials. Older spot
+                    photos may remain accessible if their references are shared or unverified.
                   </p>
                 </div>
 
@@ -1237,8 +1238,7 @@ export const AccountSecurityModal: React.FC<AccountSecurityModalProps> = ({
                       className="mt-0.5 w-4 h-4 rounded accent-rose-600 cursor-pointer shrink-0"
                     />
                     <span>
-                      I understand that deleting my Heyroq account permanently erases my data and
-                      cannot be undone.
+                      I understand that deleting my Heyroq account cannot be undone.
                     </span>
                   </label>
 
