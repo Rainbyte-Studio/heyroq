@@ -129,6 +129,9 @@ function HeyroqMainApp() {
   // State: Modals & Panels
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  // Remember only the explicit action that opened authentication; never persist it.
+  const authSucceededRef = useRef(false);
+  const [pendingAuthAction, setPendingAuthAction] = useState<{ type: 'like'; pinId: string } | { type: 'create' } | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isPickingLocationOnMap, setIsPickingLocationOnMap] = useState(false);
   const [createPinDraft, setCreatePinDraft] = useState<CreatePinDraft | null>(null);
@@ -512,6 +515,7 @@ function HeyroqMainApp() {
 
   const handleToggleLikePin = async (pinId: string) => {
     if (!user) {
+      setPendingAuthAction({ type: 'like', pinId });
       setAuthMode('signin');
       setIsAuthOpen(true);
       return;
@@ -535,6 +539,19 @@ function HeyroqMainApp() {
       handleLikeCountChanged(pinId, currentCount);
     }
   };
+
+  // Resume a guest's explicit action once after successful authentication.
+  // A create request opens the editor, never publishes automatically.
+  useEffect(() => {
+    if (!user || !pendingAuthAction) return;
+    const action = pendingAuthAction;
+    setPendingAuthAction(null);
+    if (action.type === 'create') {
+      setIsCreateOpen(true);
+    } else {
+      void handleToggleLikePin(action.pinId);
+    }
+  }, [user, pendingAuthAction]);
 
   // Map pin picked during creation flow
   const handleSelectCreateLocation = useCallback(async (loc: LatLngPoint) => {
@@ -598,6 +615,7 @@ function HeyroqMainApp() {
         onSearchChange={setSearchQuery}
         onOpenCreatePin={() => {
           if (!user) {
+            setPendingAuthAction({ type: 'create' });
             setAuthMode('signin');
             setIsAuthOpen(true);
           } else {
@@ -605,6 +623,7 @@ function HeyroqMainApp() {
           }
         }}
         onOpenAuth={(mode) => {
+          setPendingAuthAction(null);
           setAuthMode(mode || 'signin');
           setIsAuthOpen(true);
         }}
@@ -678,6 +697,7 @@ function HeyroqMainApp() {
             }}
             onDropPin={() => {
               if (!user) {
+                setPendingAuthAction({ type: 'create' });
                 setAuthMode('signin');
                 setIsAuthOpen(true);
               } else {
@@ -914,7 +934,12 @@ function HeyroqMainApp() {
       {/* 6. Authentication Modal */}
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onAuthenticated={() => { authSucceededRef.current = true; }}
+        onClose={() => {
+          setIsAuthOpen(false);
+          if (!authSucceededRef.current) setPendingAuthAction(null);
+          authSucceededRef.current = false;
+        }}
         initialMode={authMode}
       />
 

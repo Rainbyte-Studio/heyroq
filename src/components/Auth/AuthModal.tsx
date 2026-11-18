@@ -18,12 +18,14 @@ import { CloseButton } from '../Common/CloseButton';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onAuthenticated?: () => void;
   initialMode?: 'signin' | 'signup';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
+  onAuthenticated,
   initialMode = 'signin',
 }) => {
   const { signIn, signUp, signInWithGoogle, resetPassword } = useAuth();
@@ -65,9 +67,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           throw new Error('Password must be at least 6 characters.');
         }
         await signUp(email, password, displayName, username);
+        onAuthenticated?.();
         handleModalClose();
       } else if (mode === 'signin') {
         await signIn(email, password);
+        onAuthenticated?.();
         handleModalClose();
       } else if (mode === 'forgot') {
         await resetPassword(email);
@@ -105,6 +109,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
     try {
       await signInWithGoogle();
+      onAuthenticated?.();
       handleModalClose();
     } catch (err: any) {
       console.warn('Google sign in notice:', err?.code || err?.message);
