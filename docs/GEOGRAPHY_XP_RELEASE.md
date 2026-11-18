@@ -321,7 +321,61 @@ Firestore child cleanup checks parent absence and child versions together.
 Legacy children updated after the deleted parent remain ambiguous and are
 retained. A complete cascade for those children needs incarnation data.
 
-For the account-deletion callable, treat 540 seconds as a candidate ceiling.
-The frontend allows 550 seconds, leaving 10 seconds of nominal headroom.
-Before approval, measure representative large accounts in staging and
-prove that a lost response or server timeout can be resumed safely.
+### First-release gates
+
+The historical Storage baseline was Rules v2 deny-all, us-west1, UBLA
+enabled, PAP not enforced and seven-day soft delete. Refresh that snapshot
+and inherited policy. Applying transitional Storage Rules is an access
+expansion. Explicitly approve public legacy/avatar reads and owner writes
+before opening the window. Wait for the named database indexes to be ready,
+then verify transitional Firestore Rules before opening transitional Storage.
+If final Firestore succeeds and final Storage fails, pause, track potential
+orphan uploads and close the legacy create window after diagnosing the failure.
+
+Use distinct runtime service accounts. Validate these candidate permissions
+against the actual SDKs and effective policies before binding them.
+
+| Runtime | Storage | Named Firestore | Other |
+| --- | --- | --- | --- |
+| pinImageUpload | objects.create/get under pin-images-v2/ | entities get/list/create/update | |
+| reconcilePinImageCleanup | objects.get/delete under pin-images-v2/ | entities get/list/create/update | |
+| onPinDeleted | objects.get/delete under pin-images-v2/ | entities get/list/create/update/delete | |
+| deleteUserAccount | objects.list at the bucket and objects.delete under profile-images/ | entities get/list/create/update/delete | firebaseauth.users.delete |
+
+Use exact bucket and prefix IAM conditions with the trailing slash. The
+account deletion path lists at bucket scope even though the SDK requests
+a UID prefix. Review bucket-wide name enumeration before approval. Check
+database and transaction permissions in addition to entity operations.
+Confirm the resolved Admin bucket, named DB override and Eventarc database
+filter. Read active revision identities, Scheduler OIDC and Eventarc
+invokers, project/ancestor and bucket policies, deny policies and role
+definitions. Verify effective access for these principals and denials on
+alternate prefixes and the default database. Separate build, deployment
+and invocation identities from runtime data permissions.
+
+Keep onPinDeleted at DO_NOT_RETRY initially. The scheduler recovers image
+cleanup, while child and progression failures require separate triage.
+Keep Scheduler request retries disabled initially and use the next tick.
+Watch overlap, queue lag and unresolved jobs. Preserve live progression
+retry settings until the seven redelivery changes receive separate approval.
+For the upload callable, retry finalization within the intent window.
+Interrupted begin or reserved uploads may require a fresh attempt and quota.
+
+Keep the deployed deleteUserAccount timeout in the first release. If live
+still matches 60 seconds, include the safer handler in a reviewed artifact
+that preserves 60 seconds. Both main and this PR declare 540 seconds, so
+deploying either as written would increase that historical live value.
+Keep the client at 550 seconds. Approve any server increase separately after
+staging timings, concurrent invocation, interruption and recovery testing.
+The deletion lock blocks new content but does not serialize callable
+invocations. Verify recovery of a stale lock after Auth deletion. A client
+timeout leaves the result unknown and image cleanup completes asynchronously.
+
+Production managed-image delivery verification remains open. Keep it separate
+from emulator CI. Rehearse actual browser rendering of pin feed, previews,
+details, profile pins, geographic clusters and avatars in a separately
+approved disposable environment. Include stale tabs, legacy assets, owner
+and non-owner avatar permissions, managed SDK denial and image cleanup.
+Public Firestore pin reads expose stored image URLs. Confirm the product
+accepts bearer access independently of UI visibility. UBLA disables object
+ACLs, and PAP status alone does not establish Firebase delivery behavior.
