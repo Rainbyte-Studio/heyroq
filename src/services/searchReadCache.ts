@@ -7,7 +7,8 @@ export function createSearchReadCache<T>(load: () => Promise<T>, ttlMs: number, 
     if (pending) return pending;
 
     const request = Promise.resolve().then(load).then(value => {
-      if (pending === request) cached = { value, expires: now() + ttlMs };
+      if (pending !== request) return read();
+      cached = { value, expires: now() + ttlMs };
       return value;
     }).finally(() => {
       if (pending === request) pending = undefined;

@@ -43,6 +43,24 @@ import { ListFilter, Map as MapIcon, Plus, Compass } from 'lucide-react';
 
 const AdminModal = lazy(() => import('./components/Admin/AdminModal').then(module => ({ default: module.AdminModal })));
 
+class AdminLoadBoundary extends React.Component<React.PropsWithChildren<{ onClose: () => void }>> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="fixed bottom-4 right-4 z-[100] rounded bg-white p-4 text-slate-900 shadow">
+        <p role="alert">Moderation could not load. Refresh the page to try again.</p>
+        <button type="button" onClick={this.props.onClose}>Dismiss</button>
+      </div>
+    );
+  }
+}
+
 function HeyroqMainApp() {
   const { user, profile } = useAuth();
 
@@ -913,15 +931,17 @@ function HeyroqMainApp() {
 
       {/* 4. Admin Moderation Modal */}
       {isAdminOpen && (
-        <Suspense fallback={null}>
-          <AdminModal
-            onClose={() => setIsAdminOpen(false)}
-            onSelectPin={(pin) => {
-              handleSelectPin(pin);
-              setMapCenter({ lat: pin.latitude, lng: pin.longitude });
-            }}
-          />
-        </Suspense>
+        <AdminLoadBoundary onClose={() => setIsAdminOpen(false)}>
+          <Suspense fallback={<p role="status" className="fixed bottom-4 right-4 z-[100] rounded bg-white p-4 text-slate-900 shadow">Loading moderation…</p>}>
+            <AdminModal
+              onClose={() => setIsAdminOpen(false)}
+              onSelectPin={(pin) => {
+                handleSelectPin(pin);
+                setMapCenter({ lat: pin.latitude, lng: pin.longitude });
+              }}
+            />
+          </Suspense>
+        </AdminLoadBoundary>
       )}
 
       {/* 5. Report Inappropriate Content Modal */}

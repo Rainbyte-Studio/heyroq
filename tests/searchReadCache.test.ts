@@ -23,3 +23,17 @@ test('a rejected Firestore read can be retried', async () => {
   await assert.rejects(cache.read(), /offline/);
   assert.equal(await cache.read(), 'restored');
 });
+
+test('invalidation prevents an in-flight read from returning stale data', async () => {
+  let finish!: (value: string) => void;
+  const stale = new Promise<string>(resolve => { finish = resolve; });
+  let reads = 0;
+  const cache = createSearchReadCache(() => ++reads === 1 ? stale : Promise.resolve('fresh'), 5000);
+  const original = cache.read();
+  await Promise.resolve();
+  cache.invalidate();
+  assert.equal(await cache.read(), 'fresh');
+  finish('stale');
+  assert.equal(await original, 'fresh');
+  assert.equal(reads, 2);
+});
