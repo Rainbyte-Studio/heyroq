@@ -9,18 +9,24 @@ export function makePinImageTransitionRules(finalRules) {
   }
   const maxImages = 20;
   const checks = Array.from({ length: maxImages }, (_, index) =>
-    `             (urls.size() <= ${index} || isLegacyPinImage(urls[${index}], data.userId))`);
-  const bucket = config.storageBucket.replaceAll('.', '[.]');
+    `             (count <= ${index} || isLegacyPinImage(urls[${index}], prefix, prefixLength))`);
   return finalRules.replace(strict + '\n    }', `let urls = data.get('imageUrls', []);
-      return urls is list && urls.size() <= ${maxImages} &&
+      return urls is list && (urls.size() == 0 || hasLegacyPinImages(urls, data.userId));
+    }
+
+    function hasLegacyPinImages(urls, uid) {
+      let count = urls.size();
+      let prefix = 'https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/pins%2F' + uid + '%2F';
+      let prefixLength = prefix.size();
+      return count <= ${maxImages} && uid.matches('[^%/?#]+') &&
 ${checks.join(' &&\n')};
     }
 
     // Accept the published timestamp-only filename and the later UUID variant.
-    function isLegacyPinImage(url, uid) {
+    function isLegacyPinImage(url, prefix, prefixLength) {
       return url is string && url.size() < 1024 &&
-             url.matches('https://firebasestorage[.]googleapis[.]com/v0/b/${bucket}/o/pins%2F[^%/?#]+%2F[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}') &&
-             url.split('%2F')[1] == uid;
+             url[0:prefixLength] == prefix &&
+             url[prefixLength:].matches('[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*[?]alt=media&token=[0-9a-f-]{36}');
     }`);
 }
 
