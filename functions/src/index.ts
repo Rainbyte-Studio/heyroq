@@ -4,9 +4,8 @@ import { getStorage } from 'firebase-admin/storage';
 import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/params';
 import {
-  GEOGRAPHY_RETRY_WINDOW_MS, geographyCityIds, geographyStartTime, resolvePinGeography,
+  GEOGRAPHY_RETRY_WINDOW_MS, geographyCityIds, normalizeGeographyCity,
   type ResolvedGeography,
 } from './progressionGeography';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
@@ -36,7 +35,6 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 
 export const FUNCTION_REGION = 'europe-west2';
-const geographyApiKey = defineSecret('GEOAPIFY_BOUNDARIES_KEY');
 
 interface PinGeography {
   pin: FirebaseFirestore.QueryDocumentSnapshot;
@@ -166,7 +164,8 @@ async function syncUserProgression(userId: string, geography?: PinGeography, con
   const pendingXpEvents: { id: string; event: any }[] = [];
   const location = geography?.location;
   if (location) {
-    const { countryCode, city, cityBoundaryId, attribution } = location;
+    const { countryCode, cityBoundaryId, attribution } = location;
+    const city = location.city ? normalizeGeographyCity(location.city) : null;
     const countryEventId = getCountryFirstEventId(countryCode);
     const createdAt = new Date().toISOString();
     if (!existingEventIds.has(countryEventId) && !historicalCountriesSet.has(countryCode)) {
@@ -868,15 +867,15 @@ export const onPinDeleted = onDocumentDeleted(
 
 export async function processPinCreationProgression(
   pin: FirebaseFirestore.QueryDocumentSnapshot,
-  startAt: number,
-  resolve: (latitude: number, longitude: number) => Promise<ResolvedGeography | null>,
+  startAt = Infinity,
+  resolve?: (latitude: number, longitude: number) => Promise<ResolvedGeography | null>,
 ) {
   const data = pin.data();
   const { userId, latitude, longitude } = data;
   if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_')) return;
 
   const createdAt = pin.createTime.toMillis();
-  if (!Number.isFinite(startAt) || createdAt < startAt || Date.now() < startAt ||
+  if (!resolve || !Number.isFinite(startAt) || createdAt < startAt || Date.now() < startAt ||
       Date.now() - createdAt >= GEOGRAPHY_RETRY_WINDOW_MS || !isActivePin(data) ||
       !discoveryLocationKey(latitude, longitude)) {
     await updateUserProgressionServer(userId);
@@ -914,16 +913,12 @@ export const onPinCreatedProgression = onDocumentCreated(
     document: 'pins/{pinId}',
     database: FIRESTORE_DATABASE_ID,
     region: FUNCTION_REGION,
-    secrets: [geographyApiKey],
     retry: true,
   },
   async (event) => {
     if (!event.data) return;
-    await processPinCreationProgression(
-      event.data,
-      geographyStartTime(process.env.GEOGRAPHY_XP_START_AT),
-      (latitude, longitude) => resolvePinGeography(latitude, longitude, geographyApiKey.value()),
-    );
+    // Geographic awards stay paused until a provider is approved for durable XP.
+    await processPinCreationProgression(event.data);
   }
 );
 

@@ -3,8 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getFirestore } = require('firebase-admin/firestore');
-const { processPinCreationProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
-const { resolvePinGeography } = require('../lib/progressionGeography.js');
+const { onPinCreatedProgression, processPinCreationProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
 
 if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.GCLOUD_PROJECT?.startsWith('demo-')) {
   throw new Error('Refusing progression integration test outside demo-* Firestore emulator');
@@ -70,11 +69,13 @@ test('geography XP and lifetime counts come from earned history', async () => {
   await legacyEvents.doc('country_first:GR').set(earnedCountry);
   await pins.doc('integration-geography-pin').set({
     userId: legacyUserId, title: 'Athens', latitude: 37.98381, longitude: 23.72754,
-    city: 'Paris', countryCode: 'FR', locationName: 'Paris, France',
+    city: 'Paris', country: 'France', countryCode: 'FR', geohash: 'untrusted', locationName: 'Paris, France',
     category: 'nature', description: 'Short', tags: [],
   });
 
-  await updateUserProgressionServer(legacyUserId);
+  const pin = await pins.doc('integration-geography-pin').get();
+  await Promise.all([onPinCreatedProgression.run({ data: pin }), onPinCreatedProgression.run({ data: pin })]);
+  assert.equal((await legacyProfile.collection('geographyPins').get()).empty, true);
 
   const geographyEvents = (await legacyEvents.get()).docs.filter(doc =>
     ['UNIQUE_CITY', 'UNIQUE_COUNTRY'].includes(doc.data().action));
@@ -88,7 +89,7 @@ test('geography XP and lifetime counts come from earned history', async () => {
   assert.ok(updated.xp > 175, 'ordinary discovery XP still advances');
 });
 
-test('new pins use server boundaries and geography awards are idempotent under concurrent delivery', async () => {
+test('new pins use server-resolved geography and geography awards are idempotent under concurrent delivery', async () => {
   const id = 'integration-verified-geography-user';
   const user = db.collection('users').doc(id);
   const ledger = user.collection('xpEvents');
@@ -107,21 +108,18 @@ test('new pins use server boundaries and geography awards are idempotent under c
     publish('integration-verified-one', 37.98381), publish('integration-verified-two', 37.98481),
   ]);
   let requests = 0;
-  const resolve = (latitude, longitude) => resolvePinGeography(latitude, longitude, 'test-key', async (url) => {
+  const resolve = async (latitude, longitude) => {
     requests++;
-    assert.equal(url.origin, 'https://api.geoapify.com');
-    assert.equal(url.searchParams.get('lat'), String(latitude));
-    assert.equal(url.searchParams.get('lon'), '23.72754');
-    assert.equal(url.searchParams.has('geohash'), false);
+    assert.equal(longitude, 23.72754);
     assert.ok([37.98381, 37.98481].includes(latitude));
-    return Response.json(boundaries('gr', 'Athens'));
-  });
+    return geographyFixture('GR', 'athens');
+  };
 
   await Promise.all([pinOne, pinTwo, pinOne].map(pin => processPinCreationProgression(pin, startAt, resolve)));
   const first = await ledger.get();
   const geography = first.docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
   assert.deepEqual(geography.map(doc => doc.id), ['city_first:GR:athens', 'country_first:GR']);
-  assert.equal(geography[0].data().attribution, 'OpenStreetMap contributors');
+  assert.equal(geography[0].data().attribution, 'Synthetic fixture');
   const metrics = user.collection('progression').doc('summary');
   const previous = (await metrics.get()).data();
   assert.equal(previous.citiesCount, 1);
@@ -134,9 +132,7 @@ test('new pins use server boundaries and geography awards are idempotent under c
   assert.equal((await ledger.get()).size, first.size);
 
   const secondCity = await publish('integration-verified-three', 37.95);
-  await processPinCreationProgression(secondCity, startAt, (latitude, longitude) =>
-    resolvePinGeography(latitude, longitude, 'test-key', async () =>
-      Response.json(boundaries('gr', 'Piraeus', 'abcdef2'))),
+  await processPinCreationProgression(secondCity, startAt, async () => geographyFixture('GR', 'piraeus', 'second-city'),
   );
   assert.equal((await ledger.doc('city_first:GR:piraeus').get()).exists, true);
   assert.equal((await ledger.doc('achievement:city_scout').get()).exists, true);
@@ -163,16 +159,12 @@ test('legacy pins are skipped and provider retries preserve prior awards and ord
   const ref = pins.doc('integration-geo-retry');
   await ref.set({ userId: id, latitude: 37.98, longitude: 23.72, createdAt: '2000-01-01T00:00:00Z' });
   const pin = await ref.get();
-  const retryable = (latitude, longitude) => resolvePinGeography(
-    latitude, longitude, 'secret-fixture', async () => new Response('', { status: 503 }),
-  );
+  const retryable = async () => { throw new Error('Geography verification unavailable'); };
   await assert.rejects(processPinCreationProgression(pin, startAt, retryable), /Geography verification unavailable/);
   assert.equal((await ledger.doc('country_first:GR').get()).exists, false);
   assert.ok((await ledger.get()).docs.some(doc => doc.data().action === 'PIN_CREATED'));
 
-  const verified = (latitude, longitude) => resolvePinGeography(
-    latitude, longitude, 'test-key', async () => Response.json(boundaries('gr', 'Athina')),
-  );
+  const verified = async () => geographyFixture('GR', 'athina');
   await processPinCreationProgression(pin, startAt, verified);
   await processPinCreationProgression(pin, startAt, verified);
   const earnedGeography = (await ledger.get()).docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
@@ -187,7 +179,7 @@ test('legacy pins are skipped and provider retries preserve prior awards and ord
   assert.equal((await ledger.doc('achievement:city_scout').get()).exists, false);
 });
 
-test('ambiguous boundary responses and pins edited during lookup do not create geographic awards', async () => {
+test('unresolved pins and pins edited during lookup do not create geographic awards', async () => {
   const id = 'integration-geo-ambiguous-user';
   const user = db.collection('users').doc(id);
   await user.set({ displayName: 'Boundaries Explorer' });
@@ -195,32 +187,20 @@ test('ambiguous boundary responses and pins edited during lookup do not create g
   const startAt = Date.now() - 1000;
   await ref.set({ userId: id, latitude: 37, longitude: 23 });
   const pin = await ref.get();
-  const mixed = boundaries('gr', 'Athens');
-  mixed.features.push(...boundaries('other', 'Athens').features, ...boundaries('fr', 'Paris').features);
-  const resolveMixed = (latitude, longitude) => resolvePinGeography(
-    latitude, longitude, 'test-key', async () => Response.json(mixed),
-  );
-  await processPinCreationProgression(pin, startAt, resolveMixed);
+  await processPinCreationProgression(pin, startAt, async () => null);
 
   const moved = pins.doc('integration-geo-moved');
   await moved.set({ userId: id, latitude: 37, longitude: 23 });
-  await processPinCreationProgression(await moved.get(), startAt, (latitude, longitude) =>
-    resolvePinGeography(latitude, longitude, 'test-key', async () => {
-      await moved.update({ latitude: 45 });
-      return Response.json(boundaries('gr', 'Athens'));
-    }),
+  await processPinCreationProgression(await moved.get(), startAt, async () => {
+    await moved.update({ latitude: 45 });
+    return geographyFixture('GR', 'athens');
+  },
   );
   const geography = (await user.collection('xpEvents').get()).docs.filter(doc =>
     doc.data().action.startsWith('UNIQUE_'));
   assert.deepEqual(geography, []);
 });
 
-function boundaries(countryCode, city, boundaryId = 'abcdef') {
-  return {
-    type: 'FeatureCollection',
-    features: [{ properties: {
-      country_code: countryCode, city, name: city, place_id: boundaryId,
-      datasource: { attribution: 'OpenStreetMap contributors' },
-    } }],
-  };
+function geographyFixture(countryCode, city, cityBoundaryId = 'first-city') {
+  return { countryCode, city, cityBoundaryId, attribution: 'Synthetic fixture' };
 }

@@ -1,55 +1,75 @@
-# Server-verified geography XP release
+# Geographic XP rollout
 
-Provider and activation require explicit operator approval. The server sends
-only pin coordinates to the [Geoapify Boundaries API](https://apidocs.geoapify.com/docs/boundaries/).
-It uses containing administrative/place boundaries. Geoapify is separate from
-the Google Maps and Google AI Studio setup. Review the provider agreement,
-coordinate processing, attribution, plan quota and overage behavior before
-creating credentials or enabling traffic. Use a plan with an approved spend
-limit. No paid Google API is required. No external calls run during CI.
-See [Geoapify pricing](https://www.geoapify.com/pricing/) and
-[storage and attribution terms](https://www.geoapify.com/geocoding-api/).
+New city and country awards are paused in this revision. The pin-create
+trigger runs ordinary progression in the existing named database without
+calling a geography provider. The existing transaction is covered with
+synthetic resolver results. Existing XP events, receipts, summary high-water
+marks and achievements stay available. There is no backfill or migration.
+A pin represents a location chosen by its author. Physical presence is unverified.
 
-## Activation
+## Google Geocoding approval gate
 
-1. Merge the dependency patch before the geography change. Build with Node 22
-   and verify the named database in the release checklist.
-2. In an approved staging Google Cloud project, set up Firebase Secret Manager
-   and store the API key as `GEOAPIFY_BOUNDARIES_KEY` with
-   `firebase functions:secrets:set GEOAPIFY_BOUNDARIES_KEY --project <project-id>`.
-   Give the pin-create function's execution identity access to that secret.
-   Secret Manager and Functions have their own Google Cloud billing.
-3. Set `GEOGRAPHY_XP_START_AT` in `functions/.env.<project-id>` to a future UTC
-   instant using `YYYY-MM-DDTHH:mm:ssZ`. Set it after the intended rollout time
-   and set it once per rollout. An omitted or invalid value pauses new geography
-   awards. The secret binding must still exist for this version to deploy.
-4. After approval, deploy the Functions in `europe-west2` using the existing
-   named Firestore database. For production the exact target is
-   `firebase deploy --project rainbyte-studio --only functions`. No Firestore
-   rules, indexes, data migration, or Firebase Hosting deployment is needed.
-   Publish the help-page attribution and privacy disclosure with the existing Google AI Studio
-   republish workflow before enabling production geography XP.
-5. In staging, validate city and country results for representative locations,
-   border and water locations, quotas, timeouts, and attribution. After production
-   approval, repeat a small smoke test with a disposable account and confirm
-   ledger totals. To pause new geographic awards, remove the start setting,
-   redeploy the pin-create function, and retain all history.
+Google describes [reverse geocoding](https://developers.google.com/maps/documentation/geocoding/reverse-geocoding)
+as an estimate of a nearby addressable location. It cannot establish polygon
+containment or reliably distinguish every coastal or border coordinate.
+A future Google integration would require an explicit product decision that
+city and country XP is based on an estimated pin location. If strict
+containment is required, keep awards paused for this provider.
 
-## Historical behavior
+Verify the billing account address and the governing agreement. The
+[EEA terms §3.2.3](https://cloud.google.com/terms/maps-platform/eea) and
+[standard terms §3.2.3](https://cloud.google.com/maps-platform/terms)
+restrict creating content based on Google Maps Content. The
+[EEA Geocoding terms §6](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms)
+limit use with maps and provide narrow caching permissions. The place ID
+exception in the [Geocoding policies](https://developers.google.com/maps/documentation/geocoding/policies)
+addresses caching. It does not itself authorize durable XP, geography counts,
+badges, or deduplication identities derived from Geocoding. Obtain a documented
+determination covering the actual license and these exact outputs before wiring an
+adapter. Seek custom licensing from Google Maps Platform Sales if required.
 
-The cutoff uses Firestore document creation time. Geography is evaluated only
-by the pin-create event. Legacy pins, edits and callable recalculation do not
-receive geographic backfill. Existing ledger entries, summary high-water marks,
-and unlocked achievements stay intact. Existing summary-only counts do not
-grant new geography achievements or associated XP. Country-only results can earn a country
-award. Missing or ambiguous results do not supply a city. The pin records a
-selected map location. No claim of physical presence is made.
+## Release without staging
 
-The XP ledger uses country plus normalized city name for legacy compatibility,
-with a hash for names the legacy ASCII normalizer cannot represent. Historical
-unscoped city awards conservatively suppress the same normalized name. Cities
-with indistinguishable normalized names in one country share an award. Existing
-deterministic award IDs and optional provider boundary IDs prevent duplicate
-geographic rewards. Provider timeouts, HTTP 429 and 5xx can retry only within
-the first hour after pin creation. Delivery retries can repeat provider calls
-and consume quota. Keep the old progression backfill scripts out of this rollout.
+1. After separate release approval, verify the production project is
+   `rainbyte-studio`, the function region is `europe-west2`, and the Firestore
+   database is `ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`.
+   Confirm the deployed revision and capture a rollback reference. Check whether
+   any previous geography resolver was active before scheduling the pause.
+2. Once checks pass, deploy only `functions:onPinCreatedProgression` to the
+   verified project and publish the corresponding help and privacy pages
+   through the existing Google AI Studio workflow. Remove obsolete provider
+   configuration from the rollout and review old secret access after confirming
+   no remaining consumers. No billing or new API is needed for this revision.
+3. Use a disposable account to publish a pin and verify ordinary XP, no new city
+   or country ledger events or receipts, and unchanged historical achievements.
+   Monitor trigger errors and ordinary XP after release. If rollback is needed,
+   verify the target revision has its geography activation disabled before
+   redeploying it.
+
+## Conditional follow-up for Google
+
+- Gate Google calls with a server-only switch defaulting off, a future UTC
+  server creation-time cutoff, and an initial allowlist of operator test
+  accounts. Disable the switch to stop calls and awards. Never backfill.
+- Send only pin coordinates via a bounded server-side request. Use dedicated
+  restricted credentials, avoid logging coordinates, API responses and keys,
+  and update disclosures and attribution before sending traffic. Review
+  existing browser map and label storage separately under the governing terms.
+- Approve the [Geocoding SKU and quota settings](https://developers.google.com/maps/documentation/geocoding/usage-and-billing).
+  Verify available quota controls in the actual project. Use a transactional
+  application-side request cap that counts attempts, including failures and
+  retries, plus billing alerts. A billing alert does not cap spend.
+- Reject missing or conflicting results, water or coarse-only responses, and
+  uncorroborated locality data. An unresolved or conflicting country precludes
+  both awards. Conflicting city results should yield no bonus. A confident
+  country result with no city can be considered independently only when there
+  is affirmative address-level evidence and no ambiguity. Test representative
+  inland, open-water, coastal and disputed-border coordinates. Keep the switch
+  off if this does not meet the agreed accuracy requirement.
+- Keep provider output in memory and review every Firestore write against the
+  approval, including identifiers, event payloads, receipts, counts and
+  achievements. Keep client labels and geohashes outside award decisions.
+  Preserve atomic ledger writes, concurrency protection, and legacy deduplication.
+  With separate production approval, run the restricted smoke test before
+  widening the allowlist. Monitor request rates, failures, award rates and
+  spend without recording precise coordinates or lookup content.
