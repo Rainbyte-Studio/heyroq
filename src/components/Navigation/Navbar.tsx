@@ -122,11 +122,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   const globalSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const globalSearchSeqRef = useRef(0);
   const mobileSearchToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileSearchPanelRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Global Search Debounce & Stale Request Guard
   useEffect(() => {
     const q = searchQuery.trim();
+    const seq = ++globalSearchSeqRef.current;
     if (globalSearchDebounceRef.current) {
       clearTimeout(globalSearchDebounceRef.current);
     }
@@ -147,7 +149,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
     setIsSearchingGlobal(true);
     globalSearchDebounceRef.current = setTimeout(async () => {
-      const seq = ++globalSearchSeqRef.current;
       try {
         const results = await executeGlobalSearch(q);
         if (seq !== globalSearchSeqRef.current) return;
@@ -175,7 +176,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     const handleOutsideClick = (e: MouseEvent) => {
       if (
         searchContainerRef.current &&
-        !searchContainerRef.current.contains(e.target as Node)
+        !searchContainerRef.current.contains(e.target as Node) &&
+        !mobileSearchPanelRef.current?.contains(e.target as Node)
       ) {
         setIsSearchFocused(false);
       }
@@ -520,8 +522,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             aria-expanded={mobileSearchOpen}
             aria-controls={mobileSearchOpen ? "mobile-search-panel" : undefined}
             onClick={() => {
-              setMobileSearchOpen((prev) => !prev);
-              if (!mobileSearchOpen) {
+              if (mobileSearchOpen) {
+                closeMobileSearch();
+              } else {
+                setMobileSearchOpen(true);
                 setIsSearchFocused(true);
               }
             }}
@@ -793,9 +797,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       {mobileSearchOpen && (
         <div
           id="mobile-search-panel"
+          ref={mobileSearchPanelRef}
           onKeyDown={event => {
             if (event.key === 'Escape') {
               event.preventDefault();
+              event.stopPropagation();
               closeMobileSearch();
             }
           }}
