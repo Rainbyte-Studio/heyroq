@@ -54,7 +54,7 @@ async function deleteAvatarGeneration(name: string, generation: string, metagene
   }
   const preconditionOpts = {
     ifGenerationMatch: generation,
-    ifMetagenerationMatch: metageneration,
+    ...(metageneration === undefined ? {} : { ifMetagenerationMatch: metageneration }),
   };
   await getAvatarBucket().file(name, { generation, preconditionOpts }).delete({ ignoreNotFound: true });
 }
