@@ -503,7 +503,10 @@ export async function deletePin(pinId: string, userId: string): Promise<void> {
   const pinRef = doc(db, PINS_COLLECTION, pinId);
 
   try {
-    await deleteDoc(pinRef);
+    await runTransaction(db, async tx => {
+      // Rules check the existing owner, so a repeated delete must stop here.
+      if ((await tx.get(pinRef)).exists()) tx.delete(pinRef);
+    });
     console.log('[Heyroq Pin Delete] Successfully deleted pin doc from Firestore:', { pinId, authUid });
 
     evictSessionPin(pinId);

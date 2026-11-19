@@ -9,9 +9,15 @@ The frontend is hosted by **Google AI Studio**, not Firebase Hosting. Do not dep
 
 ## Candidate and authorization
 
-PR #30 follow-up changes are a local candidate. Earlier CI results apply to
-the earlier head. Hold push, merge and any release action until checks and the
-relevant rollout gates are authorized. Use the geographic XP runbook for
+The `Frontend Release Candidate` workflow runs Chromium against local Auth,
+Firestore, Functions and Storage emulators. It builds a separate production
+frontend image and smoke-tests it locally using the Cloud Run port contract.
+The artifact records the source commit, image ID and checksums of both archives.
+Preserve the artifact from the validated run. After rollout approval, confirm
+the registry digest and verify the compatible revision on the existing
+frontend origin before assigning traffic.
+
+Merge and production actions require separate approval. Use the geographic XP runbook for
 pin-image transition, endpoint retry matching, avatar upload closure and deletion-queue recovery. Checked-in Functions runtime parity and both live cleanup dependencies are release gates.
 
 ## Before any production write
