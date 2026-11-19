@@ -117,9 +117,10 @@ The frontend preflight identifies active revision `heyroq-00022-nf2` in
 `us-west1`, source generation `1795026802945651`, and archive SHA-256
 `74b7a1c9b05002af3e6fc64fbc74f9f3d79aeba71a5a7ddbb3f181e3f31547c4`.
 It matched the public HTML and JS to the archive. The previous revision
-`heyroq-00021-qhf` was Ready at 0% and remains untested as a public restore
-target. The approved Git build and two older candidates did not reproduce the
-published assets under the tested conditions.
+`heyroq-00021-qhf` was Ready at 0%. Both revisions use legacy upload behavior
+and are ineligible for rollback after the managed image cutover. The approved
+Git build and two older candidates did not reproduce the published assets
+under the tested conditions.
 
 - A follow-up console read confirmed that `heyroq-00022-nf2` still received
   100% of traffic and exposed the same pinned source archive, with no build
@@ -142,14 +143,15 @@ published assets under the tested conditions.
   before the approved publish, then record the returned revision, archive
   generation/hash and served asset hashes. Treat Git provenance and
   recoverability of the deployed artifact as separate acceptance checks.
-- Immediately before an approved frontend change, re-read the live revision,
-  traffic, readiness, runtime dependencies and public hashes. If
-  `heyroq-00022-nf2` is still active, retain it as the frontend rollback target.
-  Under separate approval, set Cloud Run service `heyroq` in `us-west1` to
-  100% on that exact revision and verify `status.traffic`, HTTP health and
-  the saved HTML/JS hashes on the public and Run URLs. Capture the current
-  configuration first. A traffic update restores the published artifact, not
-  the AI Studio editor state; verify domain routing after changes.
+- Immediately before an approved frontend change, record the live revision,
+  traffic, readiness, runtime dependencies and public hashes. Stage a
+  compatible frontend from the verified artifact with zero traffic before
+  final Rules enforcement. Record its image digest and revision, and validate
+  it against the intended Rules, callable endpoints and client origin. After
+  separate traffic approval, route to that verified revision and check
+  `status.traffic`, HTTP health, served hashes and domain routing. A traffic
+  update restores the published artifact. The AI Studio editor snapshot has
+  its own restoration path.
 
 [AI Studio Build mode](https://ai.google.dev/gemini-api/docs/aistudio-build-mode)
 · [Cloud Build results](https://docs.cloud.google.com/build/docs/view-build-results)
