@@ -1,21 +1,32 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { connectAuthEmulator, getAuth } from 'firebase/auth';
 import {
   initializeFirestore,
+  connectFirestoreEmulator,
   getFirestore,
   persistentLocalCache,
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
-import { getStorage } from 'firebase/storage';
+import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
+import { connectStorageEmulator, getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const emulatorMode = typeof __HEYROQ_BROWSER_EMULATOR__ !== 'undefined' && __HEYROQ_BROWSER_EMULATOR__;
+const demoProject = 'demo-heyroq';
+if (emulatorMode && window.location.hostname !== '127.0.0.1') {
+  throw new Error('The emulator build requires 127.0.0.1.');
+}
+const app = emulatorMode ? initializeApp({
+  apiKey: demoProject,
+  projectId: demoProject,
+  storageBucket: `${demoProject}.appspot.com`,
+}, 'heyroq-browser-emulator') : (!getApps().length ? initializeApp(firebaseConfig) : getApp());
 
 // Initialize Services
 export const auth = getAuth(app);
+if (emulatorMode) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
 
 // Initialize Cloud Firestore:
 // We use experimentalAutoDetectLongPolling: true instead of experimentalForceLongPolling: true.
@@ -38,6 +49,11 @@ try {
 export const db = firestoreDb;
 export const functions = getFunctions(app, 'europe-west2');
 export const storage = getStorage(app);
+if (emulatorMode) {
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
 // Cap max retry time to prevent indefinite hanging (default is 10 minutes)
 storage.maxUploadRetryTime = 10000;
 storage.maxOperationRetryTime = 10000;

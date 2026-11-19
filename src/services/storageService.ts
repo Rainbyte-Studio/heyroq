@@ -1,13 +1,10 @@
+import { httpsCallable } from 'firebase/functions';
 import { uploadBatch } from './uploadBatch';
 import {
   ref,
-  uploadBytes,
-  uploadBytesResumable,
-  getDownloadURL,
   deleteObject,
-  type StorageReference,
 } from 'firebase/storage';
-import { auth, storage } from '../lib/firebase';
+import { auth, functions, storage } from '../lib/firebase';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -78,177 +75,94 @@ export function isOwnedProfileStorageUrl(url: string | undefined | null, userId:
   return url.includes(expectedPrefix) || url.includes(encodedPrefix);
 }
 
-/**
- * Wraps a promise with a timeout to prevent operations from hanging indefinitely
- * if the underlying network connection or retry loop becomes unresponsive.
- */
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      const timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
-      promise.finally(() => clearTimeout(timer)).catch(() => {});
-    }),
-  ]);
+export const MAX_PIN_IMAGES = 20;
+
+interface PinImageClaim {
+  protocol: 'server-v1';
+  userId: string;
+  pinId: string;
+  images: { uploadId: string; generation: string }[];
+  imageUrls: string[];
 }
 
-/**
- * Uploads a validated pin image directly to Firebase Storage and returns the public download URL.
- * Does NOT fallback to Base64 or local storage.
- */
-export async function uploadPinImage(file: File, userId: string): Promise<string> {
-  return (await uploadPinImageObject(file, userId)).downloadUrl;
+const pinImageUpload = httpsCallable(functions, 'pinImageUpload', { timeout: 65_000 });
+
+function pinImageType(file: File): string {
+  if (ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())) return file.type.toLowerCase();
+  const ext = file.name.split('.').at(-1)?.toLowerCase();
+  return 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
 }
 
-async function discardPinUpload(object: StorageReference): Promise<void> {
-  try {
-    await deleteObject(object);
-  } catch (error) {
-    if ((error as { code?: string } | null)?.code !== 'storage/object-not-found') {
-      console.warn('Pin upload cleanup failed:', error);
-    }
-  }
-}
-
-async function uploadPinImageObject(file: File, userId: string) {
-  if (!userId) {
-    throw new Error('Authentication required to upload photos.');
-  }
-
-  // Enforce strict client-side validation first
-  validateImageFile(file);
-
-  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-  const storageRef = ref(storage, `pins/${userId}/${Date.now()}_${crypto.randomUUID()}_${cleanFileName}`);
-  const upload = uploadBytes(storageRef, file, {
-    contentType: file.type || 'image/jpeg',
-    customMetadata: { uploadedBy: userId, uploadedAt: new Date().toISOString() },
+function encodePinImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the selected image.'));
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.readAsDataURL(file);
   });
-
-  try {
-    const snapshot = await withTimeout(
-      upload,
-      15000,
-      'Photo upload timed out after 15 seconds. Storage bucket may not exist or be reachable.'
-    );
-
-    const downloadUrl = await withTimeout(
-      getDownloadURL(snapshot.ref),
-      10000,
-      'Failed to retrieve photo download URL.'
-    );
-    return { downloadUrl, object: snapshot.ref };
-  } catch (error: any) {
-    // A timed-out upload can still finish. Clean up its unique object once it does.
-    void upload.then(snapshot => discardPinUpload(snapshot.ref), () => undefined);
-    console.error('Firebase Storage upload failed:', error);
-    let message = 'Failed to upload photo to Firebase Storage.';
-    if (error?.code === 'storage/unauthorized') {
-      message = 'Storage permission denied. Please verify your authentication status.';
-    } else if (error?.code === 'storage/canceled') {
-      message = 'Upload was canceled.';
-    } else if (error?.code === 'storage/quota-exceeded') {
-      message = 'Storage quota exceeded. Please try again later.';
-    } else if (error?.code === 'storage/retry-limit-exceeded' || error?.message?.includes('timed out')) {
-      message = 'Upload timed out. The storage server or bucket was unreachable.';
-    } else if (error?.status === 404 || error?.code === 'storage/unknown' || error?.message?.includes('404')) {
-      message = 'Firebase Storage bucket not found or not initialized in the Firebase project.';
-    } else if (error?.message) {
-      message = `Storage error: ${error.message}`;
-    }
-    throw new Error(message);
-  }
 }
 
-export async function uploadMultipleImages(files: File[], userId: string): Promise<string[]> {
-  // Validate all files prior to beginning uploads
-  for (const file of files) {
-    validateImageFile(file);
-  }
-
-  const uploads = await uploadBatch(files, file => uploadPinImageObject(file, userId), async completed => {
-    await Promise.all(completed.map(({ object }) => discardPinUpload(object)));
+export async function uploadMultipleImages(files: File[], pinId: string, requestedIncarnation: string) {
+  if (files.length > MAX_PIN_IMAGES) throw new Error('You can upload up to ' + MAX_PIN_IMAGES + ' photos.');
+  files.forEach(validateImageFile);
+  const uid = auth.currentUser?.uid;
+  const begin = await pinImageUpload({
+    action: 'begin', pinId, incarnation: requestedIncarnation, images: files.map(file => ({ size: file.size, type: pinImageType(file) })),
   });
-  return uploads.map(({ downloadUrl }) => downloadUrl);
+  // The previous callable chooses its own incarnation. Use the returned key
+  // for the entire session, including the eventual Firestore claim.
+  const { incarnation, uploadIds } = (begin.data ?? {}) as { incarnation?: string; uploadIds?: string[] };
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (typeof incarnation !== 'string' || !uuid.test(incarnation) ||
+      !Array.isArray(uploadIds) || uploadIds.length !== files.length ||
+      uploadIds.some(id => typeof id !== 'string' || !uuid.test(id)) ||
+      new Set(uploadIds).size !== uploadIds.length) {
+    throw new Error('The server did not return a valid image upload authorization.');
+  }
+  // Limit simultaneous encodes and requests, especially on mobile.
+  for (let index = 0; index < files.length; index += 2) {
+    const pair = files.slice(index, index + 2).map((file, offset) => ({ file, uploadId: uploadIds[index + offset] }));
+    await uploadBatch(pair, async ({ file, uploadId }) => pinImageUpload({
+      action: 'upload', incarnation, uploadId, content: await encodePinImage(file),
+    }));
+  }
+  const { data } = await pinImageUpload({ action: 'finish', incarnation });
+  const claim = data as PinImageClaim;
+  if (claim?.protocol !== 'server-v1' || claim.pinId !== pinId || claim.userId !== uid ||
+      !Array.isArray(claim.images) || !Array.isArray(claim.imageUrls) ||
+      claim.images.length !== uploadIds.length || claim.imageUrls.length !== uploadIds.length ||
+      claim.images.some((image, index) => image?.uploadId !== uploadIds[index])) {
+    throw new Error('The server did not confirm the authorized images.');
+  }
+  return { incarnation, claim };
 }
 
-/**
- * Uploads a user avatar image to Firebase Storage at profile-images/{userId}/{fileName}
- * with optional real-time progress reporting.
- * Enforces ownership matching authenticated userId and 10MB image limit.
- */
+const uploadProfileAvatar = httpsCallable<
+  { userId: string; content: string; contentType: string },
+  { downloadUrl: string }
+>(functions, 'uploadProfileAvatar', { timeout: 65_000 });
+
+/** Uploads an avatar through the server. Progress marks encode, send and confirmation. */
 export async function uploadProfileImageWithProgress(
   file: File,
   userId: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
 ): Promise<string> {
-  if (!userId) {
-    throw new Error('Authentication required to upload profile avatar.');
+  if (!userId || auth.currentUser?.uid !== userId) {
+    throw new Error('Sign in to upload your own profile photo.');
   }
-  if (auth.currentUser && auth.currentUser.uid !== userId) {
-    throw new Error('You can only upload a profile photo for your own account.');
-  }
-
   validateImageFile(file);
-
-  try {
-    const timestamp = Date.now();
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-    const storageRef = ref(storage, `profile-images/${userId}/${timestamp}_${cleanFileName}`);
-    const metadata = {
-      contentType: file.type || 'image/jpeg',
-      customMetadata: {
-        uploadedBy: userId,
-        uploadedAt: new Date().toISOString(),
-      },
-    };
-
-    onProgress?.(5);
-
-    const uploadPromise = new Promise<typeof storageRef>((resolve, reject) => {
-      const task = uploadBytesResumable(storageRef, file, metadata);
-      task.on(
-        'state_changed',
-        (snap) => {
-          if (snap.totalBytes > 0) {
-            const pct = Math.min(95, Math.max(5, Math.round((snap.bytesTransferred / snap.totalBytes) * 95)));
-            onProgress?.(pct);
-          }
-        },
-        (err) => reject(err),
-        () => resolve(task.snapshot.ref)
-      );
-    });
-
-    const uploadedRef = await withTimeout(
-      uploadPromise,
-      20000,
-      'Avatar upload timed out after 20 seconds. Please check your connection and try again.'
-    );
-
-    const downloadUrl = await withTimeout(
-      getDownloadURL(uploadedRef),
-      10000,
-      'Failed to retrieve avatar download URL.'
-    );
-    onProgress?.(100);
-    return downloadUrl;
-  } catch (error: any) {
-    console.error('Firebase Storage profile avatar upload failed:', error);
-    let message = 'Failed to upload avatar image.';
-    if (error?.code === 'storage/unauthorized') {
-      message = 'Storage permission denied. Please verify your authentication status.';
-    } else if (error?.code === 'storage/canceled') {
-      message = 'Avatar upload was canceled.';
-    } else if (error?.code === 'storage/quota-exceeded') {
-      message = 'Storage quota exceeded. Please try again later.';
-    } else if (error?.message) {
-      message = error.message.startsWith('Storage error:')
-        ? error.message
-        : `Storage error: ${error.message}`;
-    }
-    throw new Error(message);
+  onProgress?.(5);
+  const content = await encodePinImage(file);
+  if (auth.currentUser?.uid !== userId) throw new Error('The signed-in account changed.');
+  onProgress?.(15);
+  const { data } = await uploadProfileAvatar({ userId, content, contentType: pinImageType(file) });
+  if (auth.currentUser?.uid !== userId) throw new Error('The signed-in account changed.');
+  if (typeof data?.downloadUrl !== 'string' || !data.downloadUrl) {
+    throw new Error('The server did not confirm the avatar upload.');
   }
+  onProgress?.(100);
+  return data.downloadUrl;
 }
 
 /**
@@ -286,35 +200,3 @@ export async function deletePreviousProfileImage(oldUrl: string | undefined, use
     return false;
   }
 }
-
-/**
- * Safely deletes an array of pin images belonging to a user from Firebase Storage.
- */
-export async function deletePinImages(imageUrls: string[], userId: string): Promise<void> {
-  if (!imageUrls || !imageUrls.length || !userId) return;
-
-  const expectedPrefix = `pins/${userId}/`;
-  const encodedPrefix = encodeURIComponent(expectedPrefix);
-
-  for (const url of imageUrls) {
-    if (
-      !url ||
-      !url.includes('firebasestorage.googleapis.com') ||
-      (!url.includes(expectedPrefix) && !url.includes(encodedPrefix))
-    ) {
-      continue;
-    }
-
-    try {
-      const fileRef = ref(storage, url);
-      await deleteObject(fileRef);
-      console.log(`Deleted pin image file from storage: ${url}`);
-    } catch (err: any) {
-      if (err?.code !== 'storage/object-not-found') {
-        console.warn(`Notice deleting pin image from storage: ${err?.message || err}`);
-      }
-    }
-  }
-}
-
-

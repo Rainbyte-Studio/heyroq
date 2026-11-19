@@ -214,6 +214,63 @@ service cloud.firestore {
     // ---------------------------------------------------------
     // 2. Pins Collection: pins/{pinId}
     // ---------------------------------------------------------
+    function hasNewPinImageClaim(pinId, data) {
+      let incarnation = data.imageIncarnation;
+      let claim = /databases/$(database)/documents/pinImageClaims/$(incarnation);
+      let authorized = getAfter(claim).data;
+      return validIncarnation(incarnation) && !exists(claim) &&
+             authorized.pinId == pinId && authorized.userId == data.userId &&
+             authorized.imageUrls == data.get('imageUrls', []);
+    }
+
+    function validIncarnation(value) {
+      return value is string && value.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    }
+
+    function canPublishWithoutClaim(data) {
+      return data.get('imageUrls', []) == [];
+    }
+
+    // Only the server may produce an approval or upload receipt. The claim consumes it once.
+    match /pinImageClaims/{incarnation} {
+      allow create: if isNonAnonymous() && request.auth.token.firebase.get('tenant', '') == '' &&
+                    validIncarnation(incarnation) &&
+                    matchesImageApproval(incarnation, request.resource.data);
+    }
+
+    function matchesImageApproval(incarnation, data) {
+      let approved = get(/databases/$(database)/documents/pinImageApprovals/$(incarnation)).data;
+      let pin = /databases/$(database)/documents/pins/$(data.pinId);
+      return data == approved.claim && data.protocol == 'server-v1' &&
+             data.userId == request.auth.uid && request.time < approved.expiresAt &&
+             !exists(/databases/$(database)/documents/pinImageCleanupJobs/$(incarnation)) &&
+             !exists(pin) && getAfter(pin).data.imageIncarnation == incarnation &&
+             getAfter(pin).data.imageUrls == data.imageUrls;
+    }
+
+    // Retain an owner-only receipt even if the published pin is later removed.
+    match /users/{userId}/pinPublishReceipts/{pinId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isActiveUser(userId) &&
+                    request.resource.data.keys().hasOnly(['publishedAt']) &&
+                    request.resource.data.publishedAt == request.time &&
+                    !exists(/databases/$(database)/documents/pins/$(pinId)) &&
+                    getAfter(/databases/$(database)/documents/pins/$(pinId)).data.userId == userId &&
+                    getAfter(/databases/$(database)/documents/pins/$(pinId)).data.publishReceipt == true;
+    }
+
+    function hasValidPublishReceipt(pinId, data) {
+      let receipt = /databases/$(database)/documents/users/$(request.auth.uid)/pinPublishReceipts/$(pinId);
+      return !('publishReceipt' in data) ||
+             (data.publishReceipt == true && !exists(receipt) && existsAfter(receipt));
+    }
+
+    function canEngageWithPin(pinId) {
+      let pin = getAfter(/databases/$(database)/documents/pins/$(pinId)).data;
+      return pin.userId is string &&
+             !exists(/databases/$(database)/documents/accountDeletionLocks/$(pin.userId));
+    }
+
     match /pins/{pinId} {
       // Pins are publicly readable
       allow read: if true;
@@ -223,13 +280,18 @@ service cloud.firestore {
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
+                       hasValidPublishReceipt(pinId, request.resource.data) &&
+                       (("imageIncarnation" in request.resource.data)
+                         ? hasNewPinImageClaim(pinId, request.resource.data)
+                         : canPublishWithoutClaim(request.resource.data)) &&
                        (!('likeCount' in request.resource.data) || request.resource.data.likeCount == 0) &&
                        (!('commentCount' in request.resource.data) || request.resource.data.commentCount == 0);
 
       // Only the pin owner (or admin) may edit their pin
       // Owner UID, createdAt, counters and location fields cannot be modified by the client.
       // Author name/avatar may only change to the author's current canonical profile values.
-      allow update: if isSignedIn() && (
+      allow update: if isSignedIn() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls", "publishReceipt"]) && (
         (
           isOwner(resource.data.userId) && isActiveUser(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&
@@ -243,7 +305,9 @@ service cloud.firestore {
       );
 
       // Only the pin owner (or admin) may delete their pin
-      allow delete: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      allow delete: if isSignedIn() && (
+        (isOwner(resource.data.userId) && isActiveUser(resource.data.userId)) || isAdmin()
+      );
 
       // ---------------------------------------------------------
       // 3. Likes Subcollection: pins/{pinId}/likes/{userId}
@@ -251,7 +315,7 @@ service cloud.firestore {
       match /likes/{userId} {
         allow read: if true;
         // Only authenticated non-anonymous users may like; document ID must equal request.auth.uid
-        allow create, update: if isNonAnonymous() && isActiveUser(userId) &&
+        allow create, update: if isNonAnonymous() && isActiveUser(userId) && canEngageWithPin(pinId) &&
                                  request.auth.uid == userId &&
                                  (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid);
         // Only the user who liked can unlike (delete)
@@ -264,14 +328,14 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         // Authenticated non-anonymous users can create comments; author UID must equal request.auth.uid
-        allow create: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
+        allow create: if isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
                          request.resource.data.userId == request.auth.uid &&
                          (!('pinId' in request.resource.data) || request.resource.data.pinId == pinId) &&
                          isValidComment(request.resource.data) &&
                          hasCanonicalCommentIdentity(request.resource.data);
 
         // Only comment author can edit comment; author UID and createdAt cannot be changed
-        allow update: if isNonAnonymous() && isActiveUser(request.auth.uid) &&
+        allow update: if isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
                          isOwner(resource.data.userId) &&
                          request.resource.data.userId == resource.data.userId &&
                          request.resource.data.createdAt == resource.data.createdAt &&
@@ -291,7 +355,9 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.reporterId == request.auth.uid &&
-                       isValidReport(request.resource.data);
+                       isValidReport(request.resource.data) &&
+                       (request.resource.data.targetType != 'user' ||
+                        !exists(/databases/$(database)/documents/accountDeletionLocks/$(request.resource.data.targetId)));
       allow read, update, delete: if isAdmin();
     }
 

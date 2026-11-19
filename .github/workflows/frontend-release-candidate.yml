@@ -1,0 +1,70 @@
+name: Frontend Release Candidate
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - run: npm --prefix functions run build
+      - run: git diff --exit-code -- functions/lib
+      - name: Run browser against local emulators
+        env:
+          FIREBASE_CONFIG: '{"projectId":"demo-heyroq","storageBucket":"demo-heyroq.appspot.com"}'
+          GCLOUD_PROJECT: demo-heyroq
+          GOOGLE_CLOUD_PROJECT: demo-heyroq
+        run: |
+          export HEYROQ_CHROMIUM_EXECUTABLE="$(command -v google-chrome)"
+          "$HEYROQ_CHROMIUM_EXECUTABLE" --version
+          npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only auth,firestore,functions,storage 'node tests/browser/run.mjs'
+      - name: Build and exercise Cloud Run frontend image
+        shell: bash
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ github.event_name != 'pull_request' && vars.HEYROQ_GOOGLE_MAPS_BROWSER_KEY || '' }}
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          export GITHUB_SHA="$commit" SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          npm run build -- --mode production
+          mkdir -p runner-context artifact
+          cp -r dist release/frontend.Dockerfile release/frontend-server.mjs runner-context/
+          image="heyroq-frontend:$commit"
+          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$commit" -f runner-context/frontend.Dockerfile -t "$image" runner-context
+          container="$(docker run --detach --publish 127.0.0.1:18080:9090 --env PORT=9090 "$image")"
+          trap 'docker rm --force "$container" >/dev/null' EXIT
+          node release/smoke-frontend.mjs http://127.0.0.1:18080
+          docker image inspect --format '{{.Id}}' "$image" > artifact/IMAGE_ID
+          printf '%s\n' "$commit" > artifact/COMMIT
+          if [[ -n "$VITE_GOOGLE_MAPS_API_KEY" ]]; then
+            printf '%s\n' maps-configured > artifact/BUILD_PROFILE
+          else
+            printf '%s\n' smoke-only-no-maps-key > artifact/BUILD_PROFILE
+          fi
+          docker save "$image" | gzip -n > artifact/frontend-image.tar.gz
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -czf artifact/frontend-dist.tar.gz -C dist .
+          (cd artifact && sha256sum frontend-image.tar.gz frontend-dist.tar.gz COMMIT IMAGE_ID BUILD_PROFILE > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heyroq-frontend-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: artifact/
+          if-no-files-found: error

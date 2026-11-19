@@ -63,7 +63,7 @@ function resolveBuildDateIso(): string {
   return new Date().toISOString();
 }
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   const pkg = readCanonicalPackageMetadata();
   const gitCommitSha = resolveGitCommitSha();
   const buildDate = resolveBuildDateIso();
@@ -72,6 +72,7 @@ export default defineConfig(() => {
     appType: 'spa',
     plugins: [react(), tailwindcss()],
     define: {
+      __HEYROQ_BROWSER_EMULATOR__: mode === 'browser-emulator',
       __HEYROQ_PACKAGE_NAME__: JSON.stringify(pkg.name),
       __HEYROQ_APP_VERSION__: JSON.stringify(pkg.version),
       __HEYROQ_BUILD_DATE__: JSON.stringify(buildDate),

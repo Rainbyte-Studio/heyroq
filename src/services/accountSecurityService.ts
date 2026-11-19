@@ -92,6 +92,12 @@ export class AccountSecurityError extends Error {
  * Adapter interface enabling deterministic unit testing of all Account & Security workflows
  * without mutating production accounts, while defaulting to live Firebase v12 SDK operations.
  */
+interface DeleteAccountResponse {
+  success: boolean;
+  status?: 'deleting' | 'deleted';
+  message?: string;
+}
+
 export interface AuthSecurityAdapter<TUser extends MinimalSecurityUser = User> {
   reloadUser(user: TUser): Promise<void>;
   validatePasswordPolicy(password: string): Promise<{
@@ -113,7 +119,7 @@ export interface AuthSecurityAdapter<TUser extends MinimalSecurityUser = User> {
   sendVerificationEmail(user: TUser): Promise<void>;
   requestVerifyBeforeUpdateEmail(user: TUser, newEmail: string): Promise<void>;
   sendPasswordReset(email: string): Promise<void>;
-  callDeleteUserAccount(): Promise<{ success: boolean; message?: string }>;
+  callDeleteUserAccount(): Promise<DeleteAccountResponse>;
 }
 
 export const defaultFirebaseSecurityAdapter: AuthSecurityAdapter<User> = {
@@ -172,10 +178,10 @@ export const defaultFirebaseSecurityAdapter: AuthSecurityAdapter<User> = {
     await sendPasswordResetEmail(auth, email);
   },
   async callDeleteUserAccount() {
-    const callable = httpsCallable<Record<string, never>, { success: boolean; message?: string }>(
+    const callable = httpsCallable<Record<string, never>, DeleteAccountResponse>(
       functions,
       'deleteUserAccount',
-      { timeout: 550_000 }
+      { timeout: 30_000 }
     );
     const response = await callable({});
     return response.data;
@@ -260,7 +266,9 @@ export function mapAuthSecurityError(error: unknown): AccountSecurityErrorInfo {
   if (error instanceof AccountSecurityError) {
     return {
       code: error.code,
-      title: error.isCollision
+      title: error.code === 'functions/deletion-outcome-unknown'
+        ? 'Deletion status unknown'
+        : error.isCollision
         ? 'Sign-in method already linked elsewhere'
         : error.requiresReauth
           ? 'Verify your identity to continue'
@@ -780,13 +788,14 @@ export async function requestVerifiedEmailChange<TUser extends MinimalSecurityUs
 
 /**
  * Section 10: Authorized Self-Service Account Deletion via `deleteUserAccount` callable Cloud Function.
- * Never clears client session prematurely if backend deletion fails or requires recent reauthentication.
+ * Distinguishes an acknowledged request from confirmed completion and unknown outcomes.
  */
 export async function executeDeleteUserAccount<TUser extends MinimalSecurityUser = User>(
   user: TUser,
   confirmationText: string,
   adapter: AuthSecurityAdapter<TUser> = defaultFirebaseSecurityAdapter as unknown as AuthSecurityAdapter<TUser>
-): Promise<{ success: true; message: string }> {
+): Promise<{ status: 'deleting'; success: false; message: string } |
+  { status: 'deleted'; success: true; message: string }> {
   if (!user || !user.uid) {
     throw new AccountSecurityError('auth/no-current-user', 'You must be signed in to delete your account.');
   }
@@ -798,16 +807,28 @@ export async function executeDeleteUserAccount<TUser extends MinimalSecurityUser
     );
   }
 
-  const result = await adapter.callDeleteUserAccount();
-  if (!result || result.success !== true) {
-    throw new AccountSecurityError(
-      'functions/deletion-incomplete',
-      'Account deletion did not complete on the server. Your session was preserved so you can safely retry.'
-    );
+  let result: DeleteAccountResponse | undefined;
+  try {
+    result = await adapter.callDeleteUserAccount();
+  } catch (error) {
+    if (isRecentLoginRequiredError(error)) throw error;
   }
-
-  return {
-    success: true,
-    message: result.message || 'Your Heyroq account and associated data have been permanently deleted.',
-  };
+  if (result?.success === true && (result.status === 'deleted' || result.status === undefined)) {
+    return {
+      status: 'deleted',
+      success: true,
+      message: result.message || 'Your Heyroq account and associated data have been deleted.',
+    };
+  }
+  if (result?.status === 'deleting' && result.success === false) {
+    return {
+      status: 'deleting',
+      success: false,
+      message: 'Heyroq received your request. Deletion continues after you close this window. Final photo cleanup can take several days.',
+    };
+  }
+  throw new AccountSecurityError(
+    'functions/deletion-outcome-unknown',
+    'Heyroq could not confirm the result. If you can still sign in, submit the same request again. If you cannot sign in, contact support to confirm deletion.',
+  );
 }

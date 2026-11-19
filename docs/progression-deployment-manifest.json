@@ -1,0 +1,318 @@
+{
+  "project": "rainbyte-studio",
+  "approvedBase": "08e5cae04ee8da46eb5726777ed76ea64fc8ab4c",
+  "codebase": "default",
+  "source": "functions",
+  "entryModule": "lib/index.js",
+  "runtime": "nodejs22",
+  "platform": "gcfv2",
+  "region": "europe-west2",
+  "firestore": {
+    "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+    "location": "us-west1",
+    "namespace": "(default)"
+  },
+  "observedServiceDefaults": {
+    "cpu": 1,
+    "memoryMiB": 256,
+    "concurrency": 80,
+    "timeoutSeconds": 60,
+    "serviceAccountForOriginalEight": "856895300361-compute@developer.gserviceaccount.com"
+  },
+  "additionalEndpointsConsoleSnapshot": {
+    "sourceObject": "gs://gcf-v2-sources-856895300361-europe-west2/onPinCreatedProgression/function-source.zip",
+    "sourceGeneration": "1794935874000125",
+    "imageDigest": "sha256:602c534df93c8a3cb36c108fe79802abcbffa7e773fb3f2da006d8e105e58449",
+    "activeRevisionTrafficPercent": 100,
+    "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com"
+  },
+  "functions": {
+    "pinImageUpload": {
+      "trigger": { "type": "httpsCallable" },
+      "desiredTimeoutSeconds": 60,
+      "memoryMiB": 512,
+      "concurrency": 2,
+      "maxInstances": 8
+    },
+    "uploadProfileAvatar": {
+      "trigger": { "type": "httpsCallable" },
+      "desiredTimeoutSeconds": 60,
+      "memoryMiB": 512,
+      "concurrency": 2,
+      "maxInstances": 8,
+      "dependsOn": ["namedFirestoreRules", "onAccountAvatarFinalized", "onUserProfileUpdated"]
+    },
+    "onAccountAvatarFinalized": {
+      "region": "us-west1",
+      "trigger": {
+        "type": "google.cloud.storage.object.v1.finalized",
+        "bucket": "rainbyte-studio.firebasestorage.app",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "releaseGate": "Verify the bucket location, Eventarc delivery and retry, named database lock read and generation-scoped prefix deletion."
+    },
+    "reconcilePinImageCleanup": {
+      "trigger": {
+        "type": "schedule",
+        "schedule": "*/5 * * * *",
+        "timeZone": "UTC",
+        "retryCount": 0
+      },
+      "desiredTimeoutSeconds": 60,
+      "maxInstances": 1
+    },
+    "onPinCreatedProgression": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpincreatedprogression-00001-zad",
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onpincreatedprogression-137532",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinLikeCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}/likes/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpinlikecreated-00002-ver",
+        "sourceGeneration": "1794935922754012",
+        "eventarcTrigger": "onpinlikecreated-237095",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinLikeDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}/likes/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpinlikedeleted-00002-yuy",
+        "sourceGeneration": "1794935922727534",
+        "eventarcTrigger": "onpinlikedeleted-398095",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinCommentCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "pins/{pinId}/comments/{commentId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "counter-only",
+      "preflight": {
+        "revision": "onpincommentcreated-00002-sus",
+        "sourceGeneration": "1794935922210537",
+        "eventarcTrigger": "onpincommentcreated-837229",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onPinCommentDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}/comments/{commentId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "counter-only",
+      "preflight": {
+        "revision": "onpincommentdeleted-00002-xoq",
+        "sourceGeneration": "1794935922268044",
+        "eventarcTrigger": "onpincommentdeleted-629181",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onUserFollowerCreated": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.created",
+        "document": "users/{targetUserId}/followers/{followerId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserfollowercreated-00002-tij",
+        "sourceGeneration": "1794935922231647",
+        "eventarcTrigger": "onuserfollowercreated-459541",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "onUserFollowerDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "users/{targetUserId}/followers/{followerId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserfollowerdeleted-00002-foy",
+        "sourceGeneration": "1794935922813037",
+        "eventarcTrigger": "onuserfollowerdeleted-637552",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      }
+    },
+    "deleteUserAccount": {
+      "trigger": {
+        "type": "httpsCallable"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "indirect",
+      "preflight": {
+        "revision": "deleteuseraccount-00002-bey",
+        "sourceGeneration": "1794935922063323",
+        "eventarcTrigger": null,
+        "retryPolicy": null,
+        "timeoutSeconds": 60
+      },
+      "preserveExternalChanges": true,
+      "releaseGate": "Capture deployed callable runtime options before rollout. Preserve the observed live timeout and verify it afterward.",
+      "dependsOn": [
+        "reconcileAccountDeletion",
+        "namedFirestoreRules",
+        "accountDeletionAwareFrontend",
+        "storageRulesDenyDirectAvatarWrites",
+        "onAccountAvatarFinalized",
+        "onAuthUserDeleted",
+        "onUserProfileUpdated"
+      ]
+    },
+    "onPinDeleted": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.deleted",
+        "document": "pins/{pinId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onpindeleted-00002-baw",
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onpindeleted-858893",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "releaseGate": "Reconfirm the recorded Functions API retry policy before deploying this endpoint."
+    },
+    "onUserProfileUpdatedProgression": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "users/{userId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "onuserprofileupdatedprogression-00001-guv",
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": "onuserprofileupdatedprogression-614944",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "releaseGate": "Reconfirm the recorded Functions API retry policy before deploying this endpoint."
+    },
+    "recalculateProgression": {
+      "trigger": {
+        "type": "httpsCallable"
+      },
+      "desiredTimeoutSeconds": 60,
+      "legacyGeography": "direct",
+      "preflight": {
+        "revision": "recalculateprogression-00001-hex",
+        "sourceGeneration": "1794935874000125",
+        "eventarcTrigger": null,
+        "retryPolicy": null
+      }
+    },
+    "reconcileAccountDeletion": {
+      "trigger": {
+        "type": "schedule",
+        "schedule": "* * * * *",
+        "timeZone": "UTC",
+        "retryCount": 0
+      },
+      "desiredTimeoutSeconds": 120,
+      "maxInstances": 1,
+      "queue": "accountDeletionLocks/{userId}",
+      "leaseSeconds": 180,
+      "avatarDrainSeconds": 691200,
+      "legacyAdoptionEnv": "ACCOUNT_DELETION_LEGACY_ADOPTION",
+      "legacyAdoptionCheckpoint": "_maintenance/accountDeletionLegacyScan",
+      "dependsOn": [
+        "storageRulesDenyDirectAvatarWrites",
+        "onAccountAvatarFinalized",
+        "onAuthUserDeleted",
+        "onUserProfileUpdated",
+        "reconcilePinImageCleanup"
+      ]
+    },
+    "onUserProfileUpdated": {
+      "region": "europe-west2",
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "users/{userId}",
+        "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+        "namespace": "(default)",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "preserveExternalChanges": true,
+      "preflight": {
+        "revision": "onuserprofileupdated-00001-kiz",
+        "activeRevisionTrafficPercent": 100,
+        "sourceObject": "gs://gcf-v2-sources-856895300361-europe-west2/onUserProfileUpdated/function-source.zip",
+        "sourceGeneration": "1789396436664452",
+        "sourceArchiveSha256": "66a36d171586e5984b2682e3daf4b8b625eb7db952131746af28773b98099314",
+        "eventarcTrigger": "projects/rainbyte-studio/locations/us-west1/triggers/onuserprofileupdated-184598",
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "releaseGate": "Upgrade the existing endpoint in place and drain the unsafe revision before avatar upload cutover or deletion intake. Verify effective IAM, filters, trigger identity and candidate revision. Use generation-safe forward recovery."
+    }
+  },
+  "liveDependenciesOutsideRollout": {
+    "onAuthUserDeleted": {
+      "platform": "gcfv1",
+      "purpose": "Legacy Auth user-deletion trigger",
+      "trigger": {
+        "type": "firebase.auth.user.delete",
+        "retryPolicy": null
+      },
+      "releaseGate": "Block account deletion until live source, region, runtime identity, failure policy and UID-scoped Auth delete side effects are verified. Keep outside deploy, rollback and deletion selectors."
+    }
+  },
+  "schedulerApproval": {
+    "service": "cloudscheduler.googleapis.com",
+    "lastReportedState": "ENABLED",
+    "functions": [
+      "reconcilePinImageCleanup",
+      "reconcileAccountDeletion"
+    ],
+    "releaseGate": "Reconfirm API and service-agent state with read-only checks. Require separate production approval for IAM and job creation or changes. See IDENTITY_RELEASE.md for private HTTP targets, OIDC, and verification."
+  }
+}

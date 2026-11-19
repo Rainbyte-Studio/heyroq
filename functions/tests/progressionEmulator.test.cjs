@@ -2,11 +2,12 @@
 // Never connect this suite to production or use real service-account credentials.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { getFirestore } = require('firebase-admin/firestore');
-const { onPinCreatedProgression, processPinCreationProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
+const { onPinCreatedProgression, updateUserProgressionServer, FIRESTORE_DATABASE_ID } = require('../lib/index.js');
 
-if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.GCLOUD_PROJECT?.startsWith('demo-')) {
-  throw new Error('Refusing progression integration test outside demo-* Firestore emulator');
+if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
+    process.env.GCLOUD_PROJECT !== 'demo-heyroq') {
+  throw new Error('Refusing progression integration test outside the local demo-heyroq emulator');
 }
 
 const db = getFirestore(FIRESTORE_DATABASE_ID);
@@ -15,6 +16,26 @@ const profile = db.collection('users').doc(userId);
 const events = profile.collection('xpEvents');
 const summary = profile.collection('progression').doc('summary');
 const pins = db.collection('pins');
+
+async function postToScheduledWorker(handler) {
+  let status;
+  let ended = false;
+  const response = {
+    status(code) {
+      status = code;
+      return this;
+    },
+    end() {
+      ended = true;
+    },
+    sendStatus(code) {
+      this.status(code).end();
+    },
+  };
+  await handler({ method: 'POST', headers: {} }, response);
+  assert.equal(status, 204);
+  assert.equal(ended, true);
+}
 
 test('account report cleanup paginates submitted and targeted reports and remains safe to retry', async () => {
   const { cleanAccountReports } = require('../lib/index.js');
@@ -117,121 +138,172 @@ test('geography XP and lifetime counts come from earned history', async () => {
   assert.ok(updated.xp > 175, 'ordinary discovery XP still advances');
 });
 
-test('new pins use server-resolved geography and geography awards are idempotent under concurrent delivery', async () => {
-  const id = 'integration-verified-geography-user';
-  const user = db.collection('users').doc(id);
-  const ledger = user.collection('xpEvents');
-  await user.set({ displayName: 'Verified Explorer' });
-  const startAt = Date.now() - 1000;
-  const publish = async (pinId, latitude) => {
-    const ref = pins.doc(pinId);
-    await ref.set({
-      userId: id, title: 'Map pin', latitude, longitude: 23.72754,
-      city: 'Paris', country: 'France', countryCode: 'FR', geohash: 'untrusted',
-      category: 'nature', description: 'Short', tags: [],
-    });
-    return ref.get();
-  };
-  const [pinOne, pinTwo] = await Promise.all([
-    publish('integration-verified-one', 37.98381), publish('integration-verified-two', 37.98481),
-  ]);
-  let requests = 0;
-  const resolve = async (latitude, longitude) => {
-    requests++;
-    assert.equal(longitude, 23.72754);
-    assert.ok([37.98381, 37.98481].includes(latitude));
-    return geographyFixture('GR', 'athens');
+
+const functions = require('../lib/index.js');
+
+test('every progression caller keeps geography frozen and replays without adding ledger entries', async () => {
+  const cases = {
+    onPinCreatedProgression: ({ pin }) => ({ data: pin }),
+    onPinLikeCreated: ({ pin }) => ({ params: { pinId: pin.id } }),
+    onPinLikeDeleted: ({ pin }) => ({ params: { pinId: pin.id } }),
+    onUserFollowerCreated: ({ id }) => ({ params: { targetUserId: id, followerId: 'matrix-follower' } }),
+    onUserFollowerDeleted: ({ id }) => ({ params: { targetUserId: id, followerId: 'matrix-follower' } }),
+    onPinDeleted: ({ id, pin }) => ({
+      params: { pinId: pin.id + '-deleted' }, data: { data: () => ({ userId: id }) },
+    }),
+    onUserProfileUpdatedProgression: ({ id }) => ({
+      params: { userId: id },
+      data: { before: { data: () => ({}) }, after: { data: () => ({ bio: 'Updated bio' }) } },
+    }),
+    recalculateProgression: ({ id }) => ({ auth: { uid: id, token: {} } }),
   };
 
-  await Promise.all([pinOne, pinTwo, pinOne].map(pin => processPinCreationProgression(pin, startAt, resolve)));
-  const first = await ledger.get();
-  const geography = first.docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(geography.map(doc => doc.id), ['city_first:GR:athens', 'country_first:GR']);
-  assert.equal(geography[0].data().attribution, 'Synthetic fixture');
-  const metrics = user.collection('progression').doc('summary');
-  const previous = (await metrics.get()).data();
-  assert.equal(previous.citiesCount, 1);
-  assert.equal(previous.countriesCount, 1);
-  assert.equal(previous.xp, first.docs.reduce((xp, event) => xp + event.data().xpEarned, 0));
-  const completedRequests = requests;
-  await processPinCreationProgression(pinOne, startAt, resolve);
-  assert.equal(requests, completedRequests, 'committed delivery is skipped before the provider request');
-  assert.equal((await metrics.get()).data().xp, previous.xp);
-  assert.equal((await ledger.get()).size, first.size);
+  for (const [name, makeEvent] of Object.entries(cases)) {
+    const id = 'matrix-' + name;
+    const user = db.collection('users').doc(id);
+    const ledger = user.collection('xpEvents');
+    const metrics = user.collection('progression').doc('summary');
+    const badges = user.collection('achievements');
+    const pinRef = pins.doc(id);
+    const historicalCity = { action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25 };
+    const historicalCountry = { action: 'UNIQUE_COUNTRY', referenceId: 'GR', xpEarned: 150 };
+    await db.batch()
+      .set(user, { displayName: id })
+      .set(metrics, { xp: 575, citiesCount: 5, countriesCount: 3 })
+      .set(badges.doc('city_scout'), { isUnlocked: true, unlockedAt: '2025-01-01T00:00:00Z' })
+      .set(ledger.doc('city_first:athens:GR'), historicalCity)
+      .set(ledger.doc('country_first:GR'), historicalCountry)
+      .set(pinRef, {
+        userId: id, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR',
+      })
+      .commit();
 
-  const secondCity = await publish('integration-verified-three', 37.95);
-  await processPinCreationProgression(secondCity, startAt, async () => geographyFixture('GR', 'piraeus', 'second-city'),
-  );
-  assert.equal((await ledger.doc('city_first:GR:piraeus').get()).exists, true);
-  assert.equal((await ledger.doc('achievement:city_scout').get()).exists, true);
-  assert.equal((await metrics.get()).data().citiesCount, 2);
+    const event = makeEvent({ id, pin: await pinRef.get() });
+    await functions[name].run(event);
+    const initial = await ledger.get();
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'PIN_CREATED'), name);
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'FIRST_DISCOVERY'), name);
+    assert.ok(initial.docs.some(doc => doc.get('action') === 'ACHIEVEMENT_UNLOCKED'), name);
+    assert.deepEqual(initial.docs.filter(doc => doc.get('action').startsWith('UNIQUE_'))
+      .map(doc => [doc.id, doc.data()]), [
+      ['city_first:athens:GR', historicalCity],
+      ['country_first:GR', historicalCountry],
+    ], name);
+    const updated = (await metrics.get()).data();
+    assert.equal(updated.xp, 400 + initial.docs.reduce((xp, doc) => xp + doc.get('xpEarned'), 0), name);
+    assert.equal(updated.citiesCount, 5, name);
+    assert.equal(updated.countriesCount, 3, name);
+    assert.equal((await badges.doc('city_scout').get()).get('unlockedAt'), '2025-01-01T00:00:00Z', name);
+    assert.equal((await badges.doc('metro_hopper').get()).get('isUnlocked'), false, name);
+    assert.equal((await user.collection('geographyPins').get()).empty, true, name);
+
+    await Promise.all([functions[name].run(event), functions[name].run(event)]);
+    assert.deepEqual((await ledger.get()).docs.map(doc => doc.data()), initial.docs.map(doc => doc.data()), name);
+    assert.equal((await metrics.get()).get('xp'), updated.xp, name);
+  }
 });
 
-test('legacy pins are skipped and provider retries preserve prior awards and ordinary XP', async () => {
-  const id = 'integration-geo-retry-user';
-  const user = db.collection('users').doc(id);
-  const ledger = user.collection('xpEvents');
-  await user.set({ displayName: 'Legacy Retry Explorer' });
-  await user.collection('progression').doc('summary').set({ xp: 425, citiesCount: 5 });
-  const badges = user.collection('achievements');
-  await badges.doc('city_scout').set({ isUnlocked: true, unlockedAt: '2025-01-01T00:00:00Z' });
-  const oldAward = { action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25 };
-  await ledger.doc('city_first:athens:GR').set(oldAward);
-  const legacy = pins.doc('integration-geo-old');
-  await legacy.set({ userId: id, latitude: 5, longitude: 5, createdAt: '2099-01-01T00:00:00Z' });
-  const legacyPin = await legacy.get();
-  const startAt = legacyPin.createTime.toMillis() + 1;
-  await processPinCreationProgression(legacyPin, startAt, async () => assert.fail('legacy lookup'));
-  await new Promise(resolve => setTimeout(resolve, 10));
-
-  const ref = pins.doc('integration-geo-retry');
-  await ref.set({ userId: id, latitude: 37.98, longitude: 23.72, createdAt: '2000-01-01T00:00:00Z' });
-  const pin = await ref.get();
-  const retryable = async () => { throw new Error('Geography verification unavailable'); };
-  await assert.rejects(processPinCreationProgression(pin, startAt, retryable), /Geography verification unavailable/);
-  assert.equal((await ledger.doc('country_first:GR').get()).exists, false);
-  assert.ok((await ledger.get()).docs.some(doc => doc.data().action === 'PIN_CREATED'));
-
-  const verified = async () => geographyFixture('GR', 'athina');
-  await processPinCreationProgression(pin, startAt, verified);
-  await processPinCreationProgression(pin, startAt, verified);
-  const earnedGeography = (await ledger.get()).docs.filter(doc => doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(earnedGeography.map(doc => doc.id), ['city_first:athens:GR', 'country_first:GR']);
-  assert.deepEqual((await ledger.doc('city_first:athens:GR').get()).data(), oldAward);
-  assert.equal((await badges.doc('city_scout').get()).data().unlockedAt, '2025-01-01T00:00:00Z');
-  assert.equal((await badges.doc('metro_hopper').get()).data().isUnlocked, false);
-  const summary = (await user.collection('progression').doc('summary').get()).data();
-  assert.equal(summary.citiesCount, 5);
-  const ledgerXp = (await ledger.get()).docs.reduce((xp, event) => xp + event.data().xpEarned, 0);
-  assert.equal(summary.xp, ledgerXp + 400, 'new awards add to the legacy XP balance');
-  assert.equal((await ledger.doc('achievement:city_scout').get()).exists, false);
+test('all compiled endpoints match the deployment manifest, including retry policy', () => {
+  const manifest = require('../../docs/progression-deployment-manifest.json');
+  const names = Object.keys(functions).filter(name => functions[name].__endpoint);
+  assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
+  for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances, region, releaseGate }] of Object.entries(manifest.functions)) {
+    const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
+    assert.deepEqual(endpoint.region, [region ?? manifest.region], name);
+    assert.equal(endpoint.platform, manifest.platform, name);
+    if (desiredTimeoutSeconds === null) {
+      assert.equal(endpoint.timeoutSeconds ?? null, null, name);
+    } else {
+      assert.equal(endpoint.timeoutSeconds ?? manifest.observedServiceDefaults.timeoutSeconds, desiredTimeoutSeconds, name);
+    }
+    if (memoryMiB != null) assert.equal(endpoint.availableMemoryMb, memoryMiB, name);
+    if (concurrency != null) assert.equal(endpoint.concurrency, concurrency, name);
+    if (maxInstances != null) assert.equal(endpoint.maxInstances, maxInstances, name);
+    if (trigger.type === 'schedule') {
+      assert.deepEqual(endpoint.httpsTrigger?.invoker, ['private'], name);
+      assert.equal(endpoint.scheduleTrigger, undefined, name);
+      assert.equal(endpoint.concurrency, 1, name);
+      continue;
+    }
+    if (trigger.type === 'httpsCallable') {
+      assert.ok(endpoint.callableTrigger, name);
+      continue;
+    }
+    assert.equal(endpoint.eventTrigger.eventType, trigger.type, name);
+    if (trigger.bucket) {
+      assert.equal(endpoint.eventTrigger.eventFilters.bucket, trigger.bucket, name);
+    } else {
+      assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, trigger.document, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.database, manifest.firestore.database, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.namespace, manifest.firestore.namespace, name);
+    }
+    if (trigger.retryPolicy === null) {
+      assert.ok(releaseGate, name);
+    } else {
+      assert.equal(endpoint.eventTrigger.retry, trigger.retryPolicy === 'RETRY_POLICY_RETRY', name);
+    }
+  }
 });
 
-test('unresolved pins and pins edited during lookup do not create geographic awards', async () => {
-  const id = 'integration-geo-ambiguous-user';
-  const user = db.collection('users').doc(id);
-  await user.set({ displayName: 'Boundaries Explorer' });
-  const ref = pins.doc('integration-geo-boundary');
-  const startAt = Date.now() - 1000;
-  await ref.set({ userId: id, latitude: 37, longitude: 23 });
-  const pin = await ref.get();
-  await processPinCreationProgression(pin, startAt, async () => null);
+test('account deletion and downstream replay preserve the surviving user ledger', async () => {
+  assert.match(process.env.FIREBASE_AUTH_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  assert.match(process.env.FIREBASE_STORAGE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const uid = 'matrix-departing-user';
+  const survivorId = 'matrix-surviving-user';
+  const departing = db.collection('users').doc(uid);
+  const survivor = db.collection('users').doc(survivorId);
+  const pin = pins.doc('matrix-surviving-pin');
+  const like = pin.collection('likes').doc(uid);
+  const comment = pin.collection('comments').doc('matrix-comment');
+  const follower = survivor.collection('followers').doc(uid);
+  const legacyImage = require('firebase-admin/storage').getStorage().bucket().file('pins/' + uid + '/legacy.png');
+  await legacyImage.save('referenced legacy image');
+  await db.batch().set(departing, {}).set(survivor, { followersCount: 1 })
+    .set(pin, { userId: survivorId, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR' })
+    .set(like, { userId: uid }).set(comment, { userId: uid }).set(follower, { followerId: uid })
+    .set(departing.collection('following').doc(survivorId), {}).commit();
 
-  const moved = pins.doc('integration-geo-moved');
-  await moved.set({ userId: id, latitude: 37, longitude: 23 });
-  await processPinCreationProgression(await moved.get(), startAt, async () => {
-    await moved.update({ latitude: 45 });
-    return geographyFixture('GR', 'athens');
-  },
-  );
-  const geography = (await user.collection('xpEvents').get()).docs.filter(doc =>
-    doc.data().action.startsWith('UNIQUE_'));
-  assert.deepEqual(geography, []);
+  const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
+  const ledger = survivor.collection('xpEvents');
+  const lock = db.collection('accountDeletionLocks').doc(uid);
+  assert.deepEqual(await functions.deleteUserAccount.run(request), { success: false, status: 'deleting' });
+  assert.equal((await lock.get()).get('phase'), 'likes');
+  assert.equal((await departing.get()).exists, true);
+  for (let tick = 0; tick < 6 && (await lock.get()).get('phase') !== 'verifyAvatars'; tick++) {
+    await postToScheduledWorker(functions.reconcileAccountDeletion);
+  }
+  const verifying = await lock.get();
+  assert.equal(verifying.get('phase'), 'verifyAvatars');
+  assert.equal(verifying.get('status'), 'deleting');
+  assert.equal(verifying.get('readyAt').isEqual(verifying.get('avatarDrainUntil')), true);
+  // Advance this existing fixture past the production drain window.
+  const past = Timestamp.fromMillis(Date.now() - 1000);
+  await lock.update({ avatarDrainUntil: past, readyAt: past });
+  await postToScheduledWorker(functions.reconcileAccountDeletion);
+  const completed = await lock.get();
+  assert.equal(completed.get('status'), 'deleted');
+  assert.ok(completed.get('completedAt') instanceof Timestamp);
+
+  let previousEvents;
+  for (let delivery = 0; delivery < 2; delivery++) {
+    assert.deepEqual(await functions.deleteUserAccount.run(request), { success: true, status: 'deleted' });
+    assert.equal((await legacyImage.exists())[0], true);
+    for (const ref of [departing, like, comment, follower]) assert.equal((await ref.get()).exists, false);
+    await Promise.all([
+      functions.onPinLikeDeleted.run({ params: { pinId: pin.id } }),
+      functions.onPinCommentDeleted.run({ params: { pinId: pin.id } }),
+      functions.onUserFollowerDeleted.run({ params: { targetUserId: survivorId, followerId: uid } }),
+    ]);
+    assert.equal((await pin.get()).get('likeCount'), 0);
+    assert.equal((await pin.get()).get('commentCount'), 0);
+    assert.equal((await survivor.get()).get('followersCount'), 0);
+    const events = (await ledger.get()).docs.map(doc => doc.data());
+    assert.equal(events.filter(event => event.action === 'PIN_CREATED').length, 1);
+    assert.ok(events.every(event => !event.action.startsWith('UNIQUE_')));
+    if (previousEvents) assert.deepEqual(events, previousEvents);
+    previousEvents = events;
+  }
 });
-
-function geographyFixture(countryCode, city, cityBoundaryId = 'first-city') {
-  return { countryCode, city, cityBoundaryId, attribution: 'Synthetic fixture' };
-}
 
 const { onPinLikeCreated, onPinLikeDeleted, onPinCommentCreated, onPinCommentDeleted,
   onUserFollowerCreated, onUserFollowerDeleted } = require('../lib/index.js');
@@ -262,6 +334,8 @@ test('social counters converge on current documents after concurrent and replaye
   const comment = pin.collection('comments').doc('comment');
   const pinEvent = { params: { pinId: pin.id } };
   await Promise.all([like.set({}), comment.set({})]);
+  await Promise.all([onPinCommentCreated.run(pinEvent), onPinCommentDeleted.run(pinEvent)]);
+  assert.equal((await target.collection('progression').doc('summary').get()).get('likesReceivedCount'), 0);
   await Promise.all([onPinLikeDeleted.run(pinEvent), onPinLikeCreated.run(pinEvent),
     onPinCommentDeleted.run(pinEvent), onPinCommentCreated.run(pinEvent)]);
   const added = await pin.get();
@@ -278,4 +352,534 @@ test('social counters converge on current documents after concurrent and replaye
   await pin.delete();
   await onPinLikeDeleted.run(pinEvent);
   assert.equal((await pin.get()).exists, false);
+});
+
+test('a slower recomputation cannot publish metrics read before a newer summary commit', { timeout: 20000 }, async t => {
+  const uid = 'progression-stale-metrics';
+  const user = db.collection('users').doc(uid);
+  const metrics = user.collection('progression').doc('summary');
+  const pin = pins.doc(uid);
+  await user.set({ followersCount: 0 });
+  await pin.set({ userId: uid, likeCount: 1, latitude: 38, longitude: 23 });
+  await updateUserProgressionServer(uid);
+
+  const staleRead = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  const queryPrototype = Object.getPrototypeOf(pins.where('userId', '==', uid));
+  const originalGet = queryPrototype.get;
+  let intercepted = false;
+  t.mock.method(queryPrototype, 'get', async function (...args) {
+    const snapshot = await originalGet.apply(this, args);
+    if (!intercepted && snapshot.docs.some(doc => doc.ref.path === pin.path)) {
+      intercepted = true;
+      staleRead.resolve();
+      await resume.promise;
+    }
+    return snapshot;
+  });
+
+  const slower = updateUserProgressionServer(uid);
+  try {
+    await staleRead.promise;
+    await pin.update({ likeCount: 12 });
+    await updateUserProgressionServer(uid);
+    assert.equal((await metrics.get()).get('likesReceivedCount'), 12);
+  } finally {
+    resume.resolve();
+    await slower;
+  }
+  assert.equal((await metrics.get()).get('likesReceivedCount'), 12);
+});
+
+test('legacy and mixed tags cannot crash progression or manufacture rich-discovery XP', async () => {
+  const uid = 'progression-legacy-tags';
+  const user = db.collection('users').doc(uid);
+  await user.set({ displayName: 'Legacy tags' });
+  const description = 'A'.repeat(100);
+  for (const [suffix, tags] of [
+    ['scalar', 'photo'],
+    ['mixed', [null, 4, {}, ' ', 'PHoTo']],
+    ['valid', [false, 'photo', 'nature']],
+  ]) {
+    await pins.doc(uid + '-' + suffix).set({ userId: uid, description, tags });
+  }
+  await updateUserProgressionServer(uid);
+  const rich = await user.collection('xpEvents').where('action', '==', 'RICH_DISCOVERY').get();
+  assert.deepEqual(rich.docs.map(doc => doc.get('referenceId')), [uid + '-valid']);
+});
+
+test('delayed pin deletion preserves recreated children and replacement Storage generation', async () => {
+  assert.match(process.env.FIREBASE_STORAGE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const { getStorage } = require('firebase-admin/storage');
+  const uid = 'same-id-owner';
+  const pin = pins.doc('same-id-pin');
+  const like = pin.collection('likes').doc('same-like');
+  const comment = pin.collection('comments').doc('same-comment');
+  const bucket = getStorage().bucket();
+  const object = bucket.file('pins/' + uid + '/same-image.png');
+  const url = 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name + '/o/' +
+    encodeURIComponent(object.name) + '?alt=media';
+  await object.save('old');
+  const oldGeneration = (await object.getMetadata())[0].generation;
+  await pin.set({ userId: uid, imageUrls: [url] });
+  await like.set({ userId: uid });
+  await comment.set({ text: 'old' });
+  await pin.update({ likeCount: 1, commentCount: 1 });
+  const event = { params: { pinId: pin.id }, data: await pin.get() };
+  await pin.delete();
+
+  await object.save('new');
+  const newGeneration = (await object.getMetadata())[0].generation;
+  assert.notEqual(newGeneration, oldGeneration);
+  await pin.set({ userId: uid, imageUrls: [url] });
+  await like.delete();
+  await comment.delete();
+  await like.set({ userId: uid });
+  await comment.set({ text: 'new' });
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, true);
+  assert.equal((await comment.get()).get('text'), 'new');
+
+  // Replaying the older event after the replacement was also removed must
+  // still protect documents created by the replacement incarnation.
+  await pin.delete();
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, true);
+  assert.equal((await comment.get()).get('text'), 'new');
+  assert.equal((await object.getMetadata())[0].generation, newGeneration);
+  assert.equal((await object.download())[0].toString(), 'new');
+});
+
+test('pin deletion removes children known to belong to the deleted snapshot and tolerates replay', async () => {
+  const pin = pins.doc('unambiguous-deleted-pin');
+  const like = pin.collection('likes').doc('old-like');
+  const comment = pin.collection('comments').doc('old-comment');
+  await pin.set({ userId: 'deleted-pin-owner' });
+  await like.set({ userId: 'old-liker' });
+  await comment.set({ text: 'old' });
+  await pin.update({ likeCount: 1, commentCount: 1 });
+  const event = { params: { pinId: pin.id }, data: await pin.get() };
+  await pin.delete();
+  await functions.onPinDeleted.run(event);
+  await functions.onPinDeleted.run(event);
+  assert.equal((await like.get()).exists, false);
+  assert.equal((await comment.get()).exists, false);
+});
+
+test('managed pin cleanup keeps a replacement pin and mismatched object generation on delay and replay', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'managed-images-owner';
+  const publish = async () => {
+    const incarnation = randomUUID();
+    const objects = await Promise.all([0, 1].map(async () => {
+      const uploadId = randomUUID();
+      const file = bucket.file('pin-images-v2/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+      const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+      await file.save('original', { metadata });
+      return { file, metadata, uploadId, generation: String((await file.getMetadata())[0].generation) };
+    }));
+    const batch = db.batch();
+    batch.create(pin, { userId, imageIncarnation: incarnation });
+    batch.create(db.collection('pinImageClaims').doc(incarnation), {
+      protocol: 'server-v1', pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+    });
+    await batch.commit();
+    return { incarnation, objects, snapshot: await pin.get() };
+  };
+
+  const oldPin = await publish();
+  await pin.delete();
+  const newPin = await publish();
+  const [removed, replaced] = oldPin.objects;
+  await replaced.file.save('replacement generation', { metadata: replaced.metadata });
+  assert.notEqual(String((await replaced.file.getMetadata())[0].generation), replaced.generation);
+
+  const event = { id: 'managed-pin-delay', params: { pinId: pin.id }, data: oldPin.snapshot };
+  await functions.onPinDeleted.run(event);
+  await functions.onPinDeleted.run(event);
+  assert.equal((await removed.file.exists())[0], false);
+  assert.equal((await replaced.file.download())[0].toString(), 'replacement generation');
+  assert.equal((await pin.get()).get('imageIncarnation'), newPin.incarnation);
+  for (const object of newPin.objects) assert.equal((await object.file.exists())[0], true);
+  const job = await db.collection('pinImageCleanupJobs').doc(oldPin.incarnation).get();
+  assert.equal(job.get('status'), 'complete');
+  assert.deepEqual(job.get('unresolved'), [{ uploadId: replaced.uploadId, reason: 'object-identity-mismatch' }]);
+});
+
+test('managed partial failure leaves a recorded job that resumes with the original generations', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const { cleanupPinImages, resumePinImageCleanup } = require('../lib/pinImageCleanup.js');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'partial-image-cleanup';
+  const incarnation = randomUUID();
+  const objects = await Promise.all([0, 1].map(async () => {
+    const uploadId = randomUUID();
+    const file = bucket.file('pin-images-v2/' + userId + '/' + pin.id + '/' + incarnation + '/' + uploadId);
+    const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    await file.save('original', { metadata });
+    return { file, uploadId, generation: String((await file.getMetadata())[0].generation) };
+  }));
+  const batch = db.batch();
+  batch.create(pin, { userId, imageIncarnation: incarnation });
+  batch.create(db.collection('pinImageClaims').doc(incarnation), {
+    protocol: 'server-v1', pinId: pin.id, userId, images: objects.map(({ uploadId, generation }) => ({ uploadId, generation })),
+  });
+  await batch.commit();
+  const snapshot = await pin.get();
+  await pin.delete();
+
+  const [first, second] = objects;
+  const faultyBucket = { file(path) {
+    const file = bucket.file(path);
+    if (path === second.file.name) return {
+      getMetadata: () => file.getMetadata(),
+      delete: async () => { throw Object.assign(new Error('transient'), { code: 503 }); },
+    };
+    return file;
+  } };
+  await assert.rejects(cleanupPinImages(db, () => faultyBucket, snapshot, 'partial-image-event'), AggregateError);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  assert.equal((await job.get()).get('status'), 'pending');
+  assert.equal((await first.file.exists())[0], false);
+  assert.equal((await second.file.exists())[0], true);
+
+  await resumePinImageCleanup(db, () => bucket, incarnation);
+  await cleanupPinImages(db, () => bucket, snapshot, 'partial-image-event');
+  assert.equal((await job.get()).get('status'), 'complete');
+  assert.equal((await second.file.exists())[0], false);
+});
+
+test('claim reconciliation recovers a missing delete event and preserves a live replacement pin', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pin = pins.doc();
+  const userId = 'claim-reconciliation-owner';
+  const publish = async () => {
+    const incarnation = randomUUID();
+    const uploadId = randomUUID();
+    const file = bucket.file(['pin-images-v2', userId, pin.id, incarnation, uploadId].join('/'));
+    const metadata = { metadata: { protocol: 'server-v1', uploadedBy: userId, pinId: pin.id, incarnation, uploadId } };
+    await file.save('original', { metadata });
+    const [{ generation }] = await file.getMetadata();
+    const batch = db.batch();
+    batch.create(pin, { userId, imageIncarnation: incarnation });
+    batch.create(db.collection('pinImageClaims').doc(incarnation), {
+      protocol: 'server-v1', pinId: pin.id, userId, images: [{ uploadId, generation: String(generation) }],
+    });
+    await batch.commit();
+    return { incarnation, file };
+  };
+
+  const deleted = await publish();
+  const job = db.collection('pinImageCleanupJobs').doc(deleted.incarnation);
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  assert.equal((await job.get()).exists, false);
+  assert.equal((await deleted.file.exists())[0], true);
+  await pin.delete();
+  const live = await publish();
+  assert.equal((await job.get()).exists, false);
+
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  assert.equal((await job.get()).get('status'), 'complete');
+  assert.equal((await deleted.file.exists())[0], false);
+  assert.equal((await pin.get()).get('imageIncarnation'), live.incarnation);
+  assert.equal((await live.file.exists())[0], true);
+});
+
+test('expired upload intents recover verified uploads and preserve unknown or replaced generations', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { Timestamp } = require('firebase-admin/firestore');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const pinId = pins.doc().id;
+  const userId = 'upload-intent-owner';
+  const incarnation = randomUUID();
+  const intent = db.collection('pinImageUploadIntents').doc(incarnation);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  const uploadIds = Array.from({ length: 5 }, () => randomUUID());
+  await intent.create({ protocol: 'server-v1', pinId, userId, uploadIds, createdAt: Timestamp.now(),
+    specs: uploadIds.map(() => ({ size: 6, type: 'image/png' })),
+    cleanupAfter: Timestamp.fromMillis(Date.now() + 60 * 60_000) });
+  const objects = await Promise.all(uploadIds.map(async (uploadId, index) => {
+    const file = bucket.file(['pin-images-v2', userId, pinId, incarnation, uploadId].join('/'));
+    const metadata = { contentType: 'image/png',
+      metadata: { protocol: 'server-v1', uploadedBy: userId, pinId, incarnation, uploadId } };
+    if (index === 4) return file; // No request ever reached Storage.
+    const nonce = randomUUID();
+    if (index === 1) {
+      metadata.metadata.nonce = nonce;
+      await intent.collection('receipts').doc(uploadId).create({ nonce });
+    }
+    await file.save('upload', { metadata });
+    if (index === 0 || index === 2) {
+      const [{ generation }] = await file.getMetadata();
+      await intent.collection('receipts').doc(uploadId).create({ generation: String(generation) });
+    }
+    if (index === 2) await file.save('new generation', { metadata });
+    return file;
+  }));
+
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  assert.equal((await job.get()).exists, false);
+  await intent.update({ cleanupAfter: Timestamp.fromMillis(Date.now() - 1) });
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  const result = await job.get();
+  assert.equal(result.get('status'), 'complete');
+  assert.deepEqual(result.get('unresolved'), [
+    { uploadId: uploadIds[2], reason: 'object-identity-mismatch' },
+    { uploadId: uploadIds[3], reason: 'object-identity-mismatch' },
+  ]);
+  assert.equal((await objects[0].exists())[0], false);
+  assert.equal((await objects[1].exists())[0], false);
+  assert.equal((await objects[3].download())[0].toString(), 'upload');
+  assert.equal((await objects[4].exists())[0], false);
+  assert.equal((await objects[2].download())[0].toString(), 'new generation');
+});
+
+test('cleanup stops retrying after the durable attempt limit', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { resumePinImageCleanup } = require('../lib/pinImageCleanup.js');
+  const incarnation = randomUUID();
+  const pinId = pins.doc().id;
+  const userId = 'exhausted-job-owner';
+  const claim = db.collection('pinImageClaims').doc(incarnation);
+  const job = db.collection('pinImageCleanupJobs').doc(incarnation);
+  const { writeTime } = await claim.create({
+    protocol: 'server-v1', pinId, userId, images: [{ uploadId: randomUUID(), generation: '1' }],
+  });
+  await job.create({ pinId, userId, claimCreatedAt: writeTime, status: 'pending', attempts: 8 });
+  await resumePinImageCleanup(db, () => assert.fail('retry limit must prevent Storage access'), incarnation);
+  assert.equal((await job.get()).get('reason'), 'retry-limit');
+});
+
+test('Storage SDK sends create-only and exact delete preconditions to the Storage API', async () => {
+  const { createServer } = require('node:http');
+  const { once } = require('node:events');
+  const { getStorage } = require('firebase-admin/storage');
+  const { Storage } = require('../node_modules/@google-cloud/storage');
+  const file = getStorage().bucket().file('pin-images/conditional-delete-regression');
+  await file.save('checked');
+  const [checked] = await file.getMetadata();
+  await file.save('new generation');
+  const [replacement] = await file.getMetadata();
+
+  // The Storage emulator ignores these preconditions. Capture the pinned SDK
+  // requests on loopback and model GCS's 412 response for an occupied object.
+  const requests = [];
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://localhost');
+    requests.push({ method: request.method, pathname: url.pathname, query: Object.fromEntries(url.searchParams) });
+    request.resume();
+    const stale = request.method === 'POST'
+      ? url.searchParams.get('ifGenerationMatch') === '0'
+      : url.searchParams.get('ifGenerationMatch') !== String(replacement.generation);
+    response.writeHead(stale ? 412 : 204, { 'content-type': 'application/json' });
+    response.end(stale ? JSON.stringify({ error: { code: 412, message: 'Precondition Failed' } }) : undefined);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
+    process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:' + server.address().port;
+    let client;
+    try {
+      client = new Storage({ projectId: 'demo-heyroq' });
+    } finally {
+      if (emulatorHost === undefined) delete process.env.STORAGE_EMULATOR_HOST;
+      else process.env.STORAGE_EMULATOR_HOST = emulatorHost;
+    }
+    await assert.rejects(client.bucket(file.bucket.name).file(file.name).delete({
+      ifGenerationMatch: String(checked.generation),
+      ifMetagenerationMatch: String(checked.metageneration),
+    }), { code: 412 });
+    await assert.rejects(client.bucket(file.bucket.name).file(file.name).save('would overwrite', {
+      resumable: false, preconditionOpts: { ifGenerationMatch: 0 },
+    }), { code: 412 });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].method, 'DELETE');
+    assert.ok(requests[0].pathname.endsWith("/o/" + encodeURIComponent(file.name)));
+    assert.equal(requests[0].query.ifGenerationMatch, String(checked.generation));
+    assert.equal(requests[0].query.ifMetagenerationMatch, String(checked.metageneration));
+    assert.equal(requests[1].method, 'POST');
+    assert.equal(requests[1].query.name, file.name);
+    assert.equal(requests[1].query.ifGenerationMatch, '0');
+    assert.equal((await file.download())[0].toString(), 'new generation');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('server upload binds an authenticated owner, reserves each slot once and verifies the real stored generation', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { Timestamp } = require('firebase-admin/firestore');
+  const { getStorage } = require('firebase-admin/storage');
+  const { handlePinImageUpload, pinImagePath } = require('../lib/pinImageUpload.js');
+  const { pinImageUpload } = require('../lib/index.js');
+  const bucket = getStorage().bucket();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+  const uid = 'image-owner-' + randomUUID();
+  const foreign = 'image-foreign-' + randomUUID();
+  const pinId = pins.doc().id;
+  const image = { size: png.length, type: 'image/png' };
+  const auth = (uid, provider = 'password') => ({ uid, token: { firebase: { sign_in_provider: provider } } });
+  const call = (data, credentials = auth(uid)) => pinImageUpload.run({ data, auth: credentials });
+  await db.collection('users').doc(uid).set({ displayName: 'Owner' });
+  await db.collection('users').doc(foreign).set({ displayName: 'Foreign' });
+  const begin = { action: 'begin', pinId, images: [image] };
+  await assert.rejects(pinImageUpload.run({ data: begin }), { code: 'unauthenticated' });
+  await assert.rejects(call(begin, auth(uid, 'anonymous')), { code: 'unauthenticated' });
+  await assert.rejects(call(begin, auth('missing-profile')), { code: 'permission-denied' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, size: 0 }] }), { code: 'invalid-argument' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, size: 10 * 1024 * 1024 + 1 }] }), { code: 'invalid-argument' });
+  await assert.rejects(call({ ...begin, images: [{ ...image, type: 'text/html' }] }), { code: 'invalid-argument' });
+
+  const { incarnation, uploadIds: [uploadId] } = await call(begin);
+  const finish = { action: 'finish', incarnation };
+  const upload = { action: 'upload', incarnation, uploadId, content: png.toString('base64') };
+  const intent = db.collection('pinImageUploadIntents').doc(incarnation);
+  const file = bucket.file(pinImagePath(uid, pinId, incarnation, uploadId));
+  await assert.rejects(call(upload, auth(foreign)), { code: 'permission-denied' });
+  await assert.rejects(call(finish, auth(foreign)), { code: 'permission-denied' });
+  await assert.rejects(call(finish), { code: 'failed-precondition' });
+  await assert.rejects(call({ ...upload, uploadId: randomUUID() }), { code: 'invalid-argument' });
+  // This emulator ignores create-only preconditions. Model GCS's atomic
+  // create on this one object while preserving the actual emulator bytes and metadata.
+  let create;
+  const createOnlyBucket = { name: bucket.name, file(path) {
+    assert.equal(path, file.name);
+    return {
+      async save(bytes, options) {
+        assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
+        if (create) {
+          await create;
+          throw Object.assign(new Error('Precondition failed'), { code: 412 });
+        }
+        create = file.save(bytes, options);
+        await create;
+      },
+      getMetadata: () => file.getMetadata(),
+    };
+  } };
+  const uploadOnce = () => handlePinImageUpload(db, () => createOnlyBucket, auth(uid), upload);
+  assert.deepEqual(await Promise.all([uploadOnce(), uploadOnce()]), [{ uploaded: true }, { uploaded: true }]);
+  assert.deepEqual(await call(upload), { uploaded: true });
+  const claim = await call(finish);
+  assert.deepEqual(await call(finish), claim);
+  const [metadata] = await file.getMetadata();
+  assert.deepEqual(claim.images, [{ uploadId, generation: String(metadata.generation) }]);
+  assert.equal(claim.userId, uid);
+  assert.deepEqual((await file.download())[0], png);
+  assert.equal(new URL(claim.imageUrls[0]).searchParams.get('token'), metadata.metadata.firebaseStorageDownloadTokens);
+  assert.equal((await db.collection('pinImageApprovals').doc(incarnation).get()).get('claim.pinId'), pinId);
+  await intent.update({ expiresAt: Timestamp.fromMillis(Date.now() - 1) });
+  await assert.rejects(call(upload), { code: 'deadline-exceeded' });
+  await assert.rejects(call(finish), { code: 'deadline-exceeded' });
+
+  const invalidContent = await call(begin);
+  const invalidUpload = { action: 'upload', incarnation: invalidContent.incarnation,
+    uploadId: invalidContent.uploadIds[0], content: Buffer.alloc(png.length).toString('base64') };
+  await assert.rejects(call(invalidUpload), { code: 'invalid-argument' });
+  await assert.rejects(call(invalidUpload), { code: 'invalid-argument' });
+  await assert.rejects(call({ action: 'finish', incarnation: invalidContent.incarnation }), { code: 'failed-precondition' });
+  assert.equal((await bucket.file(pinImagePath(uid, pinId, invalidContent.incarnation, invalidUpload.uploadId)).exists())[0], false);
+
+  const collision = await call(begin);
+  const occupied = bucket.file(pinImagePath(uid, pinId, collision.incarnation, collision.uploadIds[0]));
+  await occupied.save('existing object');
+  const [beforeCollision] = await occupied.getMetadata();
+  const storageWithCollision = { name: bucket.name, file(path) {
+    assert.equal(path, occupied.name);
+    return { async save(_bytes, options) {
+      assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
+      throw Object.assign(new Error('Precondition failed'), { code: 412 });
+    }, getMetadata: () => occupied.getMetadata() };
+  } };
+  await assert.rejects(handlePinImageUpload(db, () => storageWithCollision, auth(uid), {
+    ...upload, incarnation: collision.incarnation, uploadId: collision.uploadIds[0],
+  }), { code: 'failed-precondition' });
+  assert.equal((await occupied.getMetadata())[0].generation, beforeCollision.generation);
+  assert.equal((await occupied.download())[0].toString(), 'existing object');
+
+  const globalQuota = db.collection('pinImageUploadQuotas').doc('global').collection('capacity').doc('hourly');
+  const globalBefore = await globalQuota.get();
+  await globalQuota.set({ hour: Math.floor(Date.now() / 3_600_000), count: 200 });
+  await assert.rejects(call(begin, auth(foreign)), { code: 'resource-exhausted' });
+  await globalQuota.set(globalBefore.data());
+
+  const quota = db.collection('pinImageUploadQuotas').doc(uid);
+  await quota.set({ hour: Math.floor(Date.now() / 3_600_000), count: 100 });
+  await assert.rejects(call(begin), { code: 'resource-exhausted' });
+  await db.collection('accountDeletionLocks').doc(uid).create({ status: 'deleting' });
+  await assert.rejects(call(begin), { code: 'permission-denied' });
+});
+
+test('the named database applies the pin-image rules to an authenticated client', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { pinImageUpload } = require('../lib/index.js');
+  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+  assert.match(authHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const signup = await fetch('http://' + authHost + '/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-key', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: randomUUID() + '@example.test', password: randomUUID(), returnSecureToken: true }),
+  });
+  assert.equal(signup.ok, true);
+  const { localId: uid, idToken } = await signup.json();
+  const auth = { uid, token: { firebase: { sign_in_provider: 'password' } } };
+  const call = data => pinImageUpload.run({ data, auth });
+  const pinId = pins.doc().id;
+  await db.collection('users').doc(uid).set({ displayName: 'Local publisher' });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+
+  const begin = await call({ action: 'begin', pinId, images: [{ size: png.length, type: 'image/png' }] });
+  await call({ action: 'upload', incarnation: begin.incarnation, uploadId: begin.uploadIds[0], content: png.toString('base64') });
+  const claim = await call({ action: 'finish', incarnation: begin.incarnation });
+  const download = new URL(claim.imageUrls[0]);
+  const storageHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+  assert.match(storageHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const publicDownload = await fetch('http://' + storageHost + download.pathname + download.search);
+  assert.equal(publicDownload.status, 200);
+  assert.deepEqual(Buffer.from(await publicDownload.arrayBuffer()), png);
+  const withoutToken = await fetch('http://' + storageHost + download.pathname + '?alt=media');
+  assert.equal(withoutToken.status, 403);
+
+  const database = 'projects/demo-heyroq/databases/' + FIRESTORE_DATABASE_ID;
+  const url = 'http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents:commit';
+  const encode = value => {
+    if (typeof value === 'string') return { stringValue: value };
+    if (typeof value === 'number') return { doubleValue: value };
+    if (Array.isArray(value)) return { arrayValue: { values: value.map(encode) } };
+    return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)])) } };
+  };
+  const write = (path, data) => ({ update: { name: database + '/documents/' + path, fields: encode(data).mapValue.fields } });
+  const commit = writes => fetch(url, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + idToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes }),
+  });
+  const pin = { userId: uid, title: 'Local spot', latitude: 37, longitude: 23, category: 'Other',
+    createdAt: new Date().toISOString(), imageUrls: claim.imageUrls };
+  const pinWrite = write('pins/' + pinId, { ...pin, imageIncarnation: begin.incarnation });
+  const claimWrite = write('pinImageClaims/' + begin.incarnation, claim);
+  assert.equal((await commit([claimWrite])).status, 403);
+  assert.equal((await commit([write('pins/' + pinId, pin)])).status, 403);
+  const published = await commit([pinWrite, claimWrite]);
+  assert.equal(published.status, 200, await published.text());
+  assert.deepEqual((await pins.doc(pinId).get()).get('imageUrls'), claim.imageUrls);
+  assert.equal((await commit([write('pins/' + pins.doc().id, pin)])).status, 403);
+
+  const snapshot = await pins.doc(pinId).get();
+  await pins.doc(pinId).delete();
+  await require('../lib/index.js').onPinDeleted.run({ id: randomUUID(), params: { pinId }, data: snapshot });
+  const bucket = require('firebase-admin/storage').getStorage().bucket();
+  const path = decodeURIComponent(download.pathname.split('/o/')[1]);
+  assert.equal((await bucket.file(path).exists())[0], false);
+  const gone = await fetch('http://' + storageHost + download.pathname + download.search);
+  assert.equal(gone.ok, false);
 });

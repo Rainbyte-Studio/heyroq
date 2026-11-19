@@ -51,6 +51,22 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "pinImageUploadIntents",
+      "queryScope": "COLLECTION",
+      "apiScope": "ANY_API",
+      "density": "DENSE",
+      "fields": [
+        {
+          "fieldPath": "cleanupAfter",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

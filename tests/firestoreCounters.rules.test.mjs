@@ -1,7 +1,10 @@
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { deleteDoc, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
+import { deleteDoc, doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+
+import { makePinImageTransitionRules, makePinImageTransitionStorageRules } from '../scripts/pin-image-transition-rules.mjs';
 
 const projectId = 'demo-heyroq-counter-rules';
 let env;
@@ -10,6 +13,7 @@ before(async () => {
   env = await initializeTestEnvironment({
     projectId,
     firestore: { rules: readFileSync('firestore.rules', 'utf8') },
+    ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync('storage.rules', 'utf8') } } : {}),
   });
 });
 beforeEach(async () => { await env.clearFirestore(); });
@@ -135,6 +139,7 @@ describe('Account deletion lock', () => {
 describe('Canonical comment identity', () => {
   it('rejects a forged author display name', async () => {
     await seedAlice();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), pin()));
     await assertFails(setDoc(doc(alice(), 'pins/spot1/comments/forged'), {
       userId: 'alice', userName: 'Someone Else', userAvatar: '',
       text: 'Test', createdAt: '2026-01-01T00:00:00.000Z',
@@ -142,6 +147,7 @@ describe('Canonical comment identity', () => {
   });
   it('accepts the authenticated profile display name', async () => {
     await seedAlice();
+    await assertSucceeds(setDoc(doc(alice(), 'pins/spot1'), pin()));
     await assertSucceeds(setDoc(doc(alice(), 'pins/spot1/comments/real'), {
       userId: 'alice', userName: 'Alice', userAvatar: '',
       text: 'Test', createdAt: '2026-01-01T00:00:00.000Z',
@@ -249,4 +255,150 @@ describe('Server geography verification receipts', () => {
       verifiedAt: new Date(),
     }));
   });
+});
+
+
+const pinId = 'abcdefghij0123456789';
+const anotherPinId = 'abcdefghij0123456790';
+const incarnation = '00112233-4455-6677-8899-aabbccddeeff';
+const imageUrl = 'https://firebasestorage.googleapis.com/v0/b/rainbyte-studio.firebasestorage.app/o/' +
+  'pin-images-v2%2Falice%2F' + pinId + '%2F' + incarnation + '%2F' + incarnation +
+  '?alt=media&token=' + incarnation;
+const legacyUrl = 'https://firebasestorage.googleapis.com/v0/b/rainbyte-studio.firebasestorage.app/o/' +
+  'pins%2Falice%2F123_' + incarnation + '_example.png?alt=media&token=' + incarnation;
+const claim = { protocol: 'server-v1', pinId, userId: 'alice', images: [
+  { uploadId: incarnation, generation: '123' },
+], imageUrls: [imageUrl] };
+const approvalPath = ['pinImageApprovals', incarnation];
+const claimPath = ['pinImageClaims', incarnation];
+const seedApproval = (overrides = {}) => env.withSecurityRulesDisabled(context =>
+  setDoc(doc(context.firestore(), ...approvalPath), { claim, expiresAt: new Date(Date.now() + 60_000), ...overrides }));
+const publish = (client, id = pinId, data = {}, submittedClaim = claim) => writeBatch(client)
+  .set(doc(client, 'pins', id), pin({ imageIncarnation: incarnation, imageUrls: [imageUrl], ...data }))
+  .set(doc(client, ...claimPath), submittedClaim)
+  .commit();
+
+it('consumes a server-verified claim once, only for the approved pin and exact URL list', async () => {
+  await seedAlice();
+  const client = alice();
+  const pinRef = doc(client, 'pins', pinId);
+  const claimRef = doc(client, ...claimPath);
+  await assertFails(publish(client)); // A forged claim cannot bootstrap approval.
+  await seedApproval();
+  await assertFails(setDoc(pinRef, pin({ imageIncarnation: incarnation, imageUrls: [imageUrl] })));
+  await assertFails(setDoc(claimRef, claim));
+  await assertFails(publish(client, anotherPinId));
+  await assertFails(publish(client, pinId, { imageUrls: [imageUrl, legacyUrl] }));
+  await assertFails(publish(client, pinId, {}, { ...claim, images: [{ uploadId: incarnation, generation: '456' }] }));
+  await assertFails(publish(bob(), pinId, { userId: 'bob' }));
+  await assertSucceeds(publish(client));
+  await assertFails(updateDoc(pinRef, { imageUrls: [] }));
+  await assertFails(updateDoc(pinRef, { imageIncarnation: anotherPinId }));
+  await assertFails(setDoc(doc(client, 'pins', anotherPinId), pin({ imageUrls: [imageUrl] })));
+  await assertFails(updateDoc(claimRef, { images: [] }));
+  await assertFails(deleteDoc(claimRef));
+  await assertSucceeds(deleteDoc(pinRef));
+  await assertFails(publish(client));
+  await assertSucceeds(setDoc(pinRef, pin({ imageUrls: [] })));
+});
+
+it('keeps approvals, quotas, intents and receipts server-owned and denies expired publication', async () => {
+  await seedAlice();
+  const client = alice();
+  const intentPath = ['pinImageUploadIntents', incarnation];
+  for (const path of [approvalPath, intentPath, [...intentPath, 'receipts', incarnation],
+    ['pinImageUploadQuotas', 'alice'], ['pinImageCleanupJobs', incarnation]]) {
+    await assertFails(setDoc(doc(client, ...path), { userId: 'alice' }));
+    await assertFails(getDoc(doc(client, ...path)));
+  }
+  await seedApproval({ expiresAt: new Date(Date.now() - 60_000) });
+  await assertFails(publish(client));
+  await seedApproval();
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), 'pinImageCleanupJobs', incarnation), { status: 'pending' }));
+  await assertFails(publish(client));
+});
+
+it('preserves existing legacy pin references while blocking new ones and arbitrary image URLs', async () => {
+  await seedAlice();
+  const client = alice();
+  const existing = doc(client, 'pins', pinId);
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), 'pins', pinId), pin({ imageUrls: [legacyUrl] })));
+  await assertSucceeds(getDoc(existing));
+  await assertSucceeds(updateDoc(existing, { title: 'Edited legacy pin' }));
+  await assertFails(updateDoc(existing, { imageUrls: [imageUrl] }));
+  await assertFails(setDoc(doc(client, 'pins', anotherPinId), pin({ imageUrls: [legacyUrl] })));
+});
+
+it('denies all client writes to legacy and managed Storage namespaces and preserves legacy reads',
+  { skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST }, async () => {
+    const paths = ['pins/alice/old.png', 'pin-images/alice/' + pinId + '/' + incarnation + '/' + incarnation,
+      'pin-images-v2/alice/' + pinId + '/' + incarnation + '/' + incarnation];
+    const bytes = new Uint8Array([1]);
+    const metadata = { contentType: 'image/png', customMetadata: {
+      protocol: 'server-v1', uploadedBy: 'alice', pinId, incarnation, uploadId: incarnation,
+    } };
+    for (const path of paths) {
+      const own = ref(env.authenticatedContext('alice').storage(), path);
+      const other = ref(env.authenticatedContext('bob').storage(), path);
+      await assertFails(uploadBytes(own, bytes, metadata));
+      await assertFails(uploadBytes(other, bytes, metadata));
+      await env.withSecurityRulesDisabled(context => uploadBytes(ref(context.storage(), path), bytes, metadata));
+      await assertFails(uploadBytes(own, bytes, metadata));
+      await assertFails(deleteObject(own));
+      const publicRef = ref(env.unauthenticatedContext().storage(), path);
+      if (path.startsWith('pin-images-v2/')) await assertFails(getMetadata(publicRef));
+      else await assertSucceeds(getMetadata(publicRef));
+    }
+  });
+
+it('transitional rules accept published legacy filenames and keep managed publication claim-bound', async () => {
+  const config = { projectId };
+  const rules = readFileSync('firestore.rules', 'utf8').replaceAll('\r\n', '\n');
+  const storageRules = process.env.FIREBASE_STORAGE_EMULATOR_HOST
+    ? readFileSync('storage.rules', 'utf8').replaceAll('\r\n', '\n') : undefined;
+  const transition = await initializeTestEnvironment({
+    ...config, firestore: { rules: makePinImageTransitionRules(rules) },
+    ...(storageRules ? { storage: { rules: makePinImageTransitionStorageRules(storageRules) } } : {}),
+  });
+  try {
+    await seedAlice();
+    await seedApproval();
+    const client = transition.authenticatedContext('alice').firestore();
+    const legacy = doc(client, 'pins', anotherPinId);
+    for (const url of [imageUrl, legacyUrl.replace('%2Falice', '%2Fbob'), 'https://example.com/test.jpg']) {
+      await assertFails(setDoc(legacy, pin({ imageUrls: [url] })));
+      await assertFails(setDoc(legacy, pin({ imageUrls: [...Array(19).fill(legacyUrl), url] })));
+    }
+    const publishedClientUrls = Array.from({ length: 20 }, (_, index) =>
+      legacyUrl.replace(`123_${incarnation}_example.png`, `123_photo_${index}.png`));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls, legacyUrl] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [publishedClientUrls.slice(0, 2).join('#')] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [publishedClientUrls[0], 42] })));
+    await assertFails(setDoc(legacy, pin({ imageUrls: [legacyUrl.replace('example.png', 'a'.repeat(1024) + '.png')] })));
+    await assertSucceeds(setDoc(doc(client, 'pins', 'publishedClientPin01'), pin({ imageUrls: publishedClientUrls })));
+    await assertSucceeds(setDoc(legacy, pin({ imageUrls: [...publishedClientUrls.slice(0, 19), legacyUrl] })));
+    await assertSucceeds(publish(client));
+    await assertFails(updateDoc(legacy, { imageUrls: [imageUrl] }));
+    if (storageRules) {
+      const legacyPath = 'pins/alice/123_photo_19.png';
+      const ownerStorage = transition.authenticatedContext('alice').storage();
+      const legacyObject = ref(ownerStorage, legacyPath);
+      const bytes = new Uint8Array([1]);
+      const metadata = { contentType: 'image/png' };
+      await assertFails(uploadBytes(ref(transition.authenticatedContext('bob').storage(), legacyPath), bytes, metadata));
+      await assertSucceeds(uploadBytes(legacyObject, bytes, metadata));
+      await assertFails(uploadBytes(legacyObject, bytes, metadata));
+      await assertFails(deleteObject(legacyObject));
+      await assertFails(uploadBytes(ref(ownerStorage, 'pin-images-v2/alice/' + pinId + '/' + incarnation + '/' + incarnation),
+        bytes, metadata));
+    }
+  } finally {
+    await transition.cleanup();
+    const restored = await initializeTestEnvironment({
+      ...config, firestore: { rules }, ...(storageRules ? { storage: { rules: storageRules } } : {}),
+    });
+    await restored.cleanup();
+  }
 });

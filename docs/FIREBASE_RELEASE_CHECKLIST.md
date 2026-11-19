@@ -7,19 +7,34 @@ The frontend is hosted by **Google AI Studio**, not Firebase Hosting. Do not dep
 - Named Firestore database: `ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`
 - Functions region: `europe-west2`
 
+## Candidate and authorization
+
+The `Frontend Release Candidate` workflow runs Chromium against local Auth,
+Firestore, Functions and Storage emulators. It builds a separate production
+frontend image and smoke-tests it locally using the Cloud Run port contract.
+The artifact records the source commit, image ID, build profile and checksums
+of both archives. PR runs produce a smoke-test image with Maps disabled.
+For a rollback image, configure the referrer-restricted browser Maps key as
+the `HEYROQ_GOOGLE_MAPS_BROWSER_KEY` repository variable and run the workflow
+on the approved commit. Verify `SHA256SUMS` and preserve the `maps-configured`
+artifact. After rollout approval, confirm the registry digest and smoke-test
+Maps and Firebase Auth on the existing frontend origin before assigning traffic.
+
+Merge and production actions require separate approval. Use the geographic XP runbook for
+pin-image transition, endpoint retry matching, avatar upload closure and deletion-queue recovery. Checked-in Functions runtime parity and both live cleanup dependencies are release gates.
+
 ## Before any production write
 1. Confirm the latest GitHub Actions checks (frontend, rules emulator, functions emulator) pass.
 2. Confirm Google AI Studio's published frontend is compatible with the backend changes; GitHub merges do not publish the AI Studio frontend automatically.
-3. Review current production Firebase rules, indexes, deployed Functions, IAM access, and available backups/rollback plan.
+3. Review current production Firebase rules, indexes, deployed Functions, IAM access, and available backups/rollback plan. For the geographic XP freeze, follow the [Functions release and recovery plan](GEOGRAPHY_XP_RELEASE.md).
 4. Run locally: `node --test tests/firestoreDeployTarget.test.cjs tests/publicProfileBlueprint.test.cjs`, `npm run lint`, `npm run build`, `npm test`, and `npm --prefix functions run build`.
 5. Confirm Firebase CLI identity and target with `firebase login`, `firebase projects:list`, and `firebase use rainbyte-studio`.
 
 ## Operator-approved deployment
-Run from the repository root only after explicit authorization, reviewing CLI output and any unexpected changes:
+For the pin image cutover, use the [ordered Rules, Functions and AI Studio release sequence](GEOGRAPHY_XP_RELEASE.md#pin-image-release-sequence) and the [identity release plan](IDENTITY_RELEASE.md). The Firebase Functions predeploy hook blocks the shared codebase. Use separately reviewed Gen 2 plans for any additional Functions. Gen 1 Auth cleanup is outside the rollout scope.
 
 ```sh
-firebase deploy --project rainbyte-studio --only firestore:rules,firestore:indexes
-firebase deploy --project rainbyte-studio --only functions
+npx --yes firebase-tools@14.27.0 deploy --project rainbyte-studio --only firestore:rules,firestore:indexes
 ```
 
 Do **not** run an unrestricted `firebase deploy`, which might deploy Firebase Hosting. Check the CLI identifies the intended named database; stop otherwise. Do not approve unexpected function deletions.

@@ -2,6 +2,8 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
+  runTransaction,
   getDocs,
   setDoc,
   addDoc,
@@ -24,7 +26,7 @@ import {
   getCategoryQueryVariants,
 } from '../utils/categoryUtils';
 import { createSearchReadCache } from './searchReadCache';
-import { deletePinImages } from './storageService';
+import { uploadMultipleImages } from './storageService';
 import {
   computeGeohash,
   getBoundsCenterAndRadius,
@@ -393,16 +395,56 @@ async function resolveCanonicalAuthorIdentity(
   return { userName, userAvatar };
 }
 
+export function newPinPublishAttempt() {
+  return {
+    pinId: doc(collection(db, PINS_COLLECTION)).id,
+    uploadIncarnation: crypto.randomUUID(),
+    files: undefined as File[] | undefined,
+    commitStarted: false,
+  };
+}
+
 // 5. Create Pin directly in Firestore
 export async function createPin(
-  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt'>
+  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt' | 'imageUrls'>,
+  files: File[] = [],
+  attempt = newPinPublishAttempt(),
 ): Promise<string> {
+  if (auth.currentUser?.uid !== pinData.userId) {
+    throw new Error('Sign in as the author before publishing.');
+  }
+  const pinRef = doc(db, PINS_COLLECTION, attempt.pinId);
+  const receipt = doc(db, 'users', pinData.userId, 'pinPublishReceipts', pinRef.id);
+  const published = () => {
+    searchPinRead.invalidate();
+    return pinRef.id;
+  };
+  if (attempt.commitStarted) {
+    try {
+      if ((await getDocFromServer(receipt)).exists()) return published();
+    } catch {
+      throw new Error('Publish status is unknown. Reconnect and retry this draft to check it.');
+    }
+  }
+
+  if (attempt.files !== files) {
+    attempt.files = files;
+    attempt.uploadIncarnation = crypto.randomUUID();
+  }
   const geohash = computeGeohash(pinData.latitude, pinData.longitude);
   const now = new Date().toISOString();
 
   // Author name/avatar come from the authenticated profile, never from caller input.
   const { userName, userAvatar } = await resolveCanonicalAuthorIdentity(pinData.userId, 'publish a spot');
 
+  const upload = files.length ? await uploadMultipleImages(files, pinRef.id, attempt.uploadIncarnation)
+    .catch((error: unknown) => {
+      if ((error as { details?: { uploadExpired?: boolean } })?.details?.uploadExpired) {
+        attempt.uploadIncarnation = crypto.randomUUID();
+        throw new Error('This image upload must be restarted. Retry this draft to upload again.');
+      }
+      throw error;
+    }) : undefined;
   const firestorePin = {
     userId: pinData.userId,
     userName,
@@ -418,22 +460,34 @@ export async function createPin(
     countryName: pinData.countryName || '',
     category: pinData.category,
     tags: pinData.tags || [],
-    imageUrls: pinData.imageUrls || [],
+    publishReceipt: true,
+    imageUrls: upload?.claim.imageUrls ?? [],
+    ...(upload ? { imageIncarnation: upload.incarnation } : {}),
     likeCount: 0,
     commentCount: 0,
     createdAt: now,
     updatedAt: now,
   };
 
+  attempt.commitStarted = true;
   try {
-    const docRef = await addDoc(collection(db, PINS_COLLECTION), firestorePin);
-    searchPinRead.invalidate();
-    return docRef.id;
-  } catch (err) {
-    console.error('Firestore createPin error:', err);
-    handleFirestoreError(err, OperationType.CREATE, PINS_COLLECTION);
-    throw err;
+    await runTransaction(db, async tx => {
+      const [previous, pin] = await Promise.all([tx.get(receipt), tx.get(pinRef)]);
+      if (previous.exists()) return;
+      if (pin.exists()) throw new Error('This pin ID is already in use.');
+      tx.set(receipt, { publishedAt: serverTimestamp() });
+      tx.set(pinRef, firestorePin);
+      if (upload) tx.set(doc(db, 'pinImageClaims', upload.incarnation), upload.claim);
+    });
+  } catch (error) {
+    try {
+      if ((await getDocFromServer(receipt)).exists()) return published();
+    } catch {
+      throw new Error('Publish status is unknown. Reconnect and retry this draft to check it.');
+    }
+    throw error;
   }
+  return published();
 }
 
 // 6. Delete Pin directly in Firestore
@@ -449,35 +503,13 @@ export async function deletePin(pinId: string, userId: string): Promise<void> {
   const pinRef = doc(db, PINS_COLLECTION, pinId);
 
   try {
-    // 1. Read existing pin data safely so storage image URLs and actual owner UID are known
-    let pinImages: string[] = [];
-    let pinOwnerId: string = userId;
-    try {
-      const snap = await getDoc(pinRef);
-      if (snap.exists()) {
-        const pinData = snap.data() as Pin;
-        pinOwnerId = pinData.userId || userId;
-        if (pinData.imageUrls && Array.isArray(pinData.imageUrls)) {
-          pinImages = pinData.imageUrls;
-        }
-      }
-    } catch (readErr) {
-      console.warn('[Heyroq Pin Delete] Notice fetching pin data before delete:', readErr);
-    }
-
-    // 2. Perform authoritative Firestore deletion FIRST
-    await deleteDoc(pinRef);
+    await runTransaction(db, async tx => {
+      // Rules check the existing owner, so a repeated delete must stop here.
+      if ((await tx.get(pinRef)).exists()) tx.delete(pinRef);
+    });
     console.log('[Heyroq Pin Delete] Successfully deleted pin doc from Firestore:', { pinId, authUid });
 
-    // 3. Immediately evict from all in-memory caches so map/discovery do not re-render deleted pin
     evictSessionPin(pinId);
-
-    // 4. Safely clean up associated Storage images in the background (non-blocking)
-    if (pinImages.length > 0) {
-      deletePinImages(pinImages, pinOwnerId).catch((imgErr) => {
-        console.warn('[Heyroq Pin Delete] Storage image cleanup notice:', imgErr);
-      });
-    }
   } catch (err: any) {
     console.error('[Heyroq Pin Delete] Error deleting pin from Firestore:', {
       pinId,
