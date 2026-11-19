@@ -17,6 +17,26 @@ const events = profile.collection('xpEvents');
 const summary = profile.collection('progression').doc('summary');
 const pins = db.collection('pins');
 
+async function postToScheduledWorker(handler) {
+  let status;
+  let ended = false;
+  const response = {
+    status(code) {
+      status = code;
+      return this;
+    },
+    end() {
+      ended = true;
+    },
+    sendStatus(code) {
+      this.status(code).end();
+    },
+  };
+  await handler({ method: 'POST', headers: {} }, response);
+  assert.equal(status, 204);
+  assert.equal(ended, true);
+}
+
 test('account report cleanup paginates submitted and targeted reports and remains safe to retry', async () => {
   const { cleanAccountReports } = require('../lib/index.js');
   const id = 'account-report-cleanup-user';
@@ -200,9 +220,9 @@ test('all compiled endpoints match the deployment manifest, including retry poli
     if (concurrency != null) assert.equal(endpoint.concurrency, concurrency, name);
     if (maxInstances != null) assert.equal(endpoint.maxInstances, maxInstances, name);
     if (trigger.type === 'schedule') {
-      assert.equal(endpoint.scheduleTrigger.schedule, trigger.schedule, name);
-      assert.equal(endpoint.scheduleTrigger.timeZone, trigger.timeZone, name);
-      if (trigger.retryCount != null) assert.equal(endpoint.scheduleTrigger.retryConfig.retryCount, trigger.retryCount, name);
+      assert.deepEqual(endpoint.httpsTrigger?.invoker, ['private'], name);
+      assert.equal(endpoint.scheduleTrigger, undefined, name);
+      assert.equal(endpoint.concurrency, 1, name);
       continue;
     }
     if (trigger.type === 'httpsCallable') {
@@ -250,7 +270,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   assert.equal((await lock.get()).get('phase'), 'likes');
   assert.equal((await departing.get()).exists, true);
   for (let tick = 0; tick < 6 && (await lock.get()).get('phase') !== 'verifyAvatars'; tick++) {
-    await functions.reconcileAccountDeletion.run({});
+    await postToScheduledWorker(functions.reconcileAccountDeletion);
   }
   const verifying = await lock.get();
   assert.equal(verifying.get('phase'), 'verifyAvatars');
@@ -259,7 +279,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   // Advance this existing fixture past the production drain window.
   const past = Timestamp.fromMillis(Date.now() - 1000);
   await lock.update({ avatarDrainUntil: past, readyAt: past });
-  await functions.reconcileAccountDeletion.run({});
+  await postToScheduledWorker(functions.reconcileAccountDeletion);
   const completed = await lock.get();
   assert.equal(completed.get('status'), 'deleted');
   assert.ok(completed.get('completedAt') instanceof Timestamp);
@@ -558,15 +578,15 @@ test('claim reconciliation recovers a missing delete event and preserves a live 
 
   const deleted = await publish();
   const job = db.collection('pinImageCleanupJobs').doc(deleted.incarnation);
-  await functions.reconcilePinImageCleanup.run({});
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
   assert.equal((await job.get()).exists, false);
   assert.equal((await deleted.file.exists())[0], true);
   await pin.delete();
   const live = await publish();
   assert.equal((await job.get()).exists, false);
 
-  await functions.reconcilePinImageCleanup.run({});
-  await functions.reconcilePinImageCleanup.run({});
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
   assert.equal((await job.get()).get('status'), 'complete');
   assert.equal((await deleted.file.exists())[0], false);
   assert.equal((await pin.get()).get('imageIncarnation'), live.incarnation);
@@ -606,11 +626,11 @@ test('expired upload intents recover verified uploads and preserve unknown or re
     return file;
   }));
 
-  await functions.reconcilePinImageCleanup.run({});
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
   assert.equal((await job.get()).exists, false);
   await intent.update({ cleanupAfter: Timestamp.fromMillis(Date.now() - 1) });
-  await functions.reconcilePinImageCleanup.run({});
-  await functions.reconcilePinImageCleanup.run({});
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
+  await postToScheduledWorker(functions.reconcilePinImageCleanup);
   const result = await job.get();
   assert.equal(result.get('status'), 'complete');
   assert.deepEqual(result.get('unresolved'), [
