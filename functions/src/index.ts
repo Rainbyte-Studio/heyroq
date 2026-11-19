@@ -44,14 +44,93 @@ function getAvatarBucket() {
   return process.env.FIREBASE_STORAGE_EMULATOR_HOST ? storage.bucket() : storage.bucket(avatarBucketName);
 }
 
-async function deleteAvatarGeneration(name: string, generation: string) {
+function isExactAvatarGeneration(generation: string) {
   // The Storage SDK converts the scoped generation to a JS number.
-  if (!/^[1-9][0-9]*$/.test(generation) || !Number.isSafeInteger(Number(generation))) {
+  return /^[1-9][0-9]*$/.test(generation) && Number.isSafeInteger(Number(generation));
+}
+
+async function deleteAvatarGeneration(name: string, generation: string, metageneration?: string) {
+  if (!isExactAvatarGeneration(generation)) {
     throw new Error('Avatar generation cannot be represented exactly.');
   }
-  await getAvatarBucket().file(name, { generation })
-    .delete({ ifGenerationMatch: generation, ignoreNotFound: true });
+  const preconditionOpts = {
+    ifGenerationMatch: generation,
+    ifMetagenerationMatch: metageneration,
+  };
+  await getAvatarBucket().file(name, { generation, preconditionOpts }).delete({ ignoreNotFound: true });
 }
+
+function parseAvatarReference(value: unknown, uid: string, bucket: string) {
+  if (typeof value !== 'string') return;
+  try {
+    const url = new URL(value);
+    const prefix = '/v0/b/' + bucket + '/o/';
+    if (url.origin !== 'https://firebasestorage.googleapis.com' ||
+        url.username || url.password || !url.pathname.startsWith(prefix)) return;
+    const path = decodeURIComponent(url.pathname.slice(prefix.length));
+    const parts = path.split('/');
+    if (parts.length !== 3 || parts[0] !== 'profile-images' || parts[1] !== uid ||
+        !parts[2] || parts[2] === '.' || parts[2] === '..') return;
+    const generation = /^#generation=([1-9][0-9]*)$/.exec(url.hash)?.[1];
+    const tokens = url.searchParams.getAll('token');
+    return { path, generation, token: tokens.length === 1 ? tokens[0] : undefined };
+  } catch {
+    return;
+  }
+}
+
+export const onUserProfileUpdated = onDocumentUpdated(
+  { document: 'users/{userId}', database: FIRESTORE_DATABASE_ID, region: FUNCTION_REGION,
+    retry: false, timeoutSeconds: 60, preserveExternalChanges: true },
+  async event => {
+    const change = event.data;
+    if (!change) return;
+    const uid = event.params.userId;
+    const before = change.before.data();
+    const after = change.after.data();
+    if (before?.photoURL === after?.photoURL && before?.avatarUrl === after?.avatarUrl) return;
+
+    const bucket = getAvatarBucket();
+    const parse = (value: unknown) => parseAvatarReference(value, uid, bucket.name);
+    const afterPaths = new Set([parse(after?.photoURL)?.path, parse(after?.avatarUrl)?.path]);
+    const replaced = [...new Set([before?.photoURL, before?.avatarUrl])]
+      .map(parse)
+      .filter(ref => ref && !afterPaths.has(ref.path));
+    if (!replaced.length) return;
+
+    // A later profile update may have selected the previous path again.
+    const current = (await change.after.ref.get()).data();
+    if (!current || current.deletionStatus === 'deleting') return;
+    const currentPaths = new Set([parse(current.photoURL)?.path, parse(current.avatarUrl)?.path]);
+    for (const ref of replaced) {
+      if (!ref || currentPaths.has(ref.path)) continue;
+      const unresolved = (reason: string) => console.warn('avatar_cleanup_unresolved', {
+        eventId: event.id, uid, path: ref.path, reason,
+      });
+      const { generation, token } = ref;
+      if (!generation || !isExactAvatarGeneration(generation) || !token) {
+        unresolved('missing_or_invalid_avatar_identity');
+        continue;
+      }
+      try {
+        const [metadata] = await bucket.file(ref.path, { generation }).getMetadata();
+        const metageneration = String(metadata.metageneration);
+        if (String(metadata.generation) !== generation || !isExactAvatarGeneration(metageneration) ||
+            metadata.metadata?.uploadedBy !== uid || metadata.metadata?.firebaseStorageDownloadTokens !== token) {
+          unresolved('metadata_mismatch');
+          continue;
+        }
+        await deleteAvatarGeneration(ref.path, generation, metageneration);
+      } catch (error) {
+        const code = (error as { code?: number }).code;
+        if (code !== 404) {
+          unresolved(code === 412 ? 'precondition_changed' : 'storage_operation_failed');
+          if (code !== 412) throw error;
+        }
+      }
+    }
+  },
+);
 
 async function assertAvatarUploadAllowed(uid: string) {
   const [profile, lock] = await db.getAll(
@@ -101,17 +180,22 @@ export const uploadProfileAvatar = onCall(
         metadata: { uploadedBy: uid, firebaseStorageDownloadTokens: token },
       },
     });
+    // The locked Storage SDK exposes the simple upload response on this handle.
+    // Never discover the uploaded generation by looking up the current path.
+    const generation = String(file.metadata.generation);
+    if (!isExactAvatarGeneration(generation)) {
+      throw new HttpsError('internal', 'The avatar upload did not return an exact generation.');
+    }
     try {
       await assertAvatarUploadAllowed(uid);
     } catch (error) {
-      // No other writer can replace this server-generated path. The finalize
-      // trigger and deletion worker cover transport failure or process death.
-      await file.delete({ ignoreNotFound: true });
+      // The finalize trigger and deletion worker cover transport failure or process death.
+      await deleteAvatarGeneration(path, generation);
       throw error;
     }
     return {
       downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name +
-        '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token,
+        '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token + '#generation=' + generation,
     };
   },
 );
@@ -656,6 +740,7 @@ export const onPinDeleted = onDocumentDeleted(
     document: 'pins/{pinId}',
     database: FIRESTORE_DATABASE_ID,
     region: FUNCTION_REGION,
+    retry: false,
   },
   async (event) => {
     const pinId = event.params.pinId;
@@ -721,6 +806,7 @@ export const onUserProfileUpdatedProgression = onDocumentUpdated(
     document: 'users/{userId}',
     database: FIRESTORE_DATABASE_ID,
     region: FUNCTION_REGION,
+    retry: false,
   },
   async (event) => {
     const userId = event.params.userId;

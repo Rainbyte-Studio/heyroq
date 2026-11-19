@@ -40,7 +40,7 @@
       "memoryMiB": 512,
       "concurrency": 2,
       "maxInstances": 8,
-      "dependsOn": ["namedFirestoreRules", "onAccountAvatarFinalized"]
+      "dependsOn": ["namedFirestoreRules", "onAccountAvatarFinalized", "onUserProfileUpdated"]
     },
     "onAccountAvatarFinalized": {
       "region": "us-west1",
@@ -177,13 +177,14 @@
       "trigger": {
         "type": "httpsCallable"
       },
-      "desiredTimeoutSeconds": null,
+      "desiredTimeoutSeconds": 60,
       "legacyGeography": "indirect",
       "preflight": {
         "revision": "deleteuseraccount-00002-bey",
         "sourceGeneration": "1794935922063323",
         "eventarcTrigger": null,
-        "retryPolicy": null
+        "retryPolicy": null,
+        "timeoutSeconds": 60
       },
       "preserveExternalChanges": true,
       "releaseGate": "Capture deployed callable runtime options before rollout. Preserve the observed live timeout and verify it afterward.",
@@ -202,7 +203,7 @@
         "type": "google.cloud.firestore.document.v1.deleted",
         "document": "pins/{pinId}",
         "location": "us-west1",
-        "retryPolicy": null
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -210,16 +211,16 @@
         "revision": "onpindeleted-00002-baw",
         "sourceGeneration": "1794935874000125",
         "eventarcTrigger": "onpindeleted-858893",
-        "retryPolicy": null
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
-      "releaseGate": "Read live Functions API retry policy and match it explicitly before deploying this endpoint. The SDK currently defaults to retry disabled."
+      "releaseGate": "Reconfirm the recorded Functions API retry policy before deploying this endpoint."
     },
     "onUserProfileUpdatedProgression": {
       "trigger": {
         "type": "google.cloud.firestore.document.v1.updated",
         "document": "users/{userId}",
         "location": "us-west1",
-        "retryPolicy": null
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
       "desiredTimeoutSeconds": 60,
       "legacyGeography": "direct",
@@ -227,9 +228,9 @@
         "revision": "onuserprofileupdatedprogression-00001-guv",
         "sourceGeneration": "1794935874000125",
         "eventarcTrigger": "onuserprofileupdatedprogression-614944",
-        "retryPolicy": null
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       },
-      "releaseGate": "Read live Functions API retry policy and match it explicitly before deploying this endpoint. The SDK currently defaults to retry disabled."
+      "releaseGate": "Reconfirm the recorded Functions API retry policy before deploying this endpoint."
     },
     "recalculateProgression": {
       "trigger": {
@@ -265,6 +266,31 @@
         "onUserProfileUpdated",
         "reconcilePinImageCleanup"
       ]
+    },
+    "onUserProfileUpdated": {
+      "region": "europe-west2",
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "users/{userId}",
+        "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+        "namespace": "(default)",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "preserveExternalChanges": true,
+      "preflight": {
+        "revision": "onuserprofileupdated-00001-kiz",
+        "activeRevisionTrafficPercent": 100,
+        "sourceObject": "gs://gcf-v2-sources-856895300361-europe-west2/onUserProfileUpdated/function-source.zip",
+        "sourceGeneration": "1789396436664452",
+        "sourceArchiveSha256": "66a36d171586e5984b2682e3daf4b8b625eb7db952131746af28773b98099314",
+        "eventarcTrigger": "projects/rainbyte-studio/locations/us-west1/triggers/onuserprofileupdated-184598",
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarcServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "releaseGate": "Upgrade the existing endpoint in place and drain the unsafe revision before avatar upload cutover or deletion intake. Verify effective IAM, filters, trigger identity and candidate revision. Use generation-safe forward recovery."
     }
   },
   "liveDependenciesOutsideRollout": {
@@ -276,16 +302,15 @@
         "retryPolicy": null
       },
       "releaseGate": "Block account deletion until live source, region, runtime identity, failure policy and UID-scoped Auth delete side effects are verified. Keep outside deploy, rollback and deletion selectors."
-    },
-    "onUserProfileUpdated": {
-      "platform": "gcfv2",
-      "purpose": "Avatar cleanup on profile update",
-      "trigger": {
-        "type": "google.cloud.firestore.document.v1.updated",
-        "document": "users/{userId}",
-        "retryPolicy": null
-      },
-      "releaseGate": "Block account deletion until live database, namespace, document filter, region, source, identity, retry and generation-safe avatar cleanup are verified. Keep outside deploy, rollback and deletion selectors."
     }
+  },
+  "schedulerApproval": {
+    "service": "cloudscheduler.googleapis.com",
+    "observedState": "DISABLED",
+    "functions": [
+      "reconcilePinImageCleanup",
+      "reconcileAccountDeletion"
+    ],
+    "releaseGate": "Require separate production approval for API enablement, IAM/service-agent and OIDC configuration, and job creation or changes. Verify effective access and job delivery before relying on either reconciler."
   }
 }

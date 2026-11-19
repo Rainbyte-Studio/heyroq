@@ -10,17 +10,14 @@ deletion still removes the departing account's data.
 
 ## Scope and evidence
 
-This source patch does not regenerate the checked-in Functions runtime
-or source maps. The repository checks their parity with TypeScript in CI.
-Regenerate them with the locked toolchain in an authorized build before
-considering the patch mergeable or packaging a release.
+The checked-in Functions runtime and source maps must match a build
+with the locked toolchain. CI checks their parity with TypeScript.
 
 See [the deployment manifest](progression-deployment-manifest.json) for the
-existing endpoints, image and avatar upload callables, the avatar finalize trigger and the two reconciliation schedulers. Verify the historical production snapshot against the Functions
-API. Verify the live Gen1 `onAuthUserDeleted` and Gen2
-`onUserProfileUpdated` avatar cleanup trigger and their interactions with
-account deletion. Both are live dependencies outside the rollout. Exclude
-them from deployment, deletion and rollback selectors.
+existing endpoints, image and avatar upload callables, the avatar finalize
+trigger and the two reconciliation schedulers. Upgrade Gen2
+`onUserProfileUpdated` in place. Keep the Gen1 `onAuthUserDeleted` dependency
+outside deploy, rollback and deletion selectors.
 
 The follow-up Cloud Run view showed the three additional endpoints at 100% on
 the recorded revisions. They shared pin-create's legacy source generation and
@@ -65,16 +62,12 @@ Eventarc scheduling, redelivery timing, or service IAM.
    each Eventarc trigger in the manifest. Attach the source generation or image
    and build identity, runtime and trigger service accounts, Cloud Run traffic,
    timeout, resources, settings, filters and retries. Compare the manifest to
-   this snapshot and stop on drift or unresolved identity. Verify the
-   Functions API retry values for the two added Eventarc endpoints, along
-   with the Functions API configuration for all 11.
-2. Match the seven recorded no-retry policies for pin create, likes, comments
-   and follows. For `onPinDeleted` and `onUserProfileUpdatedProgression`,
-   the live retry value is unknown. Block both deployments until the Functions
-   API confirms their settings and the reviewed artifact matches them. Record
-   Pub/Sub backoff separately. Capture the callable's active timeout and other
-   runtime options. `preserveExternalChanges` leaves omitted options with the
-   deployed callable. Verify the active values before and after the update.
+   this snapshot and stop on drift or unresolved identity.
+2. Match the recorded Functions API no-retry settings, including `onPinDeleted`,
+   `onUserProfileUpdatedProgression` and `onUserProfileUpdated`. Record Pub/Sub
+   backoff separately. Preserve the observed `deleteUserAccount` timeout of
+   60 seconds and capture its other runtime options. Verify settings before
+   and after each update.
 3. Follow the [pin image cutover](#pin-image-release-sequence) for the order of
    Rules, Functions and the AI Studio frontend. After production approval,
    deploy explicitly selected Functions from the same immutable package. Use
@@ -85,9 +78,10 @@ Eventarc scheduling, redelivery timing, or service IAM.
    revision. A freeze from the first instant requires a separately approved
    mechanism to stop old invocations and drain in-flight work; client write
    quiescence alone does not cover scheduled retries or authenticated
-   recalculations. Claim the freeze only after all 11 are verified on safe code,
+   recalculations. Claim the freeze only after the affected progression
+   endpoints are verified on safe code,
    traffic no longer routes to old revisions, and any in-flight legacy
-   executions have drained. On partial failure, inventory the 11 endpoints,
+   executions have drained. On partial failure, inventory the manifest endpoints,
    halt further release steps and use the approved safe recovery path.
 5. Compare the APIs with the manifest after rollout, including retry policy,
    bindings, traffic and source identities. With separate approval for test data
@@ -379,6 +373,7 @@ against the actual SDKs and effective policies before binding them.
 | reconcileAccountDeletion | objects.list at the bucket and objects.delete under profile-images/ | entities get/list/create/update/delete, including the legacy scanner checkpoint | firebaseauth.users.delete |
 | uploadProfileAvatar | objects.create/delete under profile-images/ | entities get on profile and deletion lock | authenticated callable |
 | onAccountAvatarFinalized | generation-scoped objects.delete under profile-images/ | entities get on deletion lock | Storage Eventarc delivery in the bucket location |
+| onUserProfileUpdated | objects.get and generation-scoped objects.delete under profile-images/ | entities get on the profile | Firestore Eventarc delivery |
 
 Use exact bucket and prefix IAM conditions with the trailing slash. The
 account deletion path lists at bucket scope even though the SDK requests
@@ -398,7 +393,7 @@ and track queue lag and unresolved jobs.
 
 ### Account deletion rollout and recovery
 
-1. Block account deletion rollout while either live dependency is unresolved.
+1. Block account deletion rollout while either cleanup handler is unresolved.
    For Gen1 `onAuthUserDeleted`, capture the Functions v1 API source and
    trigger, region, runtime identity, failure policy and Auth delete side
    effects. The worker uses a single-UID Auth delete, which can invoke
@@ -406,18 +401,30 @@ and track queue lag and unresolved jobs.
    surviving users, and legacy pin images, and never recreate the profile
    or avatar. A user-not-found response confirms Auth absence without
    proving Gen1 delivery or cleanup. For Gen2 `onUserProfileUpdated`,
-   capture the Functions v2 API source, runtime and delivery identities,
-   location, database, namespace, user document filter, event type and
-   retry policy. Verify that delayed profile updates cannot touch another
-   UID or a newer avatar generation, remove the lock, or recreate data.
-   Unknown source, failure/retry policy, side effects or effective IAM
-   block the cutover. Keep both live dependencies outside every selector.
-2. Deploy the named Firestore rules and verify the Scheduler and named DB
-   IAM. Deploy the new avatar callable and retry-enabled
+   the audit recorded `onuserprofileupdated-00001-kiz` at 100% in
+   `europe-west2` and Eventarc trigger
+   `projects/rainbyte-studio/locations/us-west1/triggers/onuserprofileupdated-184598`.
+   The trigger is `google.cloud.firestore.document.v1.updated` on
+   `users/{userId}` in namespace `(default)` of
+   `ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`.
+   Reconfirm the manifest's source generation, runtime and delivery
+   identities, filters, no-retry policy and effective permissions. Use the
+   explicit `functions:onUserProfileUpdated` selector for the in-place update.
+   Capture the new revision and verify its source and traffic, then drain
+   in-flight executions from the old revision before opening avatar upload or
+   deletion intake. Recover by redeploying verified generation-safe source.
+   The old revision's path-only deletion makes it ineligible for rollback.
+2. Obtain separate production approval for Cloud Scheduler API enablement
+   (observed `DISABLED`), any IAM and service-agent or OIDC changes, and job
+   creation or updates for `reconcilePinImageCleanup` and
+   `reconcileAccountDeletion`. Verify effective IAM and job delivery before
+   relying on either job. Deploy the named Firestore rules and the retry-enabled
    `onAccountAvatarFinalized` for the exact configured bucket. Confirm
    bucket location, delivery identity, effective generation-scoped delete
    permission, monitoring and Eventarc retry policy. Leave legacy adoption
-   off while the old synchronous callable can still run.
+   off while the old synchronous callable can still run. Deploy
+   `uploadProfileAvatar` after the profile cleanup upgrade and finalize
+   trigger are verified.
 3. Publish the deletion-aware UI and the callable-based avatar frontend.
    Cut over Storage Rules to deny every direct avatar create and update,
    including in the transitional rules. Record when those rules took
@@ -432,8 +439,19 @@ and track queue lag and unresolved jobs.
    Drain every previous synchronous invocation before enabling legacy
    adoption with `ACCOUNT_DELETION_LEGACY_ADOPTION=true` on the scheduler
    only. Verify that no old revision can still accept requests.
-   Unknown live retries for changed endpoints require explicit Functions
-   API verification and a matching source/manifest policy before release.
+   Reconfirm Functions API retry settings against the manifest before release.
+
+An avatar uploaded by the callable carries the upload response's generation
+in its URL fragment. The fragment is consumed by cleanup and excluded from
+the HTTP image request. Actual Firebase token URL delivery remains a release
+gate. Replacement cleanup checks both profile URL fields, preserves paths
+still referenced by the profile, and validates the expected generation,
+owner and token metadata. The storage delete is conditioned on both
+generation and metageneration. Missing objects are safe on redelivery.
+Watch for `avatar_cleanup_unresolved` and track legacy URLs without a
+generation and precondition conflicts as preserved objects. Keep the
+account deletion worker's UID-prefix sweep and the finalize trigger's
+tombstone check as the coverage for deletion-related uploads.
 
 The worker takes a 180-second lease against a 120-second runtime limit. It
 commits cursor and phase after successful side effects. It drains avatars
