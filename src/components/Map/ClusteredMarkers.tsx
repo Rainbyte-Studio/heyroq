@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { useApiIsLoaded, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import { MarkerClusterer } from '@googlemaps/markerclusterer';
 import { Pin } from '../../types';
 import { CATEGORY_CONFIG } from './CategoryBadge';
@@ -21,44 +21,32 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
   onPinClick,
 }) => {
   const map = useMap();
+  const apiLoaded = useApiIsLoaded();
   const markerLib = useMapsLibrary('marker');
   const { resolvedTheme } = useTheme();
   const clusterer = useRef<MarkerClusterer | null>(null);
-  const markersRef = useRef<Map<string, MapMarker>>(new Map());
 
   // Initialize clusterer
   useEffect(() => {
-    if (!map) return;
-    if (!clusterer.current) {
-      clusterer.current = new MarkerClusterer({ map });
-    } else {
-      clusterer.current.setMap(map);
-    }
+    if (!apiLoaded || !map || !markerLib || !window.google?.maps?.OverlayView) return;
+    const instance = new MarkerClusterer({ map });
+    clusterer.current = instance;
     return () => {
-      if (clusterer.current) {
-        clusterer.current.clearMarkers();
-        clusterer.current = null;
-      }
+      clusterer.current = null;
+      instance.setMap(null);
     };
-  }, [map]);
+  }, [apiLoaded, map, markerLib]);
 
   // Update markers when pins, map, markerLib, or resolvedTheme changes
   useEffect(() => {
-    if (!map || !clusterer.current) return;
+    const instance = clusterer.current;
+    if (!apiLoaded || !map || !markerLib || !instance) return;
 
     // Resolve AdvancedMarkerElement constructor safely
-    const AdvancedMarkerClass =
-      markerLib?.AdvancedMarkerElement ||
-      (typeof google !== 'undefined' && google.maps?.marker?.AdvancedMarkerElement);
+    const AdvancedMarkerClass = markerLib.AdvancedMarkerElement;
 
-    // If marker library is still loading, wait until it or legacy Marker is available
-    if (!AdvancedMarkerClass && !(typeof google !== 'undefined' && google.maps?.Marker)) {
-      return;
-    }
-
-    // Clear old markers
-    clusterer.current.clearMarkers();
-    markersRef.current.clear();
+    // Keep the legacy marker available if the advanced constructor is unavailable.
+    if (!AdvancedMarkerClass && !markerLib.Marker) return;
 
     const newMarkers: MapMarker[] = [];
     const isDark = resolvedTheme === 'dark';
@@ -124,7 +112,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
         });
         marker.addListener('gmp-click', handleMarkerClick);
       } else {
-        marker = new google.maps.Marker({
+        marker = new markerLib.Marker({
           position: { lat: pin.latitude, lng: pin.longitude },
           title: pin.title,
         });
@@ -133,15 +121,12 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
       marker.addListener('click', handleMarkerClick);
 
       newMarkers.push(marker);
-      markersRef.current.set(pin.id, marker);
     });
 
-    clusterer.current.addMarkers(newMarkers);
+    instance.addMarkers(newMarkers);
 
     return () => {
-      if (clusterer.current) {
-        clusterer.current.clearMarkers();
-      }
+      instance.clearMarkers(true);
       newMarkers.forEach((m) => {
         if ('map' in m) {
           (m as any).map = null;
@@ -150,7 +135,7 @@ export const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
         }
       });
     };
-  }, [map, markerLib, pins, selectedPinId, onPinClick, resolvedTheme]);
+  }, [apiLoaded, map, markerLib, pins, selectedPinId, onPinClick, resolvedTheme]);
 
   return null;
 };

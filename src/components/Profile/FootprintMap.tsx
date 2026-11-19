@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  APIProvider,
+  APILoadingStatus,
   Map,
   useMap,
   AdvancedMarker,
   ColorScheme,
 } from '@vis.gl/react-google-maps';
+import { MapErrorBoundary, useHeyroqMapsStatus } from '../Map/MapsProvider';
 import { Pin } from '../../types';
 import {
   GeographicCluster,
@@ -213,7 +214,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
 }) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
-  const apiKey = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
+  const mapsStatus = useHeyroqMapsStatus();
   const [selectedCluster, setSelectedCluster] = useState<GeographicCluster | null>(null);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [isPinLiked, setIsPinLiked] = useState<boolean>(false);
@@ -467,8 +468,8 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
           Note on Cloud Map ID: `mapId="heyroq_footprint_map_v2"` is required for AdvancedMarker.
           If a Cloud Console Map Style overrides vector colors for one scheme, verify both Light & Dark
           styles are associated with this Map ID in Google Cloud Console. */}
-      {apiKey ? (
-        <APIProvider apiKey={apiKey} libraries={['marker', 'places']}>
+      {mapsStatus === APILoadingStatus.LOADED ? (
+        <MapErrorBoundary>
           <Map
             id="footprint-google-map"
             mapId="heyroq_footprint_map_v2"
@@ -585,7 +586,7 @@ export const FootprintMap: React.FC<FootprintMapProps> = ({
               <Crosshair className="w-4 h-4 text-[var(--brand-primary)]" />
             </button>
           </div>
-        </APIProvider>
+        </MapErrorBoundary>
       ) : (
         /* 2. Interactive Fallback Canvas (When API Key is not configured yet) */
         <div
