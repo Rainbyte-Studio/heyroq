@@ -313,9 +313,13 @@ node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rul
    exact legacy bucket and prefix, and the new flow only via server approval.
    Transitional Storage gives old clients create-only access in their legacy
    prefix and no client writes to either managed prefix.
-   With index approval, apply the sparse orphan-queue index in
+   With separate index approval, apply the `pinImageUploadIntents` index in
    `firestore.indexes.json` to the named Enterprise database and confirm it is
-   ready before activating the scheduler and callable.
+   `READY` before activating the scheduler and callable. The index uses
+   `COLLECTION` query scope, `ANY_API` for Native mode, and `DENSE` density, with
+   `cleanupAfter ASCENDING` followed by `__name__ ASCENDING`. The index stores an
+   unset value for intents without `cleanupAfter`. The cleanup query's range
+   filter and `orderBy('cleanupAfter')` exclude those intents from its results.
 2. Deploy the approved pin and progression Functions from the pinned
    artifact using the [identity release plan](IDENTITY_RELEASE.md) and
    individually reviewed selectors after the live retry gates are met.

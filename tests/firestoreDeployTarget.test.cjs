@@ -16,7 +16,7 @@ test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () 
   assert.equal(config.indexes.length, 5);
   const orphanQueue = config.indexes.find(index => index.collectionGroup === 'pinImageUploadIntents');
   assert.deepEqual(orphanQueue, {
-    collectionGroup: 'pinImageUploadIntents', queryScope: 'COLLECTION', density: 'SPARSE_ALL',
+    collectionGroup: 'pinImageUploadIntents', queryScope: 'COLLECTION', apiScope: 'ANY_API', density: 'DENSE',
     fields: [
       { fieldPath: 'cleanupAfter', order: 'ASCENDING' },
       { fieldPath: '__name__', order: 'ASCENDING' },

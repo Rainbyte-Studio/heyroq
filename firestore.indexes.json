@@ -55,7 +55,8 @@
     {
       "collectionGroup": "pinImageUploadIntents",
       "queryScope": "COLLECTION",
-      "density": "SPARSE_ALL",
+      "apiScope": "ANY_API",
+      "density": "DENSE",
       "fields": [
         {
           "fieldPath": "cleanupAfter",
