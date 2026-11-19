@@ -750,7 +750,27 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
   await assert.rejects(call(finish, auth(foreign)), { code: 'permission-denied' });
   await assert.rejects(call(finish), { code: 'failed-precondition' });
   await assert.rejects(call({ ...upload, uploadId: randomUUID() }), { code: 'invalid-argument' });
-  assert.deepEqual(await Promise.all([call(upload), call(upload)]), [{ uploaded: true }, { uploaded: true }]);
+  // This emulator ignores create-only preconditions. Model GCS's atomic
+  // create on this one object while preserving the actual emulator bytes and metadata.
+  let create;
+  const createOnlyBucket = { name: bucket.name, file(path) {
+    assert.equal(path, file.name);
+    return {
+      async save(bytes, options) {
+        assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
+        if (create) {
+          await create;
+          throw Object.assign(new Error('Precondition failed'), { code: 412 });
+        }
+        create = file.save(bytes, options);
+        await create;
+      },
+      getMetadata: () => file.getMetadata(),
+    };
+  } };
+  const uploadOnce = () => handlePinImageUpload(db, () => createOnlyBucket, auth(uid), upload);
+  assert.deepEqual(await Promise.all([uploadOnce(), uploadOnce()]), [{ uploaded: true }, { uploaded: true }]);
+  assert.deepEqual(await call(upload), { uploaded: true });
   const claim = await call(finish);
   assert.deepEqual(await call(finish), claim);
   const [metadata] = await file.getMetadata();
