@@ -23,7 +23,7 @@ import { PinFeedList } from './components/Pin/PinFeedList';
 import { APP_VERSION } from './config/version';
 import { OPERATOR_IDENTITY } from './config/brandConfig';
 import { AppLink, useAppRoute } from './utils/appRoutes';
-import { APIProvider } from '@vis.gl/react-google-maps';
+import { MapsProvider } from './components/Map/MapsProvider';
 import { reverseGeocodeCoordinates } from './services/placesService';
 import {
   fetchPinsInViewport,
@@ -1001,8 +1001,6 @@ function HeyroqMainApp() {
   );
 }
 
-const GOOGLE_MAPS_API_KEY = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
-
 function AppRouterSwitch() {
   const activeRoute = useAppRoute();
 
@@ -1022,21 +1020,13 @@ function AppRouterSwitch() {
 }
 
 export default function App() {
-  const content = (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppRouterSwitch />
-      </AuthProvider>
-    </ThemeProvider>
+  return (
+    <MapsProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRouterSwitch />
+        </AuthProvider>
+      </ThemeProvider>
+    </MapsProvider>
   );
-
-  if (GOOGLE_MAPS_API_KEY) {
-    return (
-      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['marker', 'places', 'geocoding']}>
-        {content}
-      </APIProvider>
-    );
-  }
-
-  return content;
 }

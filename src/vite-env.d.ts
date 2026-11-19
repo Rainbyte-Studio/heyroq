@@ -8,6 +8,7 @@ declare const __HEYROQ_BROWSER_EMULATOR__: boolean;
 
 interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY?: string;
+  readonly VITE_GOOGLE_MAPS_PREVIEW_API_KEY?: string;
   readonly VITE_DEMO_MODE?: string;
 }
 

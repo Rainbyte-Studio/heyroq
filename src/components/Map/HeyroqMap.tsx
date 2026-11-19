@@ -4,7 +4,9 @@ import {
   useMap,
   AdvancedMarker,
   ColorScheme,
+  APILoadingStatus,
 } from '@vis.gl/react-google-maps';
+import { MapErrorBoundary, useHeyroqMapsStatus } from './MapsProvider';
 import { Pin, LatLngBounds, LatLngPoint } from '../../types';
 import { ClusteredMarkers } from './ClusteredMarkers';
 import { CATEGORY_CONFIG } from './CategoryBadge';
@@ -17,7 +19,6 @@ import {
   ZoomIn,
   ZoomOut,
   Info,
-  ExternalLink,
   Layers,
   X,
   Globe,
@@ -242,7 +243,15 @@ const MapController: React.FC<{
   return null;
 };
 
-export const HeyroqMap: React.FC<HeyroqMapProps> = ({
+export function HeyroqMap(props: HeyroqMapProps) {
+  return (
+    <MapErrorBoundary>
+      <HeyroqMapContent {...props} />
+    </MapErrorBoundary>
+  );
+}
+
+const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   pins,
   selectedPin,
   onSelectPin,
@@ -263,7 +272,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
 }) => {
   const { resolvedTheme } = useTheme();
   const effectivePins = showPinMarkers ? pins : [];
-  const apiKey = ((import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '').trim();
+  const mapsStatus = useHeyroqMapsStatus();
   const [mapStyle, setMapStyle] = useState<'standard' | 'satellite'>('standard');
   const [isLayersOpen, setIsLayersOpen] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
@@ -696,7 +705,11 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     );
   };
 
-  if (apiKey) {
+  if (mapsStatus === APILoadingStatus.NOT_LOADED || mapsStatus === APILoadingStatus.LOADING) {
+    return <p role="status" className="absolute inset-0 grid place-items-center">Loading Google Maps…</p>;
+  }
+
+  if (mapsStatus === APILoadingStatus.LOADED) {
     return (
       <div id="heyroq-google-map-container" className="absolute inset-0 w-full h-full">
         {/*
@@ -777,7 +790,7 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     );
   }
 
-  // Graceful interactive fallback view if Google Maps key is pending configuration
+  // Keep the interactive fallback available when Google Maps cannot load.
   return (
     <div
       id="heyroq-fallback-map"
@@ -790,26 +803,13 @@ export const HeyroqMap: React.FC<HeyroqMapProps> = ({
     >
       <div className="liquid-glass-floating absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl text-[var(--heyroq-text-primary)] px-5 py-3.5 rounded-2xl flex items-start gap-3">
         <Info className="w-5 h-5 text-[var(--brand-primary)] shrink-0 mt-0.5" />
-        <div className="text-xs flex-1">
+        <div role="status" className="text-xs flex-1">
           <p className="font-heading font-bold tracking-tight text-[var(--heyroq-text-primary)]">
-            Heyroq Vector Discovery Engine
+            Google Maps is currently unavailable.
           </p>
           <p className="text-[var(--heyroq-text-secondary)] mt-0.5 leading-relaxed">
-            Discovery pins, social likes, comments, and profile features are 100% active. To render
-            high-resolution Google Maps vector tiles, set{' '}
-            <code className="bg-[#F3F1ED] dark:bg-[#2B2C31] text-[var(--heyroq-accent-text)] px-1.5 py-0.5 rounded font-mono">
-              VITE_GOOGLE_MAPS_API_KEY
-            </code>
-            .
+            You can still browse Heyroq and explore pins.
           </p>
-          <a
-            href="https://mapsplatform.google.com/maps-demo-key?utm_campaign=gmp_mcp_codeassist_v1_aistudio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--heyroq-accent-text)] hover:underline mt-1.5 font-bold uppercase text-[10px] tracking-wider"
-          >
-            Get Free Maps Demo Key <ExternalLink className="w-3 h-3" />
-          </a>
         </div>
       </div>
 
