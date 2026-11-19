@@ -317,7 +317,8 @@ node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rul
    `firestore.indexes.json` to the named Enterprise database and confirm it is
    ready before activating the scheduler and callable.
 2. Deploy the approved pin and progression Functions from the pinned
-   artifact using explicit selectors after the live retry gates are met.
+   artifact using the [identity release plan](IDENTITY_RELEASE.md) and
+   individually reviewed selectors after the live retry gates are met.
    Confirm the pin delete and image reconciliation revisions, drain old
    revisions that could delete legacy images, and activate the upload callable
    after transitional Rules are active. Provision the account-deletion
@@ -409,13 +410,13 @@ and track queue lag and unresolved jobs.
    `ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`.
    Reconfirm the manifest's source generation, runtime and delivery
    identities, filters, no-retry policy and effective permissions. Use the
-   explicit `functions:onUserProfileUpdated` selector for the in-place update.
+   [identity release plan](IDENTITY_RELEASE.md) for the in-place update.
    Capture the new revision and verify its source and traffic, then drain
    in-flight executions from the old revision before opening avatar upload or
    deletion intake. Recover by redeploying verified generation-safe source.
    The old revision's path-only deletion makes it ineligible for rollback.
-2. Obtain separate production approval for Cloud Scheduler API enablement
-   (observed `DISABLED`), any IAM and service-agent or OIDC changes, and job
+2. Reconfirm the Cloud Scheduler API state (last reported `ENABLED`).
+   Obtain separate production approval for any IAM and service-agent or OIDC changes, and job
    creation or updates for `reconcilePinImageCleanup` and
    `reconcileAccountDeletion`. Verify effective IAM and job delivery before
    relying on either job. Deploy the named Firestore rules and the retry-enabled

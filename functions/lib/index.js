@@ -10,7 +10,6 @@ const storage_1 = require("firebase-admin/storage");
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
 const storage_2 = require("firebase-functions/v2/storage");
 const pinImageCleanup_1 = require("./pinImageCleanup");
 const pinImageUpload_1 = require("./pinImageUpload");
@@ -666,7 +665,26 @@ exports.onUserFollowerDeleted = (0, firestore_2.onDocumentDeleted)(followersTrig
 // ============================================================================
 // 4. CASCADE DELETION ON PIN REMOVAL
 // ============================================================================
-exports.reconcilePinImageCleanup = (0, scheduler_1.onSchedule)({ schedule: 'every 5 minutes', timeZone: 'UTC', region: exports.FUNCTION_REGION, maxInstances: 1 }, async () => (0, pinImageCleanup_1.reconcilePinImages)(db, () => storage.bucket()));
+function scheduledWorker(timeoutSeconds, run) {
+    // Cloud Run IAM authenticates the Scheduler OIDC identity. Headers are not credentials.
+    return (0, https_1.onRequest)({
+        region: exports.FUNCTION_REGION, timeoutSeconds, concurrency: 1, maxInstances: 1, invoker: 'private',
+    }, async (req, res) => {
+        if (req.method !== 'POST') {
+            res.set('Allow', 'POST').sendStatus(405);
+            return;
+        }
+        try {
+            await run();
+            res.status(204).end();
+        }
+        catch (error) {
+            console.error('Scheduled worker failed', { error });
+            res.sendStatus(500);
+        }
+    });
+}
+exports.reconcilePinImageCleanup = scheduledWorker(60, () => (0, pinImageCleanup_1.reconcilePinImages)(db, () => storage.bucket()));
 exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
     document: 'pins/{pinId}',
     database: exports.FIRESTORE_DATABASE_ID,
@@ -1062,8 +1080,7 @@ async function resumeAccountDeletion(ref, stopAt) {
         });
     }
 }
-exports.reconcileAccountDeletion = (0, scheduler_1.onSchedule)({ schedule: '* * * * *', timeZone: 'UTC', region: exports.FUNCTION_REGION,
-    timeoutSeconds: deletionWorkerTimeoutSeconds, maxInstances: 1, retryCount: 0 }, async () => {
+exports.reconcileAccountDeletion = scheduledWorker(deletionWorkerTimeoutSeconds, async () => {
     const stopAt = Date.now() + 40_000;
     // Enable only after the synchronous legacy writer and its invocations drain.
     if (process.env.ACCOUNT_DELETION_LEGACY_ADOPTION === 'true') {

@@ -1,0 +1,29 @@
+name: Functions release plan
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+      - 'docs/IDENTITY_RELEASE.md'
+      - 'docs/progression-deployment-manifest.json'
+      - 'firebase.json'
+      - 'functions/**'
+      - '.github/workflows/identity-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix functions
+      - run: npm --prefix functions run build
+      - run: git diff --exit-code -- functions/lib
+      - run: npm --prefix functions exec -- tsc --noEmit --strict --skipLibCheck --target es2022 release/identities.ts
+      - run: node --experimental-strip-types release/verify.mjs plan

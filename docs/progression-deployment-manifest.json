@@ -56,10 +56,12 @@
     "reconcilePinImageCleanup": {
       "trigger": {
         "type": "schedule",
-        "schedule": "every 5 minutes",
-        "timeZone": "UTC"
+        "schedule": "*/5 * * * *",
+        "timeZone": "UTC",
+        "retryCount": 0
       },
-      "desiredTimeoutSeconds": 60
+      "desiredTimeoutSeconds": 60,
+      "maxInstances": 1
     },
     "onPinCreatedProgression": {
       "trigger": {
@@ -306,11 +308,11 @@
   },
   "schedulerApproval": {
     "service": "cloudscheduler.googleapis.com",
-    "observedState": "DISABLED",
+    "lastReportedState": "ENABLED",
     "functions": [
       "reconcilePinImageCleanup",
       "reconcileAccountDeletion"
     ],
-    "releaseGate": "Require separate production approval for API enablement, IAM/service-agent and OIDC configuration, and job creation or changes. Verify effective access and job delivery before relying on either reconciler."
+    "releaseGate": "Reconfirm API and service-agent state with read-only checks. Require separate production approval for IAM and job creation or changes. See IDENTITY_RELEASE.md for private HTTP targets, OIDC, and verification."
   }
 }

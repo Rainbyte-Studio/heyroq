@@ -22,10 +22,10 @@ pin-image transition, endpoint retry matching, avatar upload closure and deletio
 5. Confirm Firebase CLI identity and target with `firebase login`, `firebase projects:list`, and `firebase use rainbyte-studio`.
 
 ## Operator-approved deployment
-For the pin image cutover, use the [ordered Rules, Functions and AI Studio release sequence](GEOGRAPHY_XP_RELEASE.md#pin-image-release-sequence). For other approved deployments, review CLI output for unexpected changes. Never deploy the Functions codebase wholesale for this candidate. Both live cleanup dependencies are outside the rollout scope.
+For the pin image cutover, use the [ordered Rules, Functions and AI Studio release sequence](GEOGRAPHY_XP_RELEASE.md#pin-image-release-sequence) and the [identity release plan](IDENTITY_RELEASE.md). The Firebase Functions predeploy hook blocks the shared codebase. Use separately reviewed Gen 2 plans for any additional Functions. Gen 1 Auth cleanup is outside the rollout scope.
 
 ```sh
-firebase deploy --project rainbyte-studio --only firestore:rules,firestore:indexes
+npx --yes firebase-tools@14.27.0 deploy --project rainbyte-studio --only firestore:rules,firestore:indexes
 ```
 
 Do **not** run an unrestricted `firebase deploy`, which might deploy Firebase Hosting. Check the CLI identifies the intended named database; stop otherwise. Do not approve unexpected function deletions.
