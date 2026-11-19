@@ -13,14 +13,15 @@ import { connectStorageEmulator, getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
-const emulatorMode = import.meta.env.MODE === 'browser-emulator';
+const emulatorMode = typeof __HEYROQ_BROWSER_EMULATOR__ !== 'undefined' && __HEYROQ_BROWSER_EMULATOR__;
+const demoProject = 'demo-heyroq';
 if (emulatorMode && window.location.hostname !== '127.0.0.1') {
   throw new Error('The emulator build requires 127.0.0.1.');
 }
 const app = emulatorMode ? initializeApp({
-  apiKey: 'demo-heyroq',
-  projectId: 'demo-heyroq',
-  storageBucket: 'demo-heyroq.appspot.com',
+  apiKey: demoProject,
+  projectId: demoProject,
+  storageBucket: `${demoProject}.appspot.com`,
 }, 'heyroq-browser-emulator') : (!getApps().length ? initializeApp(firebaseConfig) : getApp());
 
 // Initialize Services

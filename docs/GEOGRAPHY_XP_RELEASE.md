@@ -323,6 +323,10 @@ node scripts/pin-image-transition-rules.mjs storage > storage.pin-transition.rul
 2. Deploy the approved pin and progression Functions from the pinned
    artifact using the [identity release plan](IDENTITY_RELEASE.md) and
    individually reviewed selectors after the live retry gates are met.
+   Apply the three deferred service-level `roles/run.invoker` grants from
+   the identity plan once their destination Cloud Run services exist.
+   Verify each receiver or OIDC principal on its exact service before
+   relying on Eventarc delivery or resuming Scheduler jobs.
    Confirm the pin delete and image reconciliation revisions, drain old
    revisions that could delete legacy images, and activate the upload callable
    after transitional Rules are active. Provision the account-deletion
