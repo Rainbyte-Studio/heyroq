@@ -28,13 +28,15 @@ jobs:
       - run: npm ci --prefix functions
       - run: npm --prefix functions run build
       - run: git diff --exit-code -- functions/lib
-      - run: npx --no-install playwright install --with-deps chromium
       - name: Run browser against local emulators
         env:
           FIREBASE_CONFIG: '{"projectId":"demo-heyroq","storageBucket":"demo-heyroq.appspot.com"}'
           GCLOUD_PROJECT: demo-heyroq
           GOOGLE_CLOUD_PROJECT: demo-heyroq
-        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only auth,firestore,functions,storage 'node tests/browser/run.mjs'
+        run: |
+          export HEYROQ_CHROMIUM_EXECUTABLE="$(command -v google-chrome)"
+          "$HEYROQ_CHROMIUM_EXECUTABLE" --version
+          npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only auth,firestore,functions,storage 'node tests/browser/run.mjs'
       - name: Build and exercise Cloud Run frontend image
         shell: bash
         env:
