@@ -42,7 +42,7 @@ export function makePinImageTransitionStorageRules(finalRules) {
   if (finalRules.split(legacy).length !== 2) {
     throw new Error('Expected exactly one read-only legacy pin Storage match.');
   }
-  return finalRules.replace(legacy, legacy + '\n      allow create: if isOwner(userId) && isValidImage() &&\n                    fileName.matches(\'[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*\');');
+  return finalRules.replace(legacy, legacy + '\n      allow create: if resource == null && isOwner(userId) && isValidImage() &&\n                    fileName.matches(\'[0-9]+_([0-9a-f-]{36}_)?[A-Za-z0-9._]*\');');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
