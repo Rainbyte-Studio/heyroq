@@ -37,6 +37,8 @@ jobs:
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only auth,firestore,functions,storage 'node tests/browser/run.mjs'
       - name: Build and exercise Cloud Run frontend image
         shell: bash
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ github.event_name != 'pull_request' && vars.HEYROQ_GOOGLE_MAPS_BROWSER_KEY || '' }}
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
@@ -51,9 +53,14 @@ jobs:
           node release/smoke-frontend.mjs http://127.0.0.1:18080
           docker image inspect --format '{{.Id}}' "$image" > artifact/IMAGE_ID
           printf '%s\n' "$commit" > artifact/COMMIT
+          if [[ -n "$VITE_GOOGLE_MAPS_API_KEY" ]]; then
+            printf '%s\n' maps-configured > artifact/BUILD_PROFILE
+          else
+            printf '%s\n' smoke-only-no-maps-key > artifact/BUILD_PROFILE
+          fi
           docker save "$image" | gzip -n > artifact/frontend-image.tar.gz
           tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -czf artifact/frontend-dist.tar.gz -C dist .
-          (cd artifact && sha256sum frontend-image.tar.gz frontend-dist.tar.gz COMMIT IMAGE_ID > SHA256SUMS)
+          (cd artifact && sha256sum frontend-image.tar.gz frontend-dist.tar.gz COMMIT IMAGE_ID BUILD_PROFILE > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: heyroq-frontend-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}

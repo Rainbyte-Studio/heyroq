@@ -12,10 +12,13 @@ The frontend is hosted by **Google AI Studio**, not Firebase Hosting. Do not dep
 The `Frontend Release Candidate` workflow runs Chromium against local Auth,
 Firestore, Functions and Storage emulators. It builds a separate production
 frontend image and smoke-tests it locally using the Cloud Run port contract.
-The artifact records the source commit, image ID and checksums of both archives.
-Preserve the artifact from the validated run. After rollout approval, confirm
-the registry digest and verify the compatible revision on the existing
-frontend origin before assigning traffic.
+The artifact records the source commit, image ID, build profile and checksums
+of both archives. PR runs produce a smoke-test image with Maps disabled.
+For a rollback image, configure the referrer-restricted browser Maps key as
+the `HEYROQ_GOOGLE_MAPS_BROWSER_KEY` repository variable and run the workflow
+on the approved commit. Verify `SHA256SUMS` and preserve the `maps-configured`
+artifact. After rollout approval, confirm the registry digest and smoke-test
+Maps and Firebase Auth on the existing frontend origin before assigning traffic.
 
 Merge and production actions require separate approval. Use the geographic XP runbook for
 pin-image transition, endpoint retry matching, avatar upload closure and deletion-queue recovery. Checked-in Functions runtime parity and both live cleanup dependencies are release gates.
