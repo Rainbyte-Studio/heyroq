@@ -154,7 +154,7 @@ export interface UserAchievement {
   isUnlocked: boolean;
   unlockedAt?: string | null;
   qualifiedPhotoProgress?: number;
-  /** Server-recorded progress supported by verified geographic evidence. */
+  /** Confirmed snapshot of a server-owned count based on verified geographic evidence. */
   verifiedGeographicProgress?: number;
   updatedAt: string;
 }

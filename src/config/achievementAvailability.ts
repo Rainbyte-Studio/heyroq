@@ -1,26 +1,18 @@
 import type { UserAchievement } from '../types';
 
 export type AchievementAvailability = 'coming_soon' | 'available' | 'completed';
-type GeographicRelease = Exclude<AchievementAvailability, 'completed'>;
 
-// This release setting only affects presentation. Award eligibility is server-owned.
-const geographicReleases: Readonly<Partial<Record<string, GeographicRelease>>> = {
-  local_explorer: 'coming_soon',
-  city_scout: 'coming_soon',
-  metro_hopper: 'coming_soon',
-  city_pathfinder: 'coming_soon',
-  border_crosser: 'coming_soon',
-  world_citizen: 'coming_soon',
-  global_voyager: 'coming_soon',
-};
+// Presentation only. Add an ID after server-only writes and verified evidence
+// are in place for that release. Backend eligibility is independently controlled.
+const availableGeographicBadgeIds: ReadonlySet<string> = new Set();
 
 export function getAchievementPresentation(
-  badge: Pick<UserAchievement, 'id' | 'isUnlocked' | 'progress' | 'target' | 'verifiedGeographicProgress'>,
-  geographicRelease = geographicReleases[badge.id],
+  badge: Pick<UserAchievement, 'id' | 'category' | 'isUnlocked' | 'progress' | 'target' | 'verifiedGeographicProgress'>,
+  availableIds: ReadonlySet<string> = availableGeographicBadgeIds,
 ): { state: AchievementAvailability; progress: number | null } {
   if (badge.isUnlocked) return { state: 'completed', progress: badge.progress };
-  if (geographicRelease === 'coming_soon') return { state: 'coming_soon', progress: null };
-  if (geographicRelease === undefined) return { state: 'available', progress: badge.progress };
+  if (badge.category !== 'Geography') return { state: 'available', progress: badge.progress };
+  if (!availableIds.has(badge.id)) return { state: 'coming_soon', progress: null };
 
   // Legacy progress may predate verified geography. A future backend can write
   // this separate count from verified evidence, including an explicit zero.

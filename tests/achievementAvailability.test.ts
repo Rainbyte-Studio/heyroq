@@ -3,7 +3,8 @@ import test from 'node:test';
 import { getAchievementPresentation } from '../src/config/achievementAvailability';
 import { ACHIEVEMENTS_CATALOG } from '../src/config/progressionConfig';
 
-const lockedCity = { id: 'city_pathfinder', isUnlocked: false, progress: 10, target: 10 };
+const lockedCity = { id: 'city_pathfinder', category: 'Geography' as const, isUnlocked: false, progress: 10, target: 10 };
+const availableCityIds = new Set([lockedCity.id]);
 
 test('the current release hides progress for all seven geographic badges and retains it for the other 19', () => {
   const catalog = ACHIEVEMENTS_CATALOG.map((badge) => ({
@@ -24,14 +25,23 @@ test('the current release hides progress for all seven geographic badges and ret
   }
 });
 
+test('unknown Geography IDs and a missing release stay paused even with nonzero stored counts', () => {
+  for (const id of ['future_city_badge', 'constructor', '__proto__', 'first_discovery']) {
+    const badge = { ...lockedCity, id, verifiedGeographicProgress: 7 };
+    assert.deepEqual(getAchievementPresentation(badge, availableCityIds), { state: 'coming_soon', progress: null });
+    assert.deepEqual(getAchievementPresentation(badge), { state: 'coming_soon', progress: null });
+  }
+  assert.deepEqual(getAchievementPresentation(lockedCity, new Set()), { state: 'coming_soon', progress: null });
+});
+
 test('an explicitly available geographic badge shows only verified progress', () => {
   for (const invalid of [undefined, -1, 1.5, NaN, Infinity, '10']) {
     const badge = { ...lockedCity, verifiedGeographicProgress: invalid as number | undefined };
-    assert.deepEqual(getAchievementPresentation(badge, 'available'), { state: 'available', progress: null });
+    assert.deepEqual(getAchievementPresentation(badge, availableCityIds), { state: 'available', progress: null });
   }
   for (const [verified, progress] of [[0, 0], [3, 3], [12, 10]]) {
     const badge = { ...lockedCity, verifiedGeographicProgress: verified };
-    assert.deepEqual(getAchievementPresentation(badge, 'available'), { state: 'available', progress });
+    assert.deepEqual(getAchievementPresentation(badge, availableCityIds), { state: 'available', progress });
   }
 });
 
@@ -45,6 +55,6 @@ test('legacy completed awards take priority over release settings and retain sto
   });
   const before = { ...legacy };
   assert.deepEqual(getAchievementPresentation(legacy), { state: 'completed', progress: 10 });
-  assert.deepEqual(getAchievementPresentation(legacy, 'available'), { state: 'completed', progress: 10 });
+  assert.deepEqual(getAchievementPresentation(legacy, availableCityIds), { state: 'completed', progress: 10 });
   assert.deepEqual(legacy, before);
 });
