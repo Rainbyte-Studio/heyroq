@@ -440,18 +440,25 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                       </p>
                     </div>
 
-                    {progress === null ? (
+                    {isComingSoon ? (
+                      // Locked legacy counts have no verified provenance. Keep
+                      // the goal visible without presenting them as progress.
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-600 dark:text-slate-300">
                         <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-200">
-                          {isComingSoon ? 'Coming Soon' : 'Progress unavailable'}
+                          Coming Soon
                         </span>
+                        <span className="tabular-nums">Goal {ach.target}</span>
+                      </div>
+                    ) : progress === null ? (
+                      <div className="flex flex-wrap justify-between gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                        <span>Progress unavailable</span>
                         <span className="tabular-nums">Goal {ach.target}</span>
                       </div>
                     ) : (
                       <div>
                         <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
                           <span>
-                            {state === 'completed' ? (
+                            {ach.isUnlocked ? (
                               <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                                 Completed
                               </span>
