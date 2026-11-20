@@ -30,7 +30,12 @@ test('frontend and backend agree on all 26 IDs, reward metadata and metrics', ()
   const catalog = backend.ACHIEVEMENTS_CATALOG;
   assert.equal(catalog.length, 26);
   assert.deepEqual(catalog.map(badge => badge.id).sort(), [...originalIds, ...Object.keys(additions)].sort());
-  const snapshot = (items: typeof catalog) => items.map(({ metric, ...item }) => ({ ...item, score: metric(metrics) }));
+  const snapshot = (items: typeof catalog) => items.map(({ metric, geographicDimension, ...item }) => {
+    if (geographicDimension) {
+      assert.equal(metric(metrics), geographicDimension === 'city' ? metrics.citiesCount : metrics.countriesCount);
+    }
+    return { ...item, score: metric(metrics) };
+  });
   assert.deepEqual(snapshot(frontend.ACHIEVEMENTS_CATALOG), snapshot(catalog));
   assert.deepEqual(Object.fromEntries(['Exploration', 'Geography', 'Discovery', 'Community', 'Special']
     .map(category => [category, catalog.filter(badge => badge.category === category).length])),
@@ -60,22 +65,27 @@ test('all 10 level thresholds and the frozen geography XP baselines stay stable'
 });
 
 const cohorts = [
-  { name: 'Casual', monthlyPins: 2, richRate: 0.1, photoRate: 0.2, likesPerPin: 0.35, distinctLikerShare: 0.5, followersPerPin: 0.05, categories: 3 },
-  { name: 'Active', monthlyPins: 8, richRate: 0.35, photoRate: 0.5, likesPerPin: 1.2, distinctLikerShare: 0.45, followersPerPin: 0.15, categories: 5 },
-  { name: 'Power', monthlyPins: 24, richRate: 0.7, photoRate: 0.8, likesPerPin: 3.5, distinctLikerShare: 0.3, followersPerPin: 0.35, categories: 8 },
+  { name: 'Casual', monthlyPins: 2, richRate: 0.1, photoRate: 0.2, likesPerPin: 0.35, distinctLikerShare: 0.5, followersPerPin: 0.05, categories: 3, pinsPerCity: 55, pinsPerCountry: 170, cityCap: 8, countryCap: 4 },
+  { name: 'Active', monthlyPins: 8, richRate: 0.35, photoRate: 0.5, likesPerPin: 1.2, distinctLikerShare: 0.45, followersPerPin: 0.15, categories: 5, pinsPerCity: 28, pinsPerCountry: 85, cityCap: 18, countryCap: 7 },
+  { name: 'Power', monthlyPins: 24, richRate: 0.7, photoRate: 0.8, likesPerPin: 3.5, distinctLikerShare: 0.3, followersPerPin: 0.35, categories: 8, pinsPerCity: 14, pinsPerCountry: 48, cityCap: 35, countryCap: 12 },
 ];
 
-function simulate(cohort: typeof cohorts[number], v11: boolean) {
+function simulate(cohort: typeof cohorts[number], v11: boolean, coverage = 0) {
   const { PROGRESSION_CONSTANTS: xpRules, LIKE_MILESTONES, FOLLOWER_MILESTONES, getProgressForXp } = backend;
   const catalog = backend.ACHIEVEMENTS_CATALOG.filter(badge =>
-    badge.category !== 'Geography' && (v11 || originalIds.includes(badge.id)));
+    (coverage > 0 || badge.category !== 'Geography') && (v11 || originalIds.includes(badge.id)));
   const matches = new Map<number, number>([[1, 0]]);
   let xp = 0;
   for (let pins = 1; pins <= 800; pins++) {
     const rich = Math.floor(pins * cohort.richRate);
     const likes = Math.floor(pins * cohort.likesPerPin);
     const followers = Math.floor(pins * cohort.followersPerPin);
+    // Pin clusters recur locally. City coverage is sparser, and a country can
+    // qualify independently. Coverage discounts new places rather than pins.
+    const cities = Math.floor(coverage * 0.7 * Math.min(cohort.cityCap, 1 + Math.floor((pins - 1) / cohort.pinsPerCity)));
+    const countries = Math.floor(coverage * Math.min(cohort.countryCap, 1 + Math.floor((pins - 1) / cohort.pinsPerCountry)));
     xp = xpRules.FIRST_DISCOVERY_BONUS_XP + pins * xpRules.BASE_DISCOVERY_XP + rich * xpRules.RICH_DISCOVERY_BONUS_XP;
+    xp += cities * xpRules.UNIQUE_CITY_BONUS_XP + countries * xpRules.UNIQUE_COUNTRY_BONUS_XP;
     for (const milestone of LIKE_MILESTONES) if (likes >= milestone.count) xp += milestone.xp;
     for (const milestone of FOLLOWER_MILESTONES) if (followers >= milestone.count) xp += milestone.xp;
 
@@ -85,7 +95,7 @@ function simulate(cohort: typeof cohorts[number], v11: boolean) {
       Math.floor((pins + cohort.categories - 3) / cohort.categories),
     ];
     const data: backend.MetricContext = {
-      totalSpots: pins, citiesCount: 0, countriesCount: 0, likesReceived: likes, followersCount: followers,
+      totalSpots: pins, citiesCount: cities, countriesCount: countries, likesReceived: likes, followersCount: followers,
       hiddenGemsCount: categories[0], foodCount: categories[1], natureCount: categories[2],
       photoSpotsCount: Math.floor(pins * cohort.photoRate), distinctDiscoveryCount: pins,
       distinctCategoryCount: Math.min(cohort.categories, pins), qualifyingRichCount: rich,
@@ -114,5 +124,17 @@ test('deterministic XP simulations quantify the added rewards without geography 
     t.diagnostic(cohort.name + ' · levels 2–10 · ' + [...candidate.matches].slice(1).map(([level, pins]) =>
       'L' + level + ' ' + pins + ' pins / ' + (pins / cohort.monthlyPins).toFixed(1) +
       ' mo (v1.0 ' + baseline.matches.get(level) + ' pins)').join(' · '));
+  }
+});
+
+test('sparse geographic coverage has a bounded effect on levels 8–10', t => {
+  for (const cohort of cohorts) {
+    const scenarios = [0, 0.5, 1].map(coverage => simulate(cohort, true, coverage));
+    for (const level of [8, 9, 10]) {
+      const pins = scenarios.map(result => result.matches.get(level)!);
+      assert.ok(pins[0] >= pins[1] && pins[1] >= pins[2]);
+      assert.ok(pins[2] >= pins[0] * 0.85);
+      t.diagnostic(`${cohort.name} L${level} frozen / restricted / broad: ${pins.join(' / ')} pins; ${pins.map(n => (n / cohort.monthlyPins).toFixed(1)).join(' / ')} months`);
+    }
   }
 });

@@ -110,6 +110,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     // --- Geography ---
     {
         id: 'local_explorer',
+        geographicDimension: 'city',
         title: 'Local Explorer',
         description: 'Publish a discovery in 1 verified city.',
         category: 'Geography',
@@ -121,6 +122,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'city_scout',
+        geographicDimension: 'city',
         title: 'Urban Scout',
         description: 'Publish discoveries across 2 different cities.',
         category: 'Geography',
@@ -132,6 +134,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'metro_hopper',
+        geographicDimension: 'city',
         title: 'Metro Nomad',
         description: 'Drop pins and share spots in 5 different cities.',
         category: 'Geography',
@@ -143,6 +146,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'city_pathfinder',
+        geographicDimension: 'city',
         title: 'City Pathfinder',
         description: 'Publish discoveries in 10 verified cities.',
         category: 'Geography',
@@ -154,6 +158,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'border_crosser',
+        geographicDimension: 'country',
         title: 'Cross Borders',
         description: 'Expand your explorer footprint into 2 different countries.',
         category: 'Geography',
@@ -165,6 +170,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'world_citizen',
+        geographicDimension: 'country',
         title: 'World Citizen',
         description: 'Publish authentic spots across 4 different nations.',
         category: 'Geography',
@@ -176,6 +182,7 @@ exports.ACHIEVEMENTS_CATALOG = [
     },
     {
         id: 'global_voyager',
+        geographicDimension: 'country',
         title: 'Global Voyager',
         description: 'Publish discoveries in 8 verified countries.',
         category: 'Geography',

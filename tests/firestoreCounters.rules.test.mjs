@@ -35,6 +35,25 @@ const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
   await setDoc(doc(context.firestore(), 'users/alice'), profile());
 });
 
+it('only server SDKs can write progression and receipts, including for admin clients', async () => {
+  const admin = env.authenticatedContext('staff', { admin: true }).firestore();
+  const receiptPath = 'users/alice/xpEvents/geo_v1:country:GR';
+  const paths = [receiptPath, 'users/alice/progression/summary', 'users/alice/achievements/local_explorer'];
+  const evidence = { geographicReceipt: { schemaVersion: 1, signature: 'fixture' }, xpEarned: 150 };
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), receiptPath), evidence);
+  });
+  for (const client of [alice(), bob(), admin]) {
+    for (const path of paths) {
+      await assertFails(setDoc(doc(client, path), evidence));
+    }
+    await assertFails(deleteDoc(doc(client, receiptPath)));
+  }
+  await assertSucceeds(getDoc(doc(alice(), receiptPath)));
+  await assertSucceeds(getDoc(doc(admin, receiptPath)));
+  await assertFails(getDoc(doc(bob(), receiptPath)));
+});
+
 it('follow and unfollow preserve both records in the same batch', async () => {
   await seedAlice();
   await env.withSecurityRulesDisabled(async context => {

@@ -99,6 +99,7 @@ export interface AchievementBlueprint {
   xpReward: number;
   target: number;
   requiresLevel?: true;
+  geographicDimension?: 'city' | 'country';
   metric: (data: MetricContext) => number;
 }
 
@@ -163,6 +164,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   // --- Geography ---
   {
     id: 'local_explorer',
+    geographicDimension: 'city',
     title: 'Local Explorer',
     description: 'Publish a discovery in 1 verified city.',
     category: 'Geography',
@@ -174,6 +176,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   },
   {
     id: 'city_scout',
+    geographicDimension: 'city',
     title: 'Urban Scout',
     description: 'Publish discoveries across 2 different cities.',
     category: 'Geography',
@@ -185,6 +188,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   },
   {
     id: 'metro_hopper',
+    geographicDimension: 'city',
     title: 'Metro Nomad',
     description: 'Drop pins and share spots in 5 different cities.',
     category: 'Geography',
@@ -196,6 +200,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   },
   {
     id: 'city_pathfinder',
+    geographicDimension: 'city',
     title: 'City Pathfinder',
     description: 'Publish discoveries in 10 verified cities.',
     category: 'Geography',
@@ -207,6 +212,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   },
   {
     id: 'border_crosser',
+    geographicDimension: 'country',
     title: 'Cross Borders',
     description: 'Expand your explorer footprint into 2 different countries.',
     category: 'Geography',
@@ -218,6 +224,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   },
   {
     id: 'world_citizen',
+    geographicDimension: 'country',
     title: 'World Citizen',
     description: 'Publish authentic spots across 4 different nations.',
     category: 'Geography',
@@ -230,6 +237,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
 
   {
     id: 'global_voyager',
+    geographicDimension: 'country',
     title: 'Global Voyager',
     description: 'Publish discoveries in 8 verified countries.',
     category: 'Geography',

@@ -11,6 +11,10 @@ import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
 import { handlePinImageUpload, matchesImageSignature } from './pinImageUpload';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
+  configuredGeographicPolicy, matchesGeographicReceipt, resolveGeographicReceipt,
+  type GeographicPolicy, type GeographicReceipt,
+} from './geographicProgression';
+import {
   ACHIEVEMENTS_CATALOG,
   PROGRESSION_CONSTANTS,
   LIKE_MILESTONES,
@@ -244,7 +248,35 @@ export async function updateUserProgressionServer(userId: string) {
   return syncUserProgression(userId);
 }
 
-async function syncUserProgression(userId: string, concurrencyRetry = 0): Promise<unknown> {
+// The policy is supplied by the server or injected directly by emulator tests.
+export async function updateProgressionForCreatedPin(
+  pin: FirebaseFirestore.DocumentSnapshot, policy = configuredGeographicPolicy(),
+) {
+  const userId = pin.get('userId');
+  if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
+  if (policy && policy.pilotUsers.has(userId) && pin.updateTime && pin.createTime?.isEqual(pin.updateTime) &&
+      pin.createTime.toMillis() >= policy.startsAtMs) {
+    const ref = db.collection('pins').doc(pin.id);
+    const [current, lock] = await db.getAll(ref, db.collection('accountDeletionLocks').doc(userId));
+    if (!lock.exists && current.createTime?.isEqual(pin.createTime)) {
+      const receipt = await resolveGeographicReceipt(pin, userId, FIRESTORE_DATABASE_ID, policy);
+      if (receipt && matchesGeographicReceipt(receipt, current, userId, FIRESTORE_DATABASE_ID, policy)) {
+        return syncUserProgression(userId, { ref, receipt, policy });
+      }
+    }
+  }
+  return syncUserProgression(userId);
+}
+
+interface GeographicCandidate {
+  ref: FirebaseFirestore.DocumentReference;
+  receipt: GeographicReceipt;
+  policy: GeographicPolicy;
+}
+
+async function syncUserProgression(
+  userId: string, geographic?: GeographicCandidate, concurrencyRetry = 0,
+): Promise<unknown> {
   if (!userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
 
   // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
@@ -308,6 +340,8 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
   let historicalSpotsCount = 0;
   const historicalCitiesSet = new Set<string>();
   const historicalCountriesSet = new Set<string>();
+  const verifiedCities = new Set<string>();
+  const verifiedCountries = new Set<string>();
 
   existingEventsSnap.forEach((doc) => {
     existingEventIds.add(doc.id);
@@ -324,6 +358,10 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
 
     if (doc.id.startsWith('pin_created:')) {
       historicalSpotsCount++;
+    } else if (doc.id.startsWith('geo_v1:city:')) {
+      verifiedCities.add(doc.id);
+    } else if (doc.id.startsWith('geo_v1:country:')) {
+      verifiedCountries.add(doc.id);
     } else if (doc.id.startsWith('city_first:')) {
       const cityRef = (data?.referenceId || doc.id.replace('city_first:', '')).toLowerCase().trim();
       historicalCitiesSet.add(cityRef);
@@ -340,10 +378,39 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
   const lifetimeSpotsCount = Math.max(prevSpots, historicalSpotsCount, activeSpotsCount);
 
   const prevCities = Number(existingSummary?.citiesCount) || 0;
-  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size);
-
   const prevCountries = Number(existingSummary?.countriesCount) || 0;
-  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size);
+
+  // Legacy labels and summary-only counts cannot safely be mapped to canonical
+  // places. Keep that dimension frozen for affected accounts.
+  const qualifyCities = !historicalCitiesSet.size && prevCities <= verifiedCities.size;
+  const qualifyCountries = !historicalCountriesSet.size && prevCountries <= verifiedCountries.size;
+  if (geographic) {
+    const { receipt } = geographic;
+    const addGeographicReward = (id: string, referenceId: string, city: boolean, earned: Set<string>) => {
+      if (existingEventIds.has(id)) return;
+      earned.add(id);
+      pendingXpEvents.push({
+        id,
+        event: {
+          id, userId, referenceId,
+          action: city ? 'UNIQUE_CITY' : 'UNIQUE_COUNTRY',
+          xpEarned: city ? PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP : PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
+          description: city ? 'First verified city' : 'First verified country',
+          createdAt: new Date().toISOString(),
+          geographicReceipt: receipt,
+        },
+      });
+    };
+    if (qualifyCities && receipt.cityId) {
+      const id = `${receipt.countryCode}:${receipt.cityId}`;
+      addGeographicReward(`geo_v1:city:${id}`, id, true, verifiedCities);
+    }
+    if (qualifyCountries) {
+      addGeographicReward(`geo_v1:country:${receipt.countryCode}`, receipt.countryCode, false, verifiedCountries);
+    }
+  }
+  const lifetimeCitiesCount = Math.max(prevCities, historicalCitiesSet.size, verifiedCities.size);
+  const lifetimeCountriesCount = Math.max(prevCountries, historicalCountriesSet.size, verifiedCountries.size);
 
   if (lifetimeSpotsCount >= 1) {
     profileCompletePoints++;
@@ -479,8 +546,8 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     : await countTrustedLikes(db, userId, pinsSnap.docs, trustedVoice.target);
   const metricContext: MetricContext = {
     totalSpots: lifetimeSpotsCount,       // Historical lifetime spots
-    citiesCount: lifetimeCitiesCount,     // Historical lifetime cities
-    countriesCount: lifetimeCountriesCount, // Historical lifetime countries
+    citiesCount: verifiedCities.size,
+    countriesCount: verifiedCountries.size,
     likesReceived,                       // Dynamic live likes
     followersCount,                      // Dynamic live followers
     hiddenGemsCount,
@@ -501,9 +568,11 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     const earnedEvent = earnedAchievementEvents.get(achEventId);
     const alreadyUnlocked = Boolean(existing?.isUnlocked || earnedEvent);
     const isGeography = item.category === 'Geography';
-    // Legacy geography progress is preserved as history. Even earned city/country
-    // ledger entries cannot establish progress for any of the new geography badges.
-    const calculatedMetric = isGeography ? 0 : item.metric(metricContext);
+    const canAwardGeography = Boolean(geographic && (
+      item.geographicDimension === 'city' ? qualifyCities :
+        item.geographicDimension === 'country' && qualifyCountries
+    ));
+    const calculatedMetric = isGeography && !canAwardGeography ? 0 : item.metric(metricContext);
     const isPhoto = item.id === 'visual_storyteller';
     const previousProgress = Number(existing?.progress) || 0;
     const legacyPhotoProgress = isPhoto
@@ -512,7 +581,9 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     const qualifiedPrevious = isPhoto ? Number(existing?.qualifiedPhotoProgress) || 0 : previousProgress;
     const preservedProgress = item.category === 'Community' ? 0 : qualifiedPrevious;
     const progress = Math.min(item.target, Math.max(preservedProgress, calculatedMetric));
-    const isUnlocked = alreadyUnlocked || (!isGeography && progress >= item.target);
+    const isUnlocked = alreadyUnlocked || (isGeography
+      ? canAwardGeography && calculatedMetric >= item.target
+      : progress >= item.target);
     const now = new Date().toISOString();
     const unlockedAt = isUnlocked ? (existing?.unlockedAt || earnedEvent?.createdAt || now) : null;
     const tier = alreadyUnlocked
@@ -611,6 +682,12 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
       if (expectedVersion ? !currentVersion?.isEqual(expectedVersion) : currentVersion) {
         throw new Error('PROGRESSION_STALE_SNAPSHOT');
       }
+      if (geographic) {
+        const currentPin = await transaction.get(geographic.ref);
+        if (!matchesGeographicReceipt(geographic.receipt, currentPin, userId, FIRESTORE_DATABASE_ID, geographic.policy)) {
+          throw new Error('PROGRESSION_GEOGRAPHIC_PIN_CHANGED');
+        }
+      }
 
       transaction.set(summaryRef, summary, { merge: true });
       transaction.update(userProfileRef, {
@@ -627,7 +704,10 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
-      return syncUserProgression(userId, concurrencyRetry + 1);
+      return syncUserProgression(userId, geographic, concurrencyRetry + 1);
+    }
+    if (error instanceof Error && error.message === 'PROGRESSION_GEOGRAPHIC_PIN_CHANGED') {
+      return syncUserProgression(userId);
     }
     throw error;
   }
@@ -798,8 +878,7 @@ export const onPinCreatedProgression = onDocumentCreated(
     retry: false,
   },
   async (event) => {
-    const userId = event.data?.get('userId');
-    if (typeof userId === 'string') await updateUserProgressionServer(userId);
+    if (event.data) await updateProgressionForCreatedPin(event.data);
   }
 );
 

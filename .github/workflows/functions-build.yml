@@ -34,7 +34,7 @@ jobs:
       - name: Verify checked-in Functions runtime
         run: test -z "$(git status --porcelain -- functions/lib)"
       - name: Progression unit tests
-        run: node --test functions/tests/progressionLocation.test.cjs
+        run: node --test functions/tests/progressionLocation.test.cjs functions/tests/geographicProgression.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
