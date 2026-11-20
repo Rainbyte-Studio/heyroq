@@ -1137,14 +1137,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 >
                                   <Icon className="w-4 h-4" />
                                 </div>
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate">
-                                    {cat}
-                                  </span>
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${config.bg} shrink-0`}
-                                  />
-                                </div>
+                                <span className="min-w-0 truncate text-xs font-semibold text-[var(--heyroq-text-primary)]">
+                                  {cat}
+                                </span>
                               </div>
                               {isSelected && (
                                 <div className="w-5 h-5 rounded-full bg-[var(--brand-cta-bg)] flex items-center justify-center text-white shrink-0 shadow-sm ml-2">
@@ -1454,9 +1449,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                                   <span className="text-sm font-semibold text-[var(--heyroq-text-primary)]">
                                     {cat}
                                   </span>
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${config.bg} shrink-0`}
-                                  />
                                 </div>
                                 <div className="text-xs text-[var(--heyroq-text-muted)] mt-0.5 leading-snug">
                                   {descMap[cat] || `Filter spots curated in ${cat}`}

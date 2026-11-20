@@ -135,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const { email: _privateEmail, ...publicProfile } = newProfile;
           await setDoc(userDocRef, publicProfile);
+          invalidateUserProfileCache(uid);
         } catch (setErr) {
           console.warn('Notice creating initial user profile in Firestore:', setErr);
         }
@@ -330,6 +331,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { email: _privateEmail, ...publicProfile } = newProfile;
       await setDoc(doc(db, 'users', uid), publicProfile);
+      invalidateUserProfileCache(uid);
       setProfile(newProfile);
     } catch (err) {
       console.warn('Notice saving profile doc to Firestore:', err);
@@ -390,13 +392,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setProfile((prev) => (prev ? { ...prev, ...enrichedData } : null));
-    invalidateUserProfileCache(user.uid);
-
     try {
       const userRef = doc(db, 'users', user.uid);
       const { email: _privateEmail, ...publicChanges } = enrichedData;
       if (Object.keys(publicChanges).length > 0) {
         await updateDoc(userRef, publicChanges);
+        invalidateUserProfileCache(user.uid);
       }
     } catch (err) {
       console.warn('Notice updating profile on server:', err);
