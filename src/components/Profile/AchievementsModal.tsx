@@ -55,6 +55,11 @@ const CATEGORIES: { id: 'All' | AchievementCategory; label: string }[] = [
   { id: 'Special', label: 'Special' },
 ];
 
+// Presentation only. The server independently controls eligibility and awards.
+const COMING_SOON_CATEGORIES: Partial<Record<AchievementCategory, string>> = {
+  Geography: 'Geographic Achievements are coming soon. Explore new places and share your discoveries while we prepare verified location-based rewards.',
+};
+
 export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   userId,
   displayName,
@@ -118,6 +123,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     if (selectedCategory === 'All') return true;
     return a.category === selectedCategory;
   });
+  const categoryNotice = selectedCategory === 'All' ? undefined : COMING_SOON_CATEGORIES[selectedCategory];
 
   const renderIcon = (iconName: string, isUnlocked: boolean, tier: ProgressionTier) => {
     const iconProps = { className: 'w-5 h-5' };
@@ -354,6 +360,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   key={cat.id}
                   type="button"
                   onClick={() => setSelectedCategory(cat.id)}
+                  aria-pressed={isSelected}
                   className={`px-3.5 py-2 min-h-[38px] rounded-full text-xs font-semibold transition-all duration-150 whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer heyroq-focus-ring ${
                     isSelected
                       ? 'heyroq-btn-primary'
@@ -373,6 +380,12 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             })}
           </div>
 
+          {categoryNotice && (
+            <p className="rounded-xl border border-slate-500/25 bg-slate-500/8 px-3.5 py-3 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
+              {categoryNotice}
+            </p>
+          )}
+
           {/* Achievements Grid */}
           {isLoading ? (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-white/45">
@@ -382,16 +395,20 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {filteredAchievements.map((ach) => {
-                const isPaused = ach.category === 'Geography' && !ach.isUnlocked;
-                const percent = Math.min(100, Math.round((ach.progress / Math.max(1, ach.target)) * 100));
+                const isComingSoon = !ach.isUnlocked && Boolean(COMING_SOON_CATEGORIES[ach.category]);
+                const earnedDate = ach.isUnlocked && ach.category === 'Geography' && ach.unlockedAt
+                  ? new Date(ach.unlockedAt)
+                  : null;
 
                 return (
-                  <div
+                  <article
                     key={ach.id}
                     className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${
                       ach.isUnlocked
                         ? 'border-slate-900/14 dark:border-white/20'
-                        : 'opacity-80'
+                        : isComingSoon
+                          ? 'border-dashed! border-slate-500/35! dark:border-slate-400/35!'
+                          : 'opacity-80'
                     }`}
                   >
                     {/* Top Row: Icon, Title & Reward */}
@@ -401,14 +418,14 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                           {renderIcon(ach.iconName, ach.isUnlocked, ach.tier)}
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <h4 className="font-heading text-sm font-bold tracking-tight text-slate-900 dark:text-white truncate">
+                              <h4 className={`font-heading text-sm font-bold tracking-tight text-slate-900 dark:text-white ${isComingSoon ? 'break-words' : 'truncate'}`}>
                                 {ach.title}
                               </h4>
                               {ach.isUnlocked && (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               )}
                             </div>
-                            <span className="text-[11px] text-slate-500 dark:text-white/45 capitalize">
+                            <span className={`text-[11px] capitalize ${isComingSoon ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-white/45'}`}>
                               {ach.category} · {ach.tier}
                             </span>
                           </div>
@@ -424,35 +441,52 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                       </p>
                     </div>
 
-                    {/* Bottom Row: Progress */}
-                    <div>
-                      <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
-                        <span>
-                          {ach.isUnlocked ? (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                              Completed
-                            </span>
-                          ) : (
-                            <span>{isPaused ? 'Geographic rewards paused' : 'Progress'}</span>
-                          )}
+                    {isComingSoon ? (
+                      // Locked legacy counts have no verified provenance. Keep
+                      // the goal visible without presenting them as progress.
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                        <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-200">
+                          Coming Soon
                         </span>
-                        <span>
-                          {isPaused ? `Goal ${ach.target}` : `${ach.progress} / ${ach.target}`}
-                        </span>
+                        <span className="tabular-nums">Goal {ach.target}</span>
                       </div>
+                    ) : (
+                      <div>
+                        <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
+                          <span>
+                            {ach.isUnlocked ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                Completed
+                              </span>
+                            ) : (
+                              <span>Progress</span>
+                            )}
+                          </span>
+                          <span>
+                            {ach.progress} / {ach.target}
+                          </span>
+                        </div>
 
-                      <div className="h-1.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            ach.isUnlocked
-                              ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
-                              : 'bg-slate-400 dark:bg-white/40'
-                          }`}
-                          style={{ width: `${isPaused ? 0 : percent}%` }}
-                        />
+                        <div className="h-1.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${
+                              ach.isUnlocked
+                                ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
+                                : 'bg-slate-400 dark:bg-white/40'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.round((ach.progress / Math.max(1, ach.target)) * 100))}%` }}
+                          />
+                        </div>
+                        {earnedDate && Number.isFinite(earnedDate.getTime()) && (
+                          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
+                            Unlocked <time dateTime={ach.unlockedAt ?? undefined}>{earnedDate.toLocaleDateString(undefined, {
+                              dateStyle: 'medium', timeZone: 'UTC',
+                            })}</time>
+                          </p>
+                        )}
                       </div>
-                    </div>
-                  </div>
+                    )}
+                  </article>
                 );
               })}
             </div>
