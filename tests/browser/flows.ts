@@ -1,13 +1,30 @@
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDocFromServer, updateDoc } from 'firebase/firestore';
 import { getBytes, ref } from 'firebase/storage';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { AchievementsModal } from '../../src/components/Profile/AchievementsModal';
 import { auth, db, storage } from '../../src/lib/firebase';
+import '../../src/index.css';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
 import { createPin, deletePin, newPinPublishAttempt } from '../../src/services/pinService';
 import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
+    openAchievements(uid: string) {
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      root.render(createElement(AchievementsModal, {
+        userId: uid,
+        displayName: 'Browser fixture',
+        onClose: () => {
+          root.unmount();
+          host.remove();
+        },
+      }));
+    },
     async signUp(email: string, password: string) {
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
       return user.uid;

@@ -96,6 +96,79 @@ try {
   const uid = await page.evaluate(async id => window.heyroqTest.signUp(id + '@example.test', id), randomUUID());
   const profile = db.collection('users').doc(uid);
   await profile.set({ displayName: 'Browser fixture' });
+  await page.evaluate(uid => window.heyroqTest.openAchievements(uid), uid);
+  const modal = page.getByRole('dialog', { name: 'Explorer Progression' });
+  const geography = modal.getByRole('button', { name: /^Geography/ });
+  const soon = modal.getByText('Coming Soon', { exact: true });
+  await soon.first().waitFor();
+  assert.equal(await modal.getByRole('article').count(), 26);
+  assert.equal(await soon.count(), 7);
+  await geography.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await geography.getAttribute('aria-pressed'), 'true');
+  await modal.getByText('Geographic Achievements are coming soon.', { exact: false }).waitFor();
+  const badges = [
+    ['Local Explorer', 1, 'bronze', 25], ['Urban Scout', 2, 'bronze', 30],
+    ['Metro Nomad', 5, 'silver', 75], ['City Pathfinder', 10, 'gold', 150],
+    ['Cross Borders', 2, 'silver', 75], ['World Citizen', 4, 'gold', 150],
+    ['Global Voyager', 8, 'platinum', 250],
+  ];
+  for (const [name, target, tier, xp] of badges) {
+    const card = modal.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    await card.getByText('Coming Soon', { exact: true }).waitFor();
+    assert.match(await card.innerText(), new RegExp(`Geography · ${tier}.*\\+${xp} XP.*Goal ${target}`, 'is'));
+    assert.equal(await card.locator('[style*="width"]').count(), 0);
+  }
+  const screenshotDir = process.env.HEYROQ_QA_SCREENSHOTS;
+  for (const [width, height, dark] of [[375, 844, false], [768, 1024, true], [1280, 1180, true]]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+    await geography.evaluate(button => button.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    await page.waitForFunction(dark => {
+      const card = document.querySelector('#achievements-modal article');
+      return card && getComputedStyle(card).backgroundColor === (dark ? 'rgb(34, 35, 39)' : 'rgb(255, 255, 255)');
+    }, dark);
+    const layout = await modal.getByRole('article').evaluateAll(cards => cards.map(card => {
+      const { x, right } = card.getBoundingClientRect();
+      return { x, right, overflow: card.scrollWidth > card.clientWidth, border: getComputedStyle(card).borderTopStyle };
+    }));
+    assert.ok(layout.every(card => card.x >= 0 && card.right <= width && !card.overflow && card.border === 'dashed'));
+    assert.equal(new Set(layout.map(card => card.x)).size, width < 640 ? 1 : 2);
+    if (screenshotDir && width !== 768) {
+      await page.screenshot({
+        path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
+        animations: 'disabled',
+      });
+    }
+  }
+  const historical = profile.collection('achievements').doc('city_scout');
+  const history = {
+    id: 'city_scout', title: 'Urban Scout', category: 'Geography', iconName: 'Building',
+    tier: 'gold', xpReward: 90, isUnlocked: true, progress: 2, target: 2,
+    unlockedAt: '2025-01-06T00:00:00Z',
+  };
+  const legacyProgress = profile.collection('achievements').doc('city_pathfinder');
+  await db.batch().set(historical, history).set(legacyProgress, { progress: 10, isUnlocked: false }).commit();
+  const earned = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Urban Scout' }) });
+  await earned.getByText('Completed', { exact: true }).waitFor();
+  assert.match(await earned.innerText(), /Geography · gold.*\+90 XP.*2 \/ 2/is);
+  assert.equal(await earned.locator('time').getAttribute('datetime'), history.unlockedAt);
+  assert.equal(await earned.getByText('Coming Soon', { exact: true }).count(), 0);
+  const locked = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'City Pathfinder' }) });
+  assert.equal(await locked.getByText('10 / 10', { exact: true }).count(), 0);
+  assert.equal(await soon.count(), 6);
+  assert.deepEqual((await historical.get()).data(), history);
+  assert.deepEqual((await legacyProgress.get()).data(), { progress: 10, isUnlocked: false });
+  if (screenshotDir) {
+    await page.screenshot({ path: join(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
+  }
+  await modal.getByRole('button', { name: /^All Badges/ }).click();
+  assert.equal(await modal.getByRole('article').count(), 26);
+  assert.equal(await modal.getByText('Progress', { exact: true }).count(), 19);
+  await page.keyboard.press('Escape');
+  await modal.waitFor({ state: 'detached' });
+  console.log('Achievements browser passed: all geography states, historical date and tier, keyboard, themes and responsive grid.');
+
   const legacyPath = 'pins/' + uid + '/legacy.png';
   await bucket.file(legacyPath).save(Buffer.from(png), { resumable: false, contentType: 'image/png' });
   assert.deepEqual(await page.evaluate(path => window.heyroqTest.legacy(path), legacyPath), png);
