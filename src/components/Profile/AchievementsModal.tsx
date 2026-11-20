@@ -14,6 +14,7 @@ import {
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
 import { CloseButton } from '../Common/CloseButton';
+import { getAchievementPresentation } from '../../config/achievementAvailability';
 import {
   Trophy,
   Compass,
@@ -54,11 +55,6 @@ const CATEGORIES: { id: 'All' | AchievementCategory; label: string }[] = [
   { id: 'Community', label: 'Community' },
   { id: 'Special', label: 'Special' },
 ];
-
-// Presentation only. The server independently controls eligibility and awards.
-const COMING_SOON_CATEGORIES: Partial<Record<AchievementCategory, string>> = {
-  Geography: 'Geographic Achievements are coming soon. Explore new places and share your discoveries while we prepare verified location-based rewards.',
-};
 
 export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   userId,
@@ -122,8 +118,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const filteredAchievements = achievements.filter((a) => {
     if (selectedCategory === 'All') return true;
     return a.category === selectedCategory;
-  });
-  const categoryNotice = selectedCategory === 'All' ? undefined : COMING_SOON_CATEGORIES[selectedCategory];
+  }).map((achievement) => ({ achievement, ...getAchievementPresentation(achievement) }));
+  const showGeographyNotice = selectedCategory === 'Geography'
+    && filteredAchievements.length > 0
+    && filteredAchievements.every(({ state }) => state !== 'available')
+    && filteredAchievements.some(({ state }) => state === 'coming_soon');
 
   const renderIcon = (iconName: string, isUnlocked: boolean, tier: ProgressionTier) => {
     const iconProps = { className: 'w-5 h-5' };
@@ -380,9 +379,9 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             })}
           </div>
 
-          {categoryNotice && (
+          {showGeographyNotice && (
             <p className="rounded-xl border border-slate-500/25 bg-slate-500/8 px-3.5 py-3 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
-              {categoryNotice}
+              Geographic Achievements are coming soon. Explore new places and share your discoveries while we prepare verified location-based rewards.
             </p>
           )}
 
@@ -394,8 +393,8 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {filteredAchievements.map((ach) => {
-                const isComingSoon = !ach.isUnlocked && Boolean(COMING_SOON_CATEGORIES[ach.category]);
+              {filteredAchievements.map(({ achievement: ach, state, progress }) => {
+                const isComingSoon = state === 'coming_soon';
                 const earnedDate = ach.isUnlocked && ach.category === 'Geography' && ach.unlockedAt
                   ? new Date(ach.unlockedAt)
                   : null;
@@ -450,6 +449,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                         </span>
                         <span className="tabular-nums">Goal {ach.target}</span>
                       </div>
+                    ) : progress === null ? (
+                      <div className="flex flex-wrap justify-between gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                        <span>Progress unavailable</span>
+                        <span className="tabular-nums">Goal {ach.target}</span>
+                      </div>
                     ) : (
                       <div>
                         <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
@@ -463,7 +467,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                             )}
                           </span>
                           <span>
-                            {ach.progress} / {ach.target}
+                            {progress} / {ach.target}
                           </span>
                         </div>
 
@@ -474,7 +478,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                                 ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
                                 : 'bg-slate-400 dark:bg-white/40'
                             }`}
-                            style={{ width: `${Math.min(100, Math.round((ach.progress / Math.max(1, ach.target)) * 100))}%` }}
+                            style={{ width: `${Math.min(100, Math.round((progress / Math.max(1, ach.target)) * 100))}%` }}
                           />
                         </div>
                         {earnedDate && Number.isFinite(earnedDate.getTime()) && (
