@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserProgressionSummary } from '../../types';
-import { EXPLORER_LEVELS } from '../../services/gamificationService';
+import { ACHIEVEMENTS_CATALOG, EXPLORER_LEVELS } from '../../services/gamificationService';
 import {
   Compass,
   Trophy,
@@ -52,7 +52,7 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
       );
   const progressPercent = summary?.progressPercent ?? calculatedPercent;
   const unlockedAchievements = summary?.unlockedAchievementsCount ?? 0;
-  const totalAchievements = summary?.totalAchievementsCount ?? 18;
+  const totalAchievements = ACHIEVEMENTS_CATALOG.length;
 
   return (
     <div
