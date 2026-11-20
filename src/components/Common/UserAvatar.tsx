@@ -77,11 +77,9 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   ariaLabel,
 }) => {
   const [imageFailed, setImageFailed] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     setImageFailed(false);
-    setImageLoaded(false);
   }, [imageUrl]);
 
   const descriptor = resolveAvatarDescriptor({
@@ -107,27 +105,14 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
       } ${ringClassName} ${className}`}
     >
       {descriptor.mode === 'image' && descriptor.imageUrl ? (
-        <>
-          {!imageLoaded && (
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-[#F3F1ED] dark:bg-[#2B2C31]"
-            />
-          )}
-          <img
-            src={descriptor.imageUrl}
-            alt={ariaLabel || descriptor.ariaLabel}
-            referrerPolicy="no-referrer"
-            onLoad={() => setImageLoaded(true)}
-            onError={() => {
-              setImageFailed(true);
-              setImageLoaded(false);
-            }}
-            className={`w-full h-full object-cover transition-opacity duration-150 ${
-              imageLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-        </>
+        <img
+          key={descriptor.imageUrl}
+          src={descriptor.imageUrl}
+          alt={ariaLabel || descriptor.ariaLabel}
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+          className="w-full h-full object-cover"
+        />
       ) : descriptor.mode === 'initials' ? (
         <span
           aria-hidden="true"
