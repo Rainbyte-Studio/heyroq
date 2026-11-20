@@ -225,7 +225,10 @@ async function updateProgressionForCreatedPin(pin, policy = (0, geographicProgre
         pin.createTime.toMillis() >= policy.startsAtMs) {
         const ref = db.collection('pins').doc(pin.id);
         const [current, lock] = await db.getAll(ref, db.collection('accountDeletionLocks').doc(userId));
-        if (!lock.exists && current.createTime?.isEqual(pin.createTime)) {
+        const currentData = current.data();
+        if (!lock.exists && current.createTime?.isEqual(pin.createTime) &&
+            (0, geographicProgression_1.isGeographicDiscovery)(currentData) && currentData.userId === userId &&
+            currentData.latitude === pin.get('latitude') && currentData.longitude === pin.get('longitude')) {
             const receipt = await (0, geographicProgression_1.resolveGeographicReceipt)(pin, userId, exports.FIRESTORE_DATABASE_ID, policy);
             if (receipt && (0, geographicProgression_1.matchesGeographicReceipt)(receipt, current, userId, exports.FIRESTORE_DATABASE_ID, policy)) {
                 return syncUserProgression(userId, { ref, receipt, policy });
@@ -298,6 +301,7 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
     const historicalCountriesSet = new Set();
     const verifiedCities = new Set();
     const verifiedCountries = new Set();
+    const awardedGeographicPins = new Set();
     existingEventsSnap.forEach((doc) => {
         existingEventIds.add(doc.id);
         const data = doc.data();
@@ -316,18 +320,21 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
         if (doc.id.startsWith('pin_created:')) {
             historicalSpotsCount++;
         }
-        else if (doc.id.startsWith('geo_v1:city:')) {
-            verifiedCities.add(doc.id);
-        }
-        else if (doc.id.startsWith('geo_v1:country:')) {
-            verifiedCountries.add(doc.id);
+        else if (doc.id.startsWith('geo_v1:city:') || doc.id.startsWith('geo_v1:country:')) {
+            const verified = doc.id.startsWith('geo_v1:city:') ? verifiedCities : verifiedCountries;
+            verified.add(doc.id);
+            if (typeof data.geographicReceipt?.pinDigest === 'string') {
+                awardedGeographicPins.add(data.geographicReceipt.pinDigest);
+            }
         }
         else if (doc.id.startsWith('city_first:')) {
-            const cityRef = (data?.referenceId || doc.id.replace('city_first:', '')).toLowerCase().trim();
+            const cityRef = (typeof data.referenceId === 'string' && data.referenceId.trim() ||
+                doc.id.slice('city_first:'.length)).trim().toLowerCase();
             historicalCitiesSet.add(cityRef);
         }
         else if (doc.id.startsWith('country_first:')) {
-            const countryRef = (data?.referenceId || doc.id.replace('country_first:', '')).toUpperCase().trim();
+            const countryRef = (typeof data.referenceId === 'string' && data.referenceId.trim() ||
+                doc.id.slice('country_first:'.length)).trim().toUpperCase();
             historicalCountriesSet.add(countryRef);
         }
     });
@@ -342,7 +349,7 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
     // places. Keep that dimension frozen for affected accounts.
     const qualifyCities = !historicalCitiesSet.size && prevCities <= verifiedCities.size;
     const qualifyCountries = !historicalCountriesSet.size && prevCountries <= verifiedCountries.size;
-    if (geographic) {
+    if (geographic && !awardedGeographicPins.has(geographic.receipt.pinDigest)) {
         const { receipt } = geographic;
         const addGeographicReward = (id, referenceId, city, earned) => {
             if (existingEventIds.has(id))

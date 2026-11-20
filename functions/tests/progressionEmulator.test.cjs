@@ -49,6 +49,10 @@ test('geographic awards and badge evidence commit once under concurrent trigger 
   const config = geographicPolicy(uid, async ({ latitude }) =>
     latitude === 40 ? { countryCode: 'IT' } : { countryCode: 'GR', cityId: 'place-123' });
   await Promise.all([first, first, sameCity, countryOnly].map(pin => updateProgressionForCreatedPin(pin, config)));
+  // An adapter can return a different valid identity on redelivery, for
+  // example after a corpus refresh. A rewarded incarnation is already spent.
+  await updateProgressionForCreatedPin(countryOnly,
+    geographicPolicy(uid, async () => ({ countryCode: 'FR', cityId: 'changed' })));
   await updateUserProgressionServer(uid);
   const ledger = await user.collection('xpEvents').get();
   const verified = ledger.docs.filter(doc => doc.id.startsWith('geo_v1:'));
@@ -82,7 +86,7 @@ test('a legacy city high-water mark preserves XP and independently allows a veri
   await user.set({ displayName: 'Geo fixture' });
   await user.collection('progression').doc('summary').set({ xp: 400, citiesCount: 5 });
   await user.collection('xpEvents').doc('city_first:athens').set({
-    action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25,
+    action: 'UNIQUE_CITY', referenceId: { legacyName: 'athens' }, xpEarned: 25,
   });
   const pin = await createGeographicPin('geo-legacy', uid, 38);
   const config = geographicPolicy(uid, async () => ({ countryCode: 'GR', cityId: 'place-123' }));
@@ -108,6 +112,9 @@ test('geo rejects pre-cutoff pins, recycled IDs, unpublished pins and deletion d
   await updateProgressionForCreatedPin(old, config);
   const draft = await createGeographicPin('geo-draft', uid, 38.5, { status: 'draft' });
   await updateProgressionForCreatedPin(draft, config);
+  const madePrivate = await createGeographicPin('geo-private-before-resolution', uid, 38.7);
+  await madePrivate.ref.update({ visibility: 'private' });
+  await updateProgressionForCreatedPin(madePrivate, config);
   assert.equal(calls, 0);
   await updateProgressionForCreatedPin(current, geographicPolicy(uid, async () => {
     await current.ref.update({ status: 'reported' });
@@ -310,6 +317,9 @@ const functions = require('../lib/index.js');
 test('every progression caller keeps geography frozen and replays without adding ledger entries', async () => {
   const cases = {
     onPinCreatedProgression: ({ pin }) => ({ data: pin }),
+    onPinUpdatedProgression: ({ pin }) => ({
+      data: { before: { data: () => ({ ...pin.data(), status: 'draft' }) }, after: pin },
+    }),
     onPinLikeCreated: ({ pin }) => ({ params: { pinId: pin.id } }),
     onPinLikeDeleted: ({ pin }) => ({ params: { pinId: pin.id } }),
     onUserFollowerCreated: ({ id }) => ({ params: { targetUserId: id, followerId: 'matrix-follower' } }),

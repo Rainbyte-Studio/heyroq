@@ -60,6 +60,8 @@ No map or provider data is downloaded by the candidate.
   transaction commits the ledger entries, summary and achievements. Only the
   server SDK writes these records under the proposed Rules. A Firestore IAM
   principal with direct write access remains a trusted operator.
+  An already rewarded pin incarnation cannot earn again if a redelivery
+  resolves to a different identity, including if city coverage improves later.
 - Lifetime XP, counts and unlocks stay permanent. Unreconciled legacy city or
   country history freezes new awards and unlocks only for the affected
   dimension. This prevents paying twice for legacy labels or summary-only
@@ -148,3 +150,70 @@ changes no thresholds.
    v1 receipts, counts and ledger XP. Roll forward on any shared baseline
    defect. Never route traffic back to a source with label-based geography or
    incompatible image, identity, deletion or Rules behavior.
+
+## Isolated AI Studio rehearsal checklist
+
+This is a future rehearsal. The hosted backend, actual preview origin and
+Google Maps behavior remain unverified by the emulator suites.
+
+1. Pin the reviewed PR SHA and make a disposable checkout. Use a separate
+   Firebase/Google Cloud project with a registered web app, the required named
+   Firestore database and edition, Auth test accounts/providers, a Storage
+   bucket, and separately approved callable endpoints in `europe-west2`.
+   Record project ID, database ID, bucket, Functions region and test owner
+   before assembling the preview. Use synthetic records only.
+2. Prepare an environment-only overlay in the disposable checkout. Replace
+   `firebase-applet-config.json` with the preview web app config plus
+   `firestoreDatabaseId`. Point `.firebaserc` and the Firestore database entry
+   in `firebase.json` at the preview; use an explicit project ID for any
+   approved provisioning. Set `FIRESTORE_DATABASE_ID` for Functions discovery
+   and runtime and confirm the named Eventarc filters. In the preview Functions
+   source overlay, replace the hardcoded `avatarBucketName` in
+   `functions/src/index.ts`, which controls both Admin avatar operations and
+   the Storage finalize binding. Confirm the default Admin bucket used by pin
+   images is also the preview bucket and that the finalize trigger region
+   matches its location. Rebuild Functions and record an overlay diff and
+   SHA-256 of the imported artifact. Retain the dormant resolver.
+3. Create a **new** Build app in AI Studio. Import the sanitized overlay
+   archive if the new app exposes archive import, or use the GitHub import
+   for an isolated staging repository containing the verified overlay. Abort
+   if the imported tree cannot be pinned and verified. Keep the existing
+   editor and shared snapshot out of the rehearsal. Open the new preview
+   with no Maps key first, capture the iframe's actual HTTPS origin, and
+   add only its hostname to preview Firebase Auth authorized domains.
+   [AI Studio Build documentation](https://ai.google.dev/gemini-api/docs/aistudio-build-mode)
+4. Issue a dedicated Maps browser key restricted to that HTTPS origin and the
+   APIs used by the app (Maps JavaScript, Places and Geocoding). In the
+   disposable overlay, set `PREVIEW_ORIGIN` in `MapsProvider.tsx` to the new
+   origin and supply only `VITE_GOOGLE_MAPS_PREVIEW_API_KEY` to a development
+   preview. Leave `VITE_GOOGLE_MAPS_API_KEY` unset. If Build serves a production
+   bundle, use a disposable overlay that selects the preview key only on the
+   exact origin, regardless of Vite mode. Check that the key fails on an
+   unrelated origin and that a missing key shows the unavailable state.
+   [Maps key restrictions](https://developers.google.com/maps/api-security-best-practices)
+5. Before signing in, use a clean browser profile to inspect the bundle and
+   network destinations. Confirm Firebase Auth and Firestore target the
+   disposable project/database, Storage URLs target its bucket, callables use
+   its project and region, and Maps requests use only the restricted key.
+   Stop on any production identifier, external write target or unexplained
+   request. With approved preview-only writes, test sign-in, map picking,
+   duplicate publish/recalculate, forged location labels, likes, follows,
+   avatar replacement, deletion and post-tombstone replay. Check ledger and
+   badges before/after, including seeded historical rarity and zero new
+   geographic awards. Record the SHA, origin, endpoint identities, logs and
+   results. A hosted rehearsal needs separate approval to provision its
+   backend and remains incomplete until these checks run.
+
+## Dataset approval evidence still needed
+
+- Exact country, disputed-area and city/locality source versions and hashes,
+  upstream provenance and obligations per source, attribution notices and
+  agreement-specific clearance for caching and permanent derived IDs, counts,
+  rewards and XP, including the accepted coordinate origins.
+- A versioned list of supported territories and ISO mappings, supported city
+  footprints, stable locality IDs with alias/merge/split handling, and a
+  cross-version deduplication test. Treat omitted areas as unresolved.
+- Labeled border, coast, overlap and city fixtures, measured distance/error
+  tolerances and abstention rates, plus precision/coverage and cost/latency
+  acceptance criteria for the planned pilot. Use independently checked samples
+  and document where real-data behavior remains inconclusive.
