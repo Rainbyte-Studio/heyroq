@@ -374,6 +374,28 @@ try {
   await searchBox.press('Enter');
   await searchResults.waitFor({ state: 'hidden' });
   await matchingSpots.getByText('1 spot found').waitFor();
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  const mobileSearchToggle = page.getByRole('button', { name: 'Toggle search' });
+  await mobileSearchToggle.click();
+  const clearSearch = page.getByRole('button', { name: 'Clear search', exact: true });
+  const closeSearch = page.getByRole('button', { name: 'Close search', exact: true });
+  await clearSearch.click();
+  assert.equal(await searchBox.inputValue(), '');
+  assert.ok(await searchBox.evaluate(input => input === document.activeElement));
+  await clearSearch.waitFor({ state: 'hidden' });
+  assert.equal((await closeSearch.innerText()).trim(), 'Close');
+  const inputBounds = await searchBox.boundingBox();
+  const closeBounds = await closeSearch.boundingBox();
+  assert.ok(inputBounds && closeBounds && inputBounds.x + inputBounds.width < closeBounds.x);
+
+  await searchBox.fill('coffee');
+  await clearSearch.waitFor();
+  await closeSearch.click();
+  await searchBox.waitFor({ state: 'hidden' });
+  assert.ok(await mobileSearchToggle.evaluate(button => button === document.activeElement));
+  await mobileSearchToggle.click();
+  assert.equal(await searchBox.inputValue(), 'coffee');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {
