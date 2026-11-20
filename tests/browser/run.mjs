@@ -120,9 +120,14 @@ try {
     assert.equal(await card.locator('[style*="width"]').count(), 0);
   }
   const screenshotDir = process.env.HEYROQ_QA_SCREENSHOTS;
-  for (const [width, height, dark] of [[375, 844, false], [768, 1024, true], [1280, 1040, true]]) {
+  for (const [width, height, dark] of [[375, 844, false], [768, 1024, true], [1280, 1180, true]]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+    await geography.evaluate(button => button.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    await page.waitForFunction(dark => {
+      const card = document.querySelector('#achievements-modal article');
+      return card && getComputedStyle(card).backgroundColor === (dark ? 'rgb(34, 35, 39)' : 'rgb(255, 255, 255)');
+    }, dark);
     const layout = await modal.getByRole('article').evaluateAll(cards => cards.map(card => {
       const { x, right } = card.getBoundingClientRect();
       return { x, right, overflow: card.scrollWidth > card.clientWidth, border: getComputedStyle(card).borderTopStyle };
@@ -130,7 +135,10 @@ try {
     assert.ok(layout.every(card => card.x >= 0 && card.right <= width && !card.overflow && card.border === 'dashed'));
     assert.equal(new Set(layout.map(card => card.x)).size, width < 640 ? 1 : 2);
     if (screenshotDir && width !== 768) {
-      await page.screenshot({ path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`) });
+      await page.screenshot({
+        path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
+        animations: 'disabled',
+      });
     }
   }
   const historical = profile.collection('achievements').doc('city_scout');
@@ -151,7 +159,9 @@ try {
   assert.equal(await soon.count(), 6);
   assert.deepEqual((await historical.get()).data(), history);
   assert.deepEqual((await legacyProgress.get()).data(), { progress: 10, isUnlocked: false });
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, 'geography-historical-dark.png') });
+  if (screenshotDir) {
+    await page.screenshot({ path: join(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
+  }
   await modal.getByRole('button', { name: /^All Badges/ }).click();
   assert.equal(await modal.getByRole('article').count(), 26);
   assert.equal(await modal.getByText('Progress', { exact: true }).count(), 19);
