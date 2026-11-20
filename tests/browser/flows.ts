@@ -72,7 +72,7 @@ Object.assign(window, {
     async avatar(uid: string, bytes: number[]) {
       const file = new File([new Uint8Array(bytes)], 'avatar.png', { type: 'image/png' });
       const url = await uploadProfileImage(file, uid);
-      await updateDoc(doc(db, 'users', uid), { photoURL: url });
+      await updateDoc(doc(db, 'users', uid), { photoURL: url, avatarUrl: url });
       return url;
     },
     async removePin(pinId: string, uid: string) {

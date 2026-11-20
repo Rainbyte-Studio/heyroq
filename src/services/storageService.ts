@@ -142,6 +142,17 @@ const uploadProfileAvatar = httpsCallable<
   { downloadUrl: string }
 >(functions, 'uploadProfileAvatar', { timeout: 65_000 });
 
+async function requireReadableAvatar(url: string, message: string): Promise<void> {
+  const image = new Image();
+  image.referrerPolicy = 'no-referrer';
+  image.src = url;
+  try {
+    await image.decode();
+  } catch {
+    throw new Error(message);
+  }
+}
+
 /** Uploads an avatar through the server. Progress marks encode, send and confirmation. */
 export async function uploadProfileImageWithProgress(
   file: File,
@@ -153,6 +164,15 @@ export async function uploadProfileImageWithProgress(
   }
   validateImageFile(file);
   onProgress?.(5);
+  const previewUrl = URL.createObjectURL(file);
+  try {
+    await requireReadableAvatar(
+      previewUrl,
+      'This browser could not open the selected photo. Try exporting it as JPEG or PNG.'
+    );
+  } finally {
+    URL.revokeObjectURL(previewUrl);
+  }
   const content = await encodePinImage(file);
   if (auth.currentUser?.uid !== userId) throw new Error('The signed-in account changed.');
   onProgress?.(15);
@@ -161,6 +181,17 @@ export async function uploadProfileImageWithProgress(
   if (typeof data?.downloadUrl !== 'string' || !data.downloadUrl) {
     throw new Error('The server did not confirm the avatar upload.');
   }
+  try {
+    await requireReadableAvatar(
+      data.downloadUrl,
+      'The uploaded photo could not be loaded. Your profile photo is unchanged. Please try again.'
+    );
+  } catch (error) {
+    // This new object has not been attached to the profile.
+    await deletePreviousProfileImage(data.downloadUrl, userId);
+    throw error;
+  }
+  if (auth.currentUser?.uid !== userId) throw new Error('The signed-in account changed.');
   onProgress?.(100);
   return data.downloadUrl;
 }

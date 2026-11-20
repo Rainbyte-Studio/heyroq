@@ -30,6 +30,7 @@ const imageOrigin = 'https://firebasestorage.googleapis.com';
 const localStorage = 'http://' + hosts.FIREBASE_STORAGE_EMULATOR_HOST;
 const allowed = new Set([origin, 'http://127.0.0.1:5001', ...Object.values(hosts).map(host => 'http://' + host)]);
 const unexpected = new Set();
+let failAvatarDelivery = false;
 const png = [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64')];
 
 function objectFor(raw) {
@@ -73,6 +74,9 @@ try {
     const url = new URL(route.request().url());
     if (allowed.has(url.origin)) return route.continue();
     if (url.origin === imageOrigin && url.pathname.startsWith(imagePrefix) && route.request().method() === 'GET') {
+      if (failAvatarDelivery && decodeURIComponent(url.pathname).includes('/profile-images/')) {
+        return route.fulfill({ status: 503, body: '' });
+      }
       const response = await fetch(localStorage + url.pathname + url.search, { redirect: 'error' });
       // Only proxy the disposable bucket to loopback. Never follow a redirect.
       return route.fulfill({
@@ -311,6 +315,13 @@ try {
   assert.deepEqual(await read(oldAvatar), { status: 200, bytes: png });
   const oldObject = objectFor(oldAvatar);
   assert.equal(new URL(oldAvatar).hash, '#generation=' + (await oldObject.getMetadata())[0].generation);
+  failAvatarDelivery = true;
+  try {
+    await assert.rejects(avatar(), /uploaded photo could not be loaded/);
+  } finally {
+    failAvatarDelivery = false;
+  }
+  assert.equal((await profile.get()).get('photoURL'), oldAvatar);
   const newAvatar = await avatar();
   assert.notEqual(oldAvatar, newAvatar);
   await waitForRemoval(oldObject);
