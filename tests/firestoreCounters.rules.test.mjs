@@ -117,11 +117,12 @@ describe('Username registry', () => {
       await deleteDoc(doc(context.firestore(), 'usernameRegistryState/v1'));
       await setDoc(doc(context.firestore(), 'users/alice'), profile());
     });
-    await assertSucceeds(updateDoc(doc(alice(), 'users/alice'), { bio: 'Existing profile' }));
+    const client = alice();
+    await assertSucceeds(updateDoc(doc(client, 'users/alice'), { bio: 'Existing profile' }));
     await assertFails(createProfile(bob(), profile({ uid: 'bob', username: 'bobby' })));
-    await assertFails(writeBatch(alice())
-      .set(doc(alice(), 'usernames/new_name'), { uid: 'alice' })
-      .update(doc(alice(), 'users/alice'), { username: 'new_name', usernameLower: 'new_name' })
+    await assertFails(writeBatch(client)
+      .set(doc(client, 'usernames/new_name'), { uid: 'alice' })
+      .update(doc(client, 'users/alice'), { username: 'new_name', usernameLower: 'new_name' })
       .commit());
   });
 
