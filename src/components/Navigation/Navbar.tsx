@@ -119,6 +119,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const mobileSearchToggleRef = useRef<HTMLButtonElement>(null);
   const profileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchPanelRef = useRef<HTMLDivElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Global Search Debounce & Stale Request Guard
@@ -799,51 +800,53 @@ export const Navbar: React.FC<NavbarProps> = ({
             }
           }}
           className="md:hidden px-3 pb-3 pt-2 border-t border-[var(--heyroq-border-subtle)] bg-[var(--heyroq-bg-surface)]/95 relative animate-in fade-in slide-in-from-top-1">
-          <div className="relative flex items-center">
-            <Search className="w-4 h-4 text-[var(--heyroq-text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              autoFocus
-              aria-label="Search Heyroq"
-              aria-controls={isSearchFocused && searchQuery.trim() ? "mobile-search-results" : undefined}
-              value={searchQuery}
-              onChange={(e) => {
-                onSearchChange(e.target.value);
-                setIsSearchFocused(true);
-              }}
-              onFocus={() => setIsSearchFocused(true)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  closeMobileSearch();
-                }
-              }}
-              placeholder="Search spots, coffee, tags, cities..."
-              className="liquid-glass-input w-full text-base pl-9.5 pr-18 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
-            />
-            <div className="absolute right-2 flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            <div className="relative flex min-w-0 flex-1 items-center">
+              <Search className="w-4 h-4 text-[var(--heyroq-text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                ref={mobileSearchInputRef}
+                autoFocus
+                aria-label="Search Heyroq"
+                aria-controls={isSearchFocused && searchQuery.trim() ? "mobile-search-results" : undefined}
+                value={searchQuery}
+                onChange={(e) => {
+                  onSearchChange(e.target.value);
+                  setIsSearchFocused(true);
+                }}
+                onFocus={() => setIsSearchFocused(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeMobileSearch();
+                  }
+                }}
+                placeholder="Search spots, coffee, tags, cities..."
+                className={`liquid-glass-input min-h-11 w-full text-base pl-9.5 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] ${searchQuery ? 'pr-11' : 'pr-3'}`}
+              />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => {
                     onSearchChange('');
+                    mobileSearchInputRef.current?.focus();
                   }}
-                  className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer"
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-full text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
                   aria-label="Clear search"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={closeMobileSearch}
-                className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer"
-                aria-label="Close search"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={closeMobileSearch}
+              className="liquid-glass-pill min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
+              aria-label="Close search"
+            >
+              Close
+            </button>
           </div>
 
           {/* Mobile Global Search Dropdown */}
