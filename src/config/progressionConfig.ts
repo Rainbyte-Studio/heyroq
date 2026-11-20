@@ -74,6 +74,10 @@ export interface MetricContext {
   foodCount: number;
   natureCount: number;
   photoSpotsCount: number;
+  distinctDiscoveryCount: number;
+  distinctCategoryCount: number;
+  qualifyingRichCount: number;
+  trustedLikeCount: number;
   profileCompletePoints: number;
   level: number;
 }
@@ -87,6 +91,7 @@ export interface AchievementBlueprint {
   tier: ProgressionTier;
   xpReward: number;
   target: number;
+  requiresLevel?: true;
   metric: (data: MetricContext) => number;
 }
 
@@ -137,7 +142,29 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     metric: (c) => c.totalSpots,
   },
 
+  {
+    id: 'master_curator',
+    title: 'Master Curator',
+    description: 'Publish qualifying discoveries at 50 distinct locations.',
+    category: 'Exploration',
+    iconName: 'Award',
+    tier: 'platinum',
+    xpReward: 250,
+    target: 50,
+    metric: (c) => c.distinctDiscoveryCount,
+  },
   // --- Geography ---
+  {
+    id: 'local_explorer',
+    title: 'Local Explorer',
+    description: 'Publish a discovery in 1 verified city.',
+    category: 'Geography',
+    iconName: 'Building',
+    tier: 'bronze',
+    xpReward: 25,
+    target: 1,
+    metric: (c) => c.citiesCount,
+  },
   {
     id: 'city_scout',
     title: 'Urban Scout',
@@ -158,6 +185,17 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     tier: 'silver',
     xpReward: 75,
     target: 5,
+    metric: (c) => c.citiesCount,
+  },
+  {
+    id: 'city_pathfinder',
+    title: 'City Pathfinder',
+    description: 'Publish discoveries in 10 verified cities.',
+    category: 'Geography',
+    iconName: 'Milestone',
+    tier: 'gold',
+    xpReward: 150,
+    target: 10,
     metric: (c) => c.citiesCount,
   },
   {
@@ -183,6 +221,17 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     metric: (c) => c.countriesCount,
   },
 
+  {
+    id: 'global_voyager',
+    title: 'Global Voyager',
+    description: 'Publish discoveries in 8 verified countries.',
+    category: 'Geography',
+    iconName: 'Globe',
+    tier: 'platinum',
+    xpReward: 250,
+    target: 8,
+    metric: (c) => c.countriesCount,
+  },
   // --- Discovery & Categories ---
   {
     id: 'hidden_gems',
@@ -220,7 +269,7 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
   {
     id: 'visual_storyteller',
     title: 'Visual Storyteller',
-    description: 'Publish 5 spots with authentic photography or photo tags.',
+    description: 'Publish 5 spots with a published photo.',
     category: 'Discovery',
     iconName: 'Camera',
     tier: 'bronze',
@@ -229,6 +278,28 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     metric: (c) => c.photoSpotsCount,
   },
 
+  {
+    id: 'versatile_explorer',
+    title: 'Versatile Explorer',
+    description: 'Publish distinct discoveries across 4 spot categories.',
+    category: 'Discovery',
+    iconName: 'Compass',
+    tier: 'silver',
+    xpReward: 75,
+    target: 4,
+    metric: (c) => c.distinctCategoryCount,
+  },
+  {
+    id: 'detailed_guide',
+    title: 'Detailed Guide',
+    description: 'Publish 5 distinct discoveries with original descriptions of at least 80 characters and 2 different tags.',
+    category: 'Discovery',
+    iconName: 'Navigation',
+    tier: 'silver',
+    xpReward: 75,
+    target: 5,
+    metric: (c) => c.qualifyingRichCount,
+  },
   // --- Community ---
   {
     id: 'spark_inspiration',
@@ -264,6 +335,17 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     metric: (c) => c.likesReceived,
   },
   {
+    id: 'trusted_voice',
+    title: 'Trusted Voice',
+    description: 'Receive likes from 50 distinct eligible explorers on your published discoveries.',
+    category: 'Community',
+    iconName: 'Star',
+    tier: 'gold',
+    xpReward: 150,
+    target: 50,
+    metric: (c) => c.trustedLikeCount,
+  },
+  {
     id: 'wayfarer_fellowship',
     title: 'Wayfarer Fellowship',
     description: 'Connect with 3 explorers following your travel profile.',
@@ -293,9 +375,22 @@ export const ACHIEVEMENTS_CATALOG: AchievementBlueprint[] = [
     description: 'Reach Level 5 (Pathfinder) in Explorer Progression.',
     category: 'Special',
     iconName: 'Crown',
-    tier: 'platinum',
+    tier: 'gold',
     xpReward: 250,
     target: 5,
+    requiresLevel: true,
+    metric: (c) => c.level,
+  },
+  {
+    id: 'heyroq_legend',
+    title: 'Heyroq Legend',
+    description: 'Reach Level 10 (Master Explorer) in Explorer Progression.',
+    category: 'Special',
+    iconName: 'Crown',
+    tier: 'platinum',
+    xpReward: 500,
+    target: 10,
+    requiresLevel: true,
     metric: (c) => c.level,
   },
 ];

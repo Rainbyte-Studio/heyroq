@@ -396,12 +396,13 @@ test('legacy and mixed tags cannot crash progression or manufacture rich-discove
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Legacy tags' });
   const description = 'A'.repeat(100);
+  let latitude = 30;
   for (const [suffix, tags] of [
     ['scalar', 'photo'],
     ['mixed', [null, 4, {}, ' ', 'PHoTo']],
     ['valid', [false, 'photo', 'nature']],
   ]) {
-    await pins.doc(uid + '-' + suffix).set({ userId: uid, description, tags });
+    await pins.doc(uid + '-' + suffix).set({ userId: uid, description, tags, title: suffix, category: 'Travel', latitude: latitude++, longitude: 10 });
   }
   await updateUserProgressionServer(uid);
   const rich = await user.collection('xpEvents').where('action', '==', 'RICH_DISCOVERY').get();
@@ -882,4 +883,161 @@ test('the named database applies the pin-image rules to an authenticated client'
   assert.equal((await bucket.file(path).exists())[0], false);
   const gone = await fetch('http://' + storageHost + download.pathname + download.search);
   assert.equal(gone.ok, false);
+});
+
+test('v1.1 discovery awards use published evidence and remain permanent across retries and deletion', async () => {
+  const uid = 'achievement-v11-discovery';
+  const user = db.collection('users').doc(uid);
+  const badges = user.collection('achievements');
+  const ledger = user.collection('xpEvents');
+  const makePin = (index) => ({
+    userId: uid, title: 'Discovery ' + index,
+    latitude: 37 + index / 100, longitude: 23, status: 'published',
+    category: ['Food', 'Nature', 'Travel', 'Hidden Gems'][index % 4],
+    description: 'A distinctive guide to the area, including local footpaths, opening hours and accessible routes ' + index,
+    tags: ['one', 'two'], createdAt: '2026-01-01T00:00:00Z',
+  });
+  const batch = db.batch().set(user, { displayName: uid });
+  batch.set(badges.doc('visual_storyteller'), { progress: 4, isUnlocked: false });
+  for (let index = 0; index < 50; index++) {
+    const pin = makePin(index);
+    if (index < 4) pin.imageUrls = ['https://firebasestorage.googleapis.com/v0/b/demo-heyroq.appspot.com/o/pin-' + index];
+    if (index >= 4) {
+      pin.description = makePin(0).description;
+      pin.tags = index % 2 === 0 ? ['PHOTO', ' photo ', 'Photography'] : ['Photo', ' place '];
+      pin.imageUrls = ['data:image/png;base64,eA==', 'not-a-url', null];
+    }
+    batch.set(pins.doc(uid + '-' + index), index === 49 ? { ...pin, status: 'draft' } : pin);
+  }
+  batch.set(pins.doc(uid + '-duplicate'), { ...makePin(0), title: 'Duplicate cell', category: 'Events' });
+  batch.set(pins.doc(uid + '-removed'), { ...makePin(70), status: 'removed' });
+  batch.set(pins.doc(uid + '-invalid-category'), { ...makePin(71), category: 'Invented category' });
+  await batch.commit();
+  await updateUserProgressionServer(uid);
+  const badge = async id => (await badges.doc(id).get()).data();
+  assert.equal((await badges.get()).size, 26);
+  assert.equal((await badge('master_curator')).progress, 49);
+  assert.equal((await badge('master_curator')).isUnlocked, false);
+  assert.equal((await badge('detailed_guide')).progress, 4, 'copied descriptions cannot count again');
+  assert.equal((await ledger.where('action', '==', 'RICH_DISCOVERY').get()).size, 4);
+  assert.equal((await badge('versatile_explorer')).isUnlocked, true);
+  assert.deepEqual(Object.fromEntries(Object.entries(await badge('visual_storyteller'))
+    .filter(([key]) => ['isUnlocked', 'progress', 'legacyPhotoProgress'].includes(key))),
+  { isUnlocked: false, progress: 4, legacyPhotoProgress: 4 });
+
+  const edited = pins.doc(uid + '-49');
+  const before = await edited.get();
+  await edited.set({
+    ...makePin(49), imageUrls: ['https://firebasestorage.googleapis.com/v0/b/demo-heyroq.appspot.com/o/pin-49'],
+  });
+  const after = await edited.get();
+  await Promise.all([
+    functions.onPinUpdatedProgression.run({ data: { before, after } }),
+    functions.onPinUpdatedProgression.run({ data: { before, after } }),
+  ]);
+  for (const id of ['master_curator', 'detailed_guide', 'visual_storyteller']) {
+    assert.ok((await badge(id)).isUnlocked, id);
+    assert.ok((await ledger.doc('achievement:' + id).get()).exists, id);
+  }
+  const settledEvents = (await ledger.get()).size;
+  await edited.delete();
+  const replacement = pins.doc(uid + '-replacement');
+  await replacement.set({ ...makePin(49), description: makePin(55).description });
+  await updateUserProgressionServer(uid);
+  assert.equal((await ledger.get()).size, settledEvents);
+  assert.equal((await badge('master_curator')).progress, 50);
+  for (const id of ['local_explorer', 'city_pathfinder', 'global_voyager']) {
+    assert.equal((await badge(id)).isUnlocked, false);
+    assert.equal((await badge(id)).progress, 0);
+  }
+});
+
+test('Trusted Voice counts distinct eligible accounts from canonical likes and survives removal', async () => {
+  const uid = 'achievement-v11-likes';
+  const user = db.collection('users').doc(uid);
+  const badge = user.collection('achievements').doc('trusted_voice');
+  const ledger = user.collection('xpEvents').doc('achievement:trusted_voice');
+  const firstPin = pins.doc(uid + '-one');
+  const secondPin = pins.doc(uid + '-two');
+  await user.set({ displayName: uid });
+  await firstPin.set({ userId: uid, likeCount: 999, status: 'published' });
+  await secondPin.set({ userId: uid, likeCount: 999, status: 'published' });
+
+  const batch = db.batch();
+  for (let index = 0; index < 49; index++) {
+    const actor = uid + '-actor-' + index;
+    batch.set(db.collection('users').doc(actor), { displayName: actor });
+    batch.set(firstPin.collection('likes').doc(actor), { userId: actor });
+  }
+  const locked = uid + '-locked';
+  const mismatch = uid + '-mismatch';
+  batch.set(db.collection('users').doc(locked), { displayName: locked });
+  batch.set(db.collection('accountDeletionLocks').doc(locked), { createdAt: new Date() });
+  batch.set(db.collection('users').doc(mismatch), { displayName: mismatch });
+  batch.set(firstPin.collection('likes').doc(locked), { userId: locked });
+  batch.set(firstPin.collection('likes').doc(mismatch), { userId: uid });
+  batch.set(secondPin.collection('likes').doc(uid), { userId: uid });
+  batch.set(secondPin.collection('likes').doc(uid + '-actor-0'), {});
+  batch.set(secondPin.collection('likes').doc(uid + '-missing-profile'), {});
+  await batch.commit();
+  await updateUserProgressionServer(uid);
+  assert.equal((await badge.get()).get('progress'), 49);
+  assert.equal((await ledger.get()).exists, false);
+
+  const actor = uid + '-actor-49';
+  await db.collection('users').doc(actor).set({ displayName: actor });
+  const like = secondPin.collection('likes').doc(actor);
+  await like.set({ userId: actor });
+  await Promise.all([
+    functions.onPinLikeCreated.run({ params: { pinId: secondPin.id } }),
+    updateUserProgressionServer(uid),
+  ]);
+  const earned = (await ledger.get()).data();
+  assert.equal(earned.xpEarned, 150);
+  assert.equal((await badge.get()).get('progress'), 50);
+
+  await like.delete();
+  await functions.onPinLikeDeleted.run({ params: { pinId: secondPin.id } });
+  assert.deepEqual((await ledger.get()).data(), earned);
+  assert.equal((await badge.get()).get('isUnlocked'), true);
+});
+
+test('historical rarity, original XP and unlocked photo badges survive v1.1 while Legend uses earned XP', async () => {
+  const uid = 'achievement-v11-historical';
+  const user = db.collection('users').doc(uid);
+  const badges = user.collection('achievements');
+  const ledger = user.collection('xpEvents');
+  const metrics = user.collection('progression').doc('summary');
+  const earnedAt = '2025-04-01T12:00:00Z';
+  await db.batch()
+    .set(user, { displayName: uid })
+    .set(metrics, { xp: 34999, level: 9, citiesCount: 20, countriesCount: 15 })
+    .set(badges.doc('pioneer_voyager'), { isUnlocked: true, tier: 'platinum', xpReward: 275, unlockedAt: earnedAt })
+    .set(badges.doc('visual_storyteller'), { isUnlocked: true, progress: 5, unlockedAt: earnedAt })
+    .set(ledger.doc('achievement:pioneer_voyager'), { xpEarned: 275, createdAt: earnedAt })
+    .set(ledger.doc('city_first:legacy'), { action: 'UNIQUE_CITY', referenceId: 'legacy', xpEarned: 25 })
+    .set(ledger.doc('country_first:GR'), { action: 'UNIQUE_COUNTRY', referenceId: 'GR', xpEarned: 150 })
+    .commit();
+  await updateUserProgressionServer(uid);
+  assert.equal((await metrics.get()).get('xp'), 34999);
+  const historical = (await badges.doc('pioneer_voyager').get()).data();
+  assert.equal(historical.tier, 'platinum');
+  assert.equal(historical.unlockedAt, earnedAt);
+  assert.equal(historical.xpReward, 275);
+  assert.equal((await badges.doc('visual_storyteller').get()).get('unlockedAt'), earnedAt);
+  assert.equal((await ledger.doc('achievement:visual_storyteller').get()).exists, false,
+    'missing historical event must not duplicate XP already reflected in the legacy summary');
+  assert.equal((await badges.doc('heyroq_legend').get()).get('isUnlocked'), false);
+  assert.equal((await badges.doc('local_explorer').get()).get('progress'), 0);
+  await metrics.update({ xp: 35000 });
+  await Promise.all([updateUserProgressionServer(uid), updateUserProgressionServer(uid)]);
+  assert.equal((await ledger.doc('achievement:heyroq_legend').get()).get('xpEarned'), 500);
+  assert.equal((await metrics.get()).get('xp'), 35500);
+
+  const future = db.collection('users').doc('achievement-v11-future-pioneer');
+  const futureSummary = future.collection('progression').doc('summary');
+  await db.batch().set(future, { displayName: 'Future Pioneer' }).set(futureSummary, { xp: 3000 }).commit();
+  await updateUserProgressionServer(future.id);
+  assert.equal((await future.collection('achievements').doc('pioneer_voyager').get()).get('tier'), 'gold');
+  assert.equal((await futureSummary.get()).get('xp'), 3250);
 });

@@ -10,6 +10,7 @@ import {
   subscribeToUserProgression,
   subscribeToUserAchievements,
   fetchUserXpEvents,
+  ACHIEVEMENTS_CATALOG,
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
 import { CloseButton } from '../Common/CloseButton';
@@ -110,7 +111,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const progressPercent = summary?.progressPercent ?? calculatedPercent;
 
   const unlockedCount = achievements.filter((a) => a.isUnlocked).length;
-  const totalCount = achievements.length || 18;
+  const totalCount = ACHIEVEMENTS_CATALOG.length;
   const completionPercent = Math.round((unlockedCount / Math.max(1, totalCount)) * 100);
 
   const filteredAchievements = achievements.filter((a) => {
@@ -341,8 +342,8 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
               const isSelected = selectedCategory === cat.id;
               const catCount =
                 cat.id === 'All'
-                  ? achievements.length
-                  : achievements.filter((a) => a.category === cat.id).length;
+                  ? totalCount
+                  : ACHIEVEMENTS_CATALOG.filter((a) => a.category === cat.id).length;
               const catUnlocked =
                 cat.id === 'All'
                   ? unlockedCount
@@ -381,6 +382,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {filteredAchievements.map((ach) => {
+                const isPaused = ach.category === 'Geography' && !ach.isUnlocked;
                 const percent = Math.min(100, Math.round((ach.progress / Math.max(1, ach.target)) * 100));
 
                 return (
@@ -431,11 +433,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                               Completed
                             </span>
                           ) : (
-                            <span>Progress</span>
+                            <span>{isPaused ? 'Geographic rewards paused' : 'Progress'}</span>
                           )}
                         </span>
                         <span>
-                          {ach.progress} / {ach.target}
+                          {isPaused ? `Goal ${ach.target}` : `${ach.progress} / ${ach.target}`}
                         </span>
                       </div>
 
@@ -446,7 +448,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                               ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
                               : 'bg-slate-400 dark:bg-white/40'
                           }`}
-                          style={{ width: `${percent}%` }}
+                          style={{ width: `${isPaused ? 0 : percent}%` }}
                         />
                       </div>
                     </div>

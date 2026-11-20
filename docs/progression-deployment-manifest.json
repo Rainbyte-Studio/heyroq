@@ -79,6 +79,16 @@
         "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
       }
     },
+    "onPinUpdatedProgression": {
+      "trigger": {
+        "type": "google.cloud.firestore.document.v1.updated",
+        "document": "pins/{pinId}",
+        "location": "us-west1",
+        "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+      },
+      "desiredTimeoutSeconds": 60,
+      "releaseGate": "Verify edit and moderation delivery against the isolated named database and ensure counter-only writes do not start a second progression run."
+    },
     "onPinLikeCreated": {
       "trigger": {
         "type": "google.cloud.firestore.document.v1.created",

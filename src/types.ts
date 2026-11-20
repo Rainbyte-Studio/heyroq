@@ -153,6 +153,7 @@ export interface UserAchievement {
   target: number;
   isUnlocked: boolean;
   unlockedAt?: string | null;
+  qualifiedPhotoProgress?: number;
   updatedAt: string;
 }
 

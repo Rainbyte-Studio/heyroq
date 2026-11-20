@@ -1,3 +1,4 @@
+import { countTrustedLikes, getDiscoveryBadgeMetrics, isPublishedDiscovery } from './progressionEvidence';
 import { randomUUID } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -283,20 +284,12 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
   let hiddenGemsCount = 0;
   let foodCount = 0;
   let natureCount = 0;
-  let photoSpotsCount = 0;
-  let richSpotsCount = 0;
 
   validPins.forEach((pin) => {
     const cat = typeof pin.category === 'string' ? pin.category.toLowerCase() : '';
     if (cat.includes('hidden') || cat.includes('gem')) hiddenGemsCount++;
     if (cat.includes('food')) foodCount++;
     if (cat.includes('nature')) natureCount++;
-    if (cat.includes('photo') || pin.tags.some((tag: string) => tag.toLowerCase().includes('photo'))) {
-      photoSpotsCount++;
-    }
-    const hasLongDesc = typeof pin.description === 'string' && pin.description.trim().length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
-    const hasTags = pin.tags.length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
-    if (hasLongDesc && hasTags) richSpotsCount++;
   });
 
   // Profile completeness (avatar, bio >= 10 chars, at least 1 spot)
@@ -307,6 +300,10 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
   const xpEventsCol = db.collection('users').doc(userId).collection('xpEvents');
   const existingEventsSnap = await xpEventsCol.get();
   const existingEventIds = new Set<string>();
+  const richLocations = new Set<string>();
+  const richDescriptions = new Set<string>();
+  const { richCandidates, ...discoveryMetrics } = getDiscoveryBadgeMetrics(validPins);
+  const earnedAchievementEvents = new Map<string, FirebaseFirestore.DocumentData>();
   let historicalLedgerXp = 0;
   let historicalSpotsCount = 0;
   const historicalCitiesSet = new Set<string>();
@@ -316,6 +313,14 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     existingEventIds.add(doc.id);
     const data = doc.data();
     historicalLedgerXp += Number(data?.xpEarned) || 0;
+    if (doc.id.startsWith('achievement:')) earnedAchievementEvents.set(doc.id, data);
+    if (doc.id.startsWith('rich_discovery:')) {
+      const current = richCandidates.get(doc.id.slice('rich_discovery:'.length));
+      const locationKey = data?.locationKey ?? current?.locationKey;
+      const descriptionKey = data?.descriptionKey ?? current?.descriptionKey;
+      if (typeof locationKey === 'string') richLocations.add(locationKey);
+      if (typeof descriptionKey === 'string') richDescriptions.add(descriptionKey);
+    }
 
     if (doc.id.startsWith('pin_created:')) {
       historicalSpotsCount++;
@@ -397,28 +402,29 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     }
   });
 
-  // Rich spot bonus (+25 XP each)
-  validPins.forEach((pin) => {
-    const hasLongDesc = typeof pin.description === 'string' && pin.description.trim().length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
-    const hasTags = pin.tags.length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
-    if (hasLongDesc && hasTags) {
-      const eventId = getRichDiscoveryEventId(pin.id);
-      if (!existingEventIds.has(eventId)) {
-        pendingXpEvents.push({
-          id: eventId,
-          event: {
-            id: eventId,
-            userId,
-            action: 'RICH_DISCOVERY',
-            referenceId: pin.id,
-            xpEarned: PROGRESSION_CONSTANTS.RICH_DISCOVERY_BONUS_XP,
-            description: `Detailed guide bonus for: ${pin.title || 'Spot'}`,
-            createdAt: pin.createdAt || new Date().toISOString(),
-          },
-        });
-      }
-    }
-  });
+  // Pay for rich discoveries once per location and normalized description.
+  for (const pin of validPins) {
+    const evidence = richCandidates.get(pin.id);
+    if (!evidence) continue;
+    const eventId = getRichDiscoveryEventId(pin.id);
+    if (existingEventIds.has(eventId) ||
+        richLocations.has(evidence.locationKey) || richDescriptions.has(evidence.descriptionKey)) continue;
+    pendingXpEvents.push({
+      id: eventId,
+      event: {
+        id: eventId,
+        userId,
+        action: 'RICH_DISCOVERY',
+        referenceId: pin.id,
+        ...evidence,
+        xpEarned: PROGRESSION_CONSTANTS.RICH_DISCOVERY_BONUS_XP,
+        description: `Detailed guide bonus for: ${pin.title || 'Spot'}`,
+        createdAt: pin.createdAt || new Date().toISOString(),
+      },
+    });
+    richLocations.add(evidence.locationKey);
+    richDescriptions.add(evidence.descriptionKey);
+  }
 
   // Like Milestones (Permanent milestones - earned once reached, never revoked even if likes decrease)
   LIKE_MILESTONES.forEach((m) => {
@@ -466,7 +472,11 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
 
   // Some historical summaries contain earned XP that predates the ledger.
   const earnedXpBefore = Math.max(Number(existingSummary?.xp) || 0, historicalLedgerXp);
-  const prelimLevel = getProgressForXp(earnedXpBefore).level;
+  const trustedVoice = ACHIEVEMENTS_CATALOG.find(item => item.id === 'trusted_voice')!;
+  const trustedLikeCount = existingMap.get(trustedVoice.id)?.isUnlocked ||
+    earnedAchievementEvents.has(getAchievementEventId(trustedVoice.id))
+    ? trustedVoice.target
+    : await countTrustedLikes(db, userId, pinsSnap.docs, trustedVoice.target);
   const metricContext: MetricContext = {
     totalSpots: lifetimeSpotsCount,       // Historical lifetime spots
     citiesCount: lifetimeCitiesCount,     // Historical lifetime cities
@@ -476,64 +486,55 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
     hiddenGemsCount,
     foodCount,
     natureCount,
-    photoSpotsCount,
+    ...discoveryMetrics,
+    trustedLikeCount,
     profileCompletePoints,
-    level: prelimLevel,
+    level: getProgressForXp(earnedXpBefore).level,
   };
 
   let unlockedCount = 0;
   const pendingAchievements: any[] = [];
 
-  ACHIEVEMENTS_CATALOG.forEach((item) => {
+  const awardAchievement = (item: (typeof ACHIEVEMENTS_CATALOG)[number]) => {
     const existing = existingMap.get(item.id);
     const achEventId = getAchievementEventId(item.id);
+    const earnedEvent = earnedAchievementEvents.get(achEventId);
+    const alreadyUnlocked = Boolean(existing?.isUnlocked || earnedEvent);
     const isGeography = item.category === 'Geography';
-    const calculatedMetric = item.metric(isGeography ? {
-      ...metricContext,
-      citiesCount: historicalCitiesSet.size,
-      countriesCount: historicalCountriesSet.size,
-    } : metricContext);
+    // Legacy geography progress is preserved as history. Even earned city/country
+    // ledger entries cannot establish progress for any of the new geography badges.
+    const calculatedMetric = isGeography ? 0 : item.metric(metricContext);
+    const isPhoto = item.id === 'visual_storyteller';
+    const previousProgress = Number(existing?.progress) || 0;
+    const legacyPhotoProgress = isPhoto
+      ? Number(existing?.legacyPhotoProgress ?? previousProgress) || 0
+      : 0;
+    const qualifiedPrevious = isPhoto ? Number(existing?.qualifiedPhotoProgress) || 0 : previousProgress;
+    const preservedProgress = item.category === 'Community' ? 0 : qualifiedPrevious;
+    const progress = Math.min(item.target, Math.max(preservedProgress, calculatedMetric));
+    const isUnlocked = alreadyUnlocked || (!isGeography && progress >= item.target);
+    const now = new Date().toISOString();
+    const unlockedAt = isUnlocked ? (existing?.unlockedAt || earnedEvent?.createdAt || now) : null;
+    const tier = alreadyUnlocked
+      ? existing?.tier ?? earnedEvent?.achievementTier ?? (item.id === 'pioneer_voyager' ? 'platinum' : item.tier)
+      : item.tier;
+    const xpReward = alreadyUnlocked ? (earnedEvent?.xpEarned ?? existing?.xpReward ?? item.xpReward) : item.xpReward;
 
-    // Determine progress high-water mark:
-    // For exploration, geography, discovery, and special achievements, progress represents
-    // lifetime discovery activity and must not regress upon pin deletion.
-    // For community achievements, current progress reflects live metrics unless already unlocked.
-    let progressVal: number;
-    const isHistoricalCategory =
-      item.category === 'Exploration' ||
-      item.category === 'Geography' ||
-      item.category === 'Discovery' ||
-      item.category === 'Special';
-
-    if (isHistoricalCategory) {
-      progressVal = Math.min(item.target, Math.max(Number(existing?.progress) || 0, calculatedMetric));
-    } else {
-      progressVal = existing?.isUnlocked
-        ? item.target
-        : Math.min(item.target, calculatedMetric);
-    }
-
-    // PERMANENT: Once unlocked, remains unlocked!
-    const alreadyUnlocked = Boolean(existing?.isUnlocked) || (isGeography && existingEventIds.has(achEventId));
-    const isUnlocked = alreadyUnlocked || (!isGeography && progressVal >= item.target);
-    if (isUnlocked && isGeography) progressVal = item.target;
-
-    if (isUnlocked) {
-      unlockedCount++;
-      if (!existingEventIds.has(achEventId) && !isGeography) {
-        pendingXpEvents.push({
+    if (isUnlocked) unlockedCount++;
+    if (isUnlocked && !alreadyUnlocked) {
+      pendingXpEvents.push({
+        id: achEventId,
+        event: {
           id: achEventId,
-          event: {
-            id: achEventId,
-            userId,
-            action: 'ACHIEVEMENT_UNLOCKED',
-            referenceId: item.id,
-            xpEarned: item.xpReward,
-            description: `Unlocked achievement: ${item.title}`,
-            createdAt: existing?.unlockedAt || new Date().toISOString(),
-          },
-        });
-      }
+          userId,
+          action: 'ACHIEVEMENT_UNLOCKED',
+          referenceId: item.id,
+          xpEarned: xpReward,
+          achievementTier: tier,
+          description: `Unlocked achievement: ${item.title}`,
+          createdAt: unlockedAt,
+        },
+      });
     }
 
     pendingAchievements.push({
@@ -542,42 +543,26 @@ async function syncUserProgression(userId: string, concurrencyRetry = 0): Promis
       description: item.description,
       category: item.category,
       iconName: item.iconName,
-      tier: item.tier,
-      xpReward: item.xpReward,
-      progress: progressVal,
+      tier,
+      xpReward,
+      progress: isUnlocked ? item.target : progress,
+      ...(isPhoto ? { legacyPhotoProgress, qualifiedPhotoProgress: progress } : {}),
       target: item.target,
       isUnlocked,
-      unlockedAt: isUnlocked ? (existing?.unlockedAt || new Date().toISOString()) : null,
-      updatedAt: new Date().toISOString(),
+      unlockedAt,
+      updatedAt: now,
     });
-  });
+  };
 
-  // Re-verify Pioneer Voyager (Level 5) with full XP
-  const newlyEarnedXp = pendingXpEvents.reduce((acc, curr) => acc + (Number(curr.event.xpEarned) || 0), 0);
-  const runningTotalXp = earnedXpBefore + newlyEarnedXp;
-  const prelimLevelInfo = getProgressForXp(runningTotalXp);
-
-  const pioneer = pendingAchievements.find((a) => a.id === 'pioneer_voyager');
-  if (pioneer && !pioneer.isUnlocked && prelimLevelInfo.level >= 5) {
-    pioneer.isUnlocked = true;
-    pioneer.progress = 5;
-    pioneer.unlockedAt = new Date().toISOString();
-    unlockedCount++;
-    const pioneerEventId = getAchievementEventId('pioneer_voyager');
-    if (!existingEventIds.has(pioneerEventId)) {
-      pendingXpEvents.push({
-        id: pioneerEventId,
-        event: {
-          id: pioneerEventId,
-          userId,
-          action: 'ACHIEVEMENT_UNLOCKED',
-          referenceId: 'pioneer_voyager',
-          xpEarned: pioneer.xpReward,
-          description: `Unlocked achievement: ${pioneer.title}`,
-          createdAt: new Date().toISOString(),
-        },
-      });
-    }
+  const levelBadges = ACHIEVEMENTS_CATALOG.filter(item => item.requiresLevel).sort((a, b) => a.target - b.target);
+  for (const item of ACHIEVEMENTS_CATALOG) {
+    if (!item.requiresLevel) awardAchievement(item);
+  }
+  // Assess each level award against earned XP plus eligible awards already queued.
+  for (const item of levelBadges) {
+    const pendingXp = pendingXpEvents.reduce((xp, { event }) => xp + Number(event.xpEarned), 0);
+    metricContext.level = getProgressForXp(earnedXpBefore + pendingXp).level;
+    awardAchievement(item);
   }
 
   // 6. Final Monotonic XP Calculation
@@ -816,6 +801,30 @@ export const onPinCreatedProgression = onDocumentCreated(
     const userId = event.data?.get('userId');
     if (typeof userId === 'string') await updateUserProgressionServer(userId);
   }
+);
+
+export const onPinUpdatedProgression = onDocumentUpdated(
+  {
+    document: 'pins/{pinId}',
+    database: FIRESTORE_DATABASE_ID,
+    region: FUNCTION_REGION,
+    retry: false,
+  },
+  async event => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after || typeof after.userId !== 'string') return;
+    const wasPublished = isPublishedDiscovery(before);
+    const isPublished = isPublishedDiscovery(after);
+    if (wasPublished !== isPublished || (isPublished && (
+      before.title !== after.title || before.category !== after.category ||
+      before.description !== after.description ||
+      JSON.stringify(before.tags) !== JSON.stringify(after.tags) ||
+      JSON.stringify(before.imageUrls) !== JSON.stringify(after.imageUrls)
+    ))) {
+      await updateUserProgressionServer(after.userId);
+    }
+  },
 );
 
 export const onUserProfileUpdatedProgression = onDocumentUpdated(

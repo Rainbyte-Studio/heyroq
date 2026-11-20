@@ -18,7 +18,7 @@ import {
   XpEvent,
 } from '../types';
 import { filterValidPublicPins } from './footprintService';
-import { extractCityAndCountry, normalizeCityName, resolveCountry } from '../utils/footprintUtils';
+import { extractCityAndCountry } from '../utils/footprintUtils';
 import {
   EXPLORER_LEVELS,
   ACHIEVEMENTS_CATALOG,
@@ -28,8 +28,6 @@ import {
   getProgressForXp,
   getPinCreatedEventId,
   getFirstDiscoveryEventId,
-  getCityFirstEventId,
-  getCountryFirstEventId,
   getRichDiscoveryEventId,
   getAchievementEventId,
   getLikeMilestoneEventId,
@@ -63,7 +61,7 @@ export interface ProgressionCalculationResult {
 }
 
 /**
- * Calculates authoritative or preview progression data.
+ * Estimates non-geographic progression for local previews. Only the backend can award XP.
  * Pure function: strictly idempotent, milestone-based, and preserves permanent unlocked achievements.
  */
 export function calculateProgression(
@@ -78,16 +76,12 @@ export function calculateProgression(
   // Geographic footprint calculation with ISO normalization
   const uniqueCitiesSet = new Set<string>();
   const uniqueCountriesSet = new Set<string>();
-  const cityToCountryMap = new Map<string, string>();
 
   validPins.forEach((pin) => {
     const geo = extractCityAndCountry(pin);
     if (geo.city && geo.city !== 'Exploration Spot') {
       const c = geo.city.toLowerCase().trim();
       uniqueCitiesSet.add(c);
-      if (geo.countryCode && geo.countryCode !== 'GL') {
-        cityToCountryMap.set(c, geo.countryCode.toUpperCase().trim());
-      }
     }
     if (geo.countryCode && geo.countryCode !== 'GL') {
       uniqueCountriesSet.add(geo.countryCode.toUpperCase().trim());
@@ -105,7 +99,6 @@ export function calculateProgression(
   let hiddenGemsCount = 0;
   let foodCount = 0;
   let natureCount = 0;
-  let photoSpotsCount = 0;
   let richSpotsCount = 0;
 
   validPins.forEach((pin) => {
@@ -113,9 +106,6 @@ export function calculateProgression(
     if (cat.includes('hidden') || cat.includes('gem')) hiddenGemsCount++;
     if (cat.includes('food')) foodCount++;
     if (cat.includes('nature')) natureCount++;
-    if (cat.includes('photo') || (pin.tags && pin.tags.some((t) => t.toLowerCase().includes('photo')))) {
-      photoSpotsCount++;
-    }
     const hasLongDesc = (pin.description || '').trim().length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_DESC_LEN;
     const hasTags = Array.isArray(pin.tags) && pin.tags.length >= PROGRESSION_CONSTANTS.RICH_DISCOVERY_MIN_TAGS;
     if (hasLongDesc && hasTags) {
@@ -157,35 +147,6 @@ export function calculateProgression(
       xpEarned: PROGRESSION_CONSTANTS.BASE_DISCOVERY_XP,
       description: `Discovered: ${pin.title}`,
       createdAt: pin.createdAt || new Date().toISOString(),
-    });
-  });
-
-  // 3. Unique Cities bonus (+25 XP each)
-  uniqueCitiesSet.forEach((canonicalCity) => {
-    const countryCode = cityToCountryMap.get(canonicalCity);
-    baseActivityXp += PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP;
-    xpEvents.push({
-      id: getCityFirstEventId(canonicalCity, countryCode),
-      userId,
-      action: 'UNIQUE_CITY',
-      referenceId: canonicalCity,
-      xpEarned: PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP,
-      description: `Discovered new city: ${canonicalCity}`,
-      createdAt: new Date().toISOString(),
-    });
-  });
-
-  // 4. Unique Countries bonus (+150 XP each)
-  uniqueCountriesSet.forEach((countryCode) => {
-    baseActivityXp += PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP;
-    xpEvents.push({
-      id: getCountryFirstEventId(countryCode),
-      userId,
-      action: 'UNIQUE_COUNTRY',
-      referenceId: countryCode,
-      xpEarned: PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-      description: `Discovered new country: ${countryCode}`,
-      createdAt: new Date().toISOString(),
     });
   });
 
@@ -251,7 +212,11 @@ export function calculateProgression(
     hiddenGemsCount,
     foodCount,
     natureCount,
-    photoSpotsCount,
+    photoSpotsCount: 0,
+    distinctDiscoveryCount: 0,
+    distinctCategoryCount: 0,
+    qualifyingRichCount: 0,
+    trustedLikeCount: 0,
     profileCompletePoints,
     level: prelimLevel,
   };
@@ -267,21 +232,23 @@ export function calculateProgression(
 
   const userAchievements: UserAchievement[] = ACHIEVEMENTS_CATALOG.map((item) => {
     const existing = existingMap.get(item.id);
-    const calculatedMetric = item.metric(metricContext);
+    const serverProofOnly = item.category === 'Geography' ||
+      item.id === 'visual_storyteller' || item.id === 'heyroq_legend';
+    const calculatedMetric = serverProofOnly ? 0 : item.metric(metricContext);
     const progressVal = Math.min(item.target, Math.max(existing?.progress || 0, calculatedMetric));
 
     // PERMANENT: If previously unlocked, it remains unlocked regardless of counter changes!
-    const isUnlocked = (existing && existing.isUnlocked) || progressVal >= item.target;
+    const isUnlocked = Boolean(existing?.isUnlocked) || (!serverProofOnly && progressVal >= item.target);
 
     if (isUnlocked) {
-      achievementsXp += item.xpReward;
+      achievementsXp += existing?.isUnlocked ? existing.xpReward : item.xpReward;
       unlockedCount++;
       xpEvents.push({
         id: getAchievementEventId(item.id),
         userId,
         action: 'ACHIEVEMENT_UNLOCKED',
         referenceId: item.id,
-        xpEarned: item.xpReward,
+        xpEarned: existing?.isUnlocked ? existing.xpReward : item.xpReward,
         description: `Unlocked achievement: ${item.title}`,
         createdAt: existing?.unlockedAt || new Date().toISOString(),
       });
@@ -293,8 +260,8 @@ export function calculateProgression(
       description: item.description,
       category: item.category,
       iconName: item.iconName,
-      tier: item.tier,
-      xpReward: item.xpReward,
+      tier: existing?.isUnlocked ? existing.tier : item.tier,
+      xpReward: existing?.isUnlocked ? existing.xpReward : item.xpReward,
       progress: progressVal,
       target: item.target,
       isUnlocked,
@@ -411,31 +378,14 @@ export function subscribeToUserAchievements(
   return onSnapshot(
     achCol,
     (snap) => {
-      if (!snap.empty) {
-        const list = snap.docs.map((d) => d.data() as UserAchievement);
-        // Ensure standard catalog ordering
-        const ordered = ACHIEVEMENTS_CATALOG.map((catItem) => {
-          const found = list.find((item) => item.id === catItem.id);
-          if (found) return found;
-          return {
-            id: catItem.id,
-            title: catItem.title,
-            description: catItem.description,
-            category: catItem.category,
-            iconName: catItem.iconName,
-            tier: catItem.tier,
-            xpReward: catItem.xpReward,
-            progress: 0,
-            target: catItem.target,
-            isUnlocked: false,
-            unlockedAt: null,
-            updatedAt: new Date().toISOString(),
-          };
-        });
-        onUpdate(ordered);
-      } else {
-        onUpdate(getDefaultAchievements());
-      }
+      const saved = new Map(snap.docs.map(doc => [doc.id, doc.data() as UserAchievement]));
+      onUpdate(getDefaultAchievements().map(defaultBadge => {
+        const found = saved.get(defaultBadge.id);
+        if (!found) return defaultBadge;
+        if (found.isUnlocked) return { ...defaultBadge, ...found, description: defaultBadge.description };
+        const progress = found.id === 'visual_storyteller' ? (found.qualifiedPhotoProgress ?? 0) : found.progress;
+        return { ...defaultBadge, progress, updatedAt: found.updatedAt };
+      }));
     },
     (err) => {
       console.warn('Achievements observer read event:', err);
