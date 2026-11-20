@@ -350,6 +350,12 @@ try {
   batch.set(searchPins.doc('zz-search-private'), {
     ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private',
   });
+  batch.set(db.collection('users').doc('surname-fixture'), {
+    displayName: 'Μαρία Παπαδοπούλου', username: 'explorer_maria', followersCount: 0,
+  });
+  batch.set(db.collection('users').doc('hyphen-fixture'), {
+    displayName: 'Elena García-López', username: 'explorer_elena', followersCount: 0,
+  });
   await batch.commit();
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -357,6 +363,13 @@ try {
   const searchBox = page.getByRole('textbox', { name: 'Search Heyroq' });
   const searchResults = page.getByRole('region', { name: 'Search results' });
   const matchingSpots = page.getByRole('complementary', { name: 'Matching Spots' });
+  const more = page.getByRole('button', { name: 'More', exact: true });
+  await more.click();
+  const overflow = page.locator('#explore-more-dropdown');
+  await overflow.getByRole('menuitem').first().waitFor();
+  assert.equal(await overflow.locator('span.w-2.h-2').count(), 0);
+  await more.click();
+
   await searchBox.fill('coffee');
   await searchResults.getByRole('button', { name: /Roasters Corner/ }).waitFor();
   await searchResults.getByRole('button', { name: /Coffee Stand/ }).waitFor();
@@ -396,6 +409,20 @@ try {
   assert.ok(await mobileSearchToggle.evaluate(button => button === document.activeElement));
   await mobileSearchToggle.click();
   assert.equal(await searchBox.inputValue(), 'coffee');
+  await closeSearch.click();
+  await page.getByRole('button', { name: 'Discover people', exact: true }).click();
+  const people = page.getByRole('dialog', { name: 'Discover Explorers' });
+  const peopleSearch = people.getByRole('textbox', { name: 'Search people' });
+  await peopleSearch.fill('παπαδοπ');
+  await people.getByText('Μαρία Παπαδοπούλου', { exact: true }).waitFor();
+  assert.equal(await people.getByText('Elena García-López', { exact: true }).count(), 0);
+
+  await peopleSearch.fill('lopez');
+  await people.getByText('Elena García-López', { exact: true }).waitFor();
+  assert.equal(await people.getByText('Μαρία Παπαδοπούλου', { exact: true }).count(), 0);
+
+  await peopleSearch.fill('@explorer_maria');
+  await people.getByText('Μαρία Παπαδοπούλου', { exact: true }).waitFor();
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {

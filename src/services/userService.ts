@@ -4,7 +4,7 @@ import {
   getDoc,
   getDocs,
   query,
-  where,
+  getDocsFromServer,
   orderBy,
   limit,
   startAfter,
@@ -15,16 +15,20 @@ import { db } from '../lib/firebase';
 import { PublicUserProfile } from '../types';
 import { checkIfFollowing, toggleFollow } from './pinService';
 import { resolveCustomAvatarUrl } from '../utils/avatarUtils';
+import { normalizeSearchText } from '../utils/spotSearch';
+import { createSearchReadCache } from './searchReadCache';
 
 const USERS_COLLECTION = 'users';
 
 // In-memory LRU-like profile cache to prevent N+1 Firestore reads
 const profileCache = new Map<string, PublicUserProfile>();
+const peopleSearchRead = createSearchReadCache(readPublicSearchProfiles, 60_000);
 
 /**
  * Invalidates cached public profile(s) after profile or avatar updates.
  */
 export function invalidateUserProfileCache(userId?: string): void {
+  peopleSearchRead.invalidate();
   if (userId) {
     profileCache.delete(userId);
   } else {
@@ -132,80 +136,65 @@ export async function getPublicUserProfilesBatch(userIds: string[]): Promise<Pub
   return results;
 }
 
-/**
- * Scalable Firestore User Search.
- * Queries `users` collection by prefix on `usernameLower` and `displayNameLower`.
- * Does not download the entire collection.
- */
-export async function searchUsers(
-  queryText: string,
-  limitCount = 20
-): Promise<PublicUserProfile[]> {
-  const clean = queryText.trim().toLowerCase().replace(/^@/, '');
-  if (!clean || clean.length < 2) return [];
+function normalizePeopleSearch(value: unknown): string {
+  return normalizeSearchText(value).replace(/ς/g, 'σ').replace(/\s+/g, ' ');
+}
 
-  const resultMap = new Map<string, PublicUserProfile>();
+async function readPublicSearchProfiles() {
+  const pageSize = 150;
+  const orderedUsers = query(collection(db, USERS_COLLECTION), orderBy(documentId()), limit(pageSize));
+  const profiles: { profile: PublicUserProfile; username: string; name: string; nameWords: string[] }[] = [];
+  let page = await getDocsFromServer(orderedUsers);
+
+  while (true) {
+    for (const snapshot of page.docs) {
+      const data = snapshot.data();
+      if (data.deletionStatus === 'deleting') continue;
+      const rawUsername = typeof data.username === 'string' ? data.username : '';
+      const rawName = typeof data.displayName === 'string' ? data.displayName : '';
+      const username = normalizePeopleSearch(rawUsername).replace(/^@/, '');
+      const name = normalizePeopleSearch(rawName);
+      if (!username && !name) continue;
+
+      // Match only the public name and handle, including on older profiles.
+      const profile = toPublicUserProfile({
+        ...data, username: rawUsername, displayName: rawName, email: undefined,
+        usernameLower: username, displayNameLower: name,
+      }, snapshot.id);
+      profiles.push({ profile, username, name, nameWords: name.match(/[\p{L}\p{N}]+/gu) ?? [] });
+    }
+    if (page.size < pageSize) return profiles;
+    page = await getDocsFromServer(query(orderedUsers, startAfter(page.docs[page.docs.length - 1])));
+  }
+}
+
+export async function searchUsers(queryText: string, limitCount = 20): Promise<PublicUserProfile[]> {
+  const handleOnly = queryText.trimStart().startsWith('@');
+  const term = normalizePeopleSearch(queryText).replace(/^@\s*/, '');
+  if (term.length < 2 || limitCount <= 0) return [];
+  const nameTerms = term.match(/[\p{L}\p{N}]+/gu) ?? [];
 
   try {
-    const usersRef = collection(db, USERS_COLLECTION);
-
-    // 1. Query by usernameLower prefix
-    const usernameQuery = query(
-      usersRef,
-      where('usernameLower', '>=', clean),
-      where('usernameLower', '<=', clean + '\uf8ff'),
-      limit(limitCount)
-    );
-
-    // 2. Query by displayNameLower prefix
-    const displayNameQuery = query(
-      usersRef,
-      where('displayNameLower', '>=', clean),
-      where('displayNameLower', '<=', clean + '\uf8ff'),
-      limit(limitCount)
-    );
-
-    // 3. Query by exact search token (e.g. last names or individual words)
-    const tokensQuery = query(
-      usersRef,
-      where('searchTokens', 'array-contains', clean),
-      limit(limitCount)
-    );
-
-    const [userSnap, displaySnap, tokensSnap] = await Promise.all([
-      getDocs(usernameQuery).catch(() => null),
-      getDocs(displayNameQuery).catch(() => null),
-      getDocs(tokensQuery).catch(() => null),
-    ]);
-
-    if (userSnap) {
-      userSnap.docs.forEach((d) => {
-        const pub = toPublicUserProfile(d.data(), d.id);
-        profileCache.set(pub.id, pub);
-        resultMap.set(pub.id, pub);
-      });
+    const candidates = await peopleSearchRead.read();
+    const ranked: { profile: PublicUserProfile; rank: number }[] = [];
+    for (const { profile, username, name, nameWords } of candidates) {
+      if (username === term) ranked.push({ profile, rank: 0 });
+      else if (!handleOnly && name === term) ranked.push({ profile, rank: 1 });
+      else if (username.startsWith(term)) ranked.push({ profile, rank: 2 });
+      else if (!handleOnly && name.startsWith(term)) ranked.push({ profile, rank: 3 });
+      else if (!handleOnly && nameTerms.length && nameTerms.every(word => nameWords.some(part => part.startsWith(word)))) {
+        ranked.push({ profile, rank: 4 });
+      }
     }
 
-    if (displaySnap) {
-      displaySnap.docs.forEach((d) => {
-        const pub = toPublicUserProfile(d.data(), d.id);
-        profileCache.set(pub.id, pub);
-        resultMap.set(pub.id, pub);
-      });
-    }
-
-    if (tokensSnap) {
-      tokensSnap.docs.forEach((d) => {
-        const pub = toPublicUserProfile(d.data(), d.id);
-        profileCache.set(pub.id, pub);
-        resultMap.set(pub.id, pub);
-      });
-    }
-  } catch (err) {
-    console.warn('[Heyroq People] Notice executing Firestore user prefix search:', err);
+    return ranked.sort((a, b) => a.rank - b.rank).slice(0, limitCount).map(({ profile }) => {
+      profileCache.set(profile.id, profile);
+      return profile;
+    });
+  } catch (error) {
+    console.warn('[Heyroq People] Could not search public profiles:', error);
+    return [];
   }
-
-  return Array.from(resultMap.values()).slice(0, limitCount);
 }
 
 /**

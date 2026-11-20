@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { PublicUserProfile } from '../../types';
 import { searchUsers, getSuggestedUsers, checkFollowingStatusBatch } from '../../services/userService';
@@ -36,9 +36,6 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(true);
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
 
-  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const searchRequestIdRef = useRef(0);
-
   // Load suggestions when modal opens
   useEffect(() => {
     if (!isOpen) return;
@@ -73,55 +70,39 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
     };
   }, [isOpen, currentUserId]);
 
-  // Handle live search with 300ms debounce and stale request race condition protection
   useEffect(() => {
-    const q = searchQuery.trim();
-
-    if (searchDebounceRef.current) {
-      clearTimeout(searchDebounceRef.current);
-    }
-
-    if (q.length < 2) {
+    const query = searchQuery.trim();
+    setSearchResults([]);
+    if (!isOpen || query.replace(/^@/, '').length < 2) {
       setIsLoadingSearch(false);
-      if (q.length === 0) {
-        setSearchResults([]);
-      }
       return;
     }
 
+    let cancelled = false;
     setIsLoadingSearch(true);
-
-    searchDebounceRef.current = setTimeout(async () => {
-      const currentReqId = ++searchRequestIdRef.current;
+    const timer = setTimeout(async () => {
       try {
-        const results = await searchUsers(q, 20);
-
-        if (currentReqId !== searchRequestIdRef.current) return;
-
+        const results = await searchUsers(query, 20);
+        if (cancelled) return;
         setSearchResults(results);
+        setIsLoadingSearch(false);
 
         if (currentUserId && results.length > 0) {
-          const ids = results.map((u) => u.id);
-          const statusMap = await checkFollowingStatusBatch(currentUserId, ids);
-          if (currentReqId === searchRequestIdRef.current) {
-            setFollowingMap((prev) => ({ ...prev, ...statusMap }));
-          }
+          const statusMap = await checkFollowingStatusBatch(currentUserId, results.map(user => user.id));
+          if (!cancelled) setFollowingMap(previous => ({ ...previous, ...statusMap }));
         }
-      } catch (err) {
-        if (currentReqId === searchRequestIdRef.current) {
-          console.error('[Heyroq People] Error executing user search:', err);
-        }
+      } catch (error) {
+        if (!cancelled) console.error('[Heyroq People] Error executing user search:', error);
       } finally {
-        if (currentReqId === searchRequestIdRef.current) {
-          setIsLoadingSearch(false);
-        }
+        if (!cancelled) setIsLoadingSearch(false);
       }
     }, 300);
 
     return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      cancelled = true;
+      clearTimeout(timer);
     };
-  }, [searchQuery, currentUserId]);
+  }, [isOpen, searchQuery, currentUserId]);
 
   const handleToggleFollow = async (targetUserId: string) => {
     if (!currentUserId) {
@@ -277,7 +258,8 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
                   document.body.scrollTop = 0;
                 }
               }}
-              placeholder="Search by display name or @username..."
+              aria-label="Search people"
+              placeholder="First name, last name or @username"
               className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-9 py-2.5 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)] transition-colors duration-150 min-h-[44px]"
             />
             {searchQuery && (
@@ -309,14 +291,14 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
                 )}
               </div>
 
-              {searchQuery.trim().length < 2 ? (
+              {searchQuery.trim().replace(/^@/, '').length < 2 ? (
                 <div className="py-12 text-center text-slate-500 dark:text-white/45 text-xs flex flex-col items-center justify-center">
                   <div className="w-10 h-10 rounded-full bg-slate-900/5 dark:bg-white/5 flex items-center justify-center mb-2.5 text-slate-400 dark:text-white/35">
                     <Search className="w-5 h-5" />
                   </div>
                   <p className="font-semibold text-slate-700 dark:text-white/70">Type at least 2 characters</p>
                   <p className="text-[11px] text-slate-500 dark:text-white/45 mt-0.5">
-                    Search explorers by display name or @username
+                    Search by first name, last name or @username
                   </p>
                 </div>
               ) : isLoadingSearch && searchResults.length === 0 ? (
