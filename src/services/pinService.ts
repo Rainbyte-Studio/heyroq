@@ -5,11 +5,14 @@ import {
   getDocFromServer,
   runTransaction,
   getDocs,
+  getDocsFromServer,
   setDoc,
   addDoc,
   updateDoc,
   deleteDoc,
   query,
+  documentId,
+  startAfter,
   where,
   orderBy,
   limit,
@@ -34,6 +37,7 @@ import {
   isPointInBounds,
 } from '../utils/geo';
 import { sortPins } from '../utils/sortUtils';
+import { createSpotSearchMatcher, hasSpotSearchQuery } from '../utils/spotSearch';
 
 export function formatDocDate(val: any): string {
   if (!val) return new Date().toISOString();
@@ -46,7 +50,7 @@ export function formatDocDate(val: any): string {
 const PINS_COLLECTION = 'pins';
 const USERS_COLLECTION = 'users';
 const REPORTS_COLLECTION = 'reports';
-const searchPinRead = createSearchReadCache(() => getDocs(query(collection(db, PINS_COLLECTION), limit(150))), 5000);
+const searchPinRead = createSearchReadCache(readSearchCatalog, 60_000);
 
 // Production Heyroq: SEED_PINS removed. All pins are derived strictly from real Firestore data.
 export const SEED_PINS_WITH_IDS: Pin[] = [];
@@ -275,71 +279,32 @@ export function subscribeToDiscoveryPins(
 }
 
 // 3. Search pins by keyword, tags, or location
-export async function getAllKnownPins(): Promise<Pin[]> {
-  const snap = await searchPinRead.read().catch(err => {
-    console.warn('getAllKnownPins notice:', err);
-    return undefined;
-  });
-  const combinedMap = new Map<string, Pin>();
+async function readSearchCatalog(): Promise<Pin[]> {
+  const pageSize = 150;
+  const orderedPins = query(collection(db, PINS_COLLECTION), orderBy(documentId()), limit(pageSize));
+  const pins: Pin[] = [];
+  let page = await getDocsFromServer(orderedPins);
 
-  // 1. Memory cache if present
-  if (cachedPinsSnapshot && cachedPinsSnapshot.length > 0) {
-    cachedPinsSnapshot.forEach((cp) => {
-      combinedMap.set(cp.id, cp);
-    });
-  }
-
-  // 2. Live Firestore pins
-  try {
-    snap?.docs.forEach((d) => {
-      const data = d.data() as Record<string, any>;
-      combinedMap.set(d.id, {
-        id: d.id,
+  while (true) {
+    for (const snapshot of page.docs) {
+      const data = snapshot.data();
+      pins.push({
         ...(data as Omit<Pin, 'id'>),
+        id: snapshot.id,
         category: normalizeCategory(data.category) || 'Other',
         commentCount: typeof data.commentCount === 'number' ? data.commentCount : 0,
         likeCount: typeof data.likeCount === 'number' ? data.likeCount : 0,
         createdAt: formatDocDate(data.createdAt),
       });
-    });
-  } catch (err) {
-    console.warn('getAllKnownPins notice:', err);
+    }
+    if (page.size < pageSize) return pins;
+    page = await getDocsFromServer(query(orderedPins, startAfter(page.docs[page.docs.length - 1])));
   }
-
-  return Array.from(combinedMap.values());
 }
 
 export async function searchPins(keyword: string): Promise<Pin[]> {
-  const clean = keyword.trim().toLowerCase();
-  if (!clean) return [];
-  const tagClean = clean.replace(/^#/, '').trim();
-
-  const candidates = await getAllKnownPins();
-
-  return candidates.filter((p) => {
-    const matchTitle =
-      p.title.toLowerCase().includes(clean) ||
-      (tagClean.length > 0 && p.title.toLowerCase().includes(tagClean));
-
-    const matchDesc =
-      p.description.toLowerCase().includes(clean) ||
-      (tagClean.length > 0 && p.description.toLowerCase().includes(tagClean));
-
-    const matchLocation =
-      p.locationName?.toLowerCase().includes(clean) ||
-      (tagClean.length > 0 && p.locationName?.toLowerCase().includes(tagClean));
-
-    const matchCategory =
-      p.category.toLowerCase().includes(clean) ||
-      (tagClean.length > 0 && p.category.toLowerCase().includes(tagClean));
-
-    const matchTags = p.tags?.some((t) => {
-      const normTag = t.toLowerCase().replace(/^#/, '').trim();
-      return normTag.includes(tagClean) || normTag.includes(clean);
-    });
-
-    return matchTitle || matchDesc || matchLocation || matchCategory || matchTags;
-  });
+  if (!hasSpotSearchQuery(keyword)) return [];
+  return (await searchPinRead.read()).filter(createSpotSearchMatcher(keyword));
 }
 
 // 4. Fetch single pin by ID

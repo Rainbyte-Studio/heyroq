@@ -1,6 +1,7 @@
 import { Pin } from '../types';
 import { PublicUserProfile } from '../types';
-import { getAllKnownPins } from './pinService';
+import { searchPins } from './pinService';
+import { getSpotSearchTags, hasSpotSearchQuery, normalizeSearchTag, normalizeSearchText } from '../utils/spotSearch';
 import { searchUsers } from './userService';
 
 export interface GlobalSearchResultItem {
@@ -25,79 +26,42 @@ export interface CategorizedSearchResults {
   cities: GlobalSearchResultItem[];
   tags: GlobalSearchResultItem[];
   totalCount: number;
+  spotsUnavailable?: boolean;
 }
 
-/**
- * Normalizes city names for fuzzy/diacritic-friendly comparisons
- * (e.g. Tromsø -> tromso, Zakynthos -> zakynthos)
- */
-function normalizeString(val: string): string {
-  return val
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
+export const EMPTY_SEARCH_RESULTS: CategorizedSearchResults = {
+  spots: [],
+  people: [],
+  cities: [],
+  tags: [],
+  totalCount: 0,
+};
 
-/**
- * Unified Global Search Engine for Heyroq.
- * Returns grouped and categorized results: SPOTS, PEOPLE, CITIES, TAGS.
- * Uses normalized queries and real Firestore / Curated data.
- */
 export async function executeGlobalSearch(
   rawQuery: string
 ): Promise<CategorizedSearchResults> {
-  const clean = rawQuery.trim().toLowerCase();
-  const normClean = normalizeString(clean);
-  const tagClean = clean.replace(/^#/, '').trim();
-  const normTagClean = normalizeString(tagClean);
+  if (!hasSpotSearchQuery(rawQuery)) return EMPTY_SEARCH_RESULTS;
 
-  if (!clean || clean.length < 2) {
-    return {
-      spots: [],
-      people: [],
-      cities: [],
-      tags: [],
-      totalCount: 0,
-    };
-  }
-
-  // 1. Fetch Pins & Users concurrently
-  const [allPins, users] = await Promise.all([
-    getAllKnownPins().catch(() => [] as Pin[]),
-    searchUsers(clean, 6).catch(() => [] as PublicUserProfile[]),
+  const isTagQuery = rawQuery.trimStart().startsWith('#');
+  const term = normalizeSearchTag(rawQuery);
+  const [pins, users] = await Promise.all([
+    searchPins(rawQuery).catch(error => {
+      console.warn('Spot search unavailable:', error);
+      return null;
+    }),
+    isTagQuery ? Promise.resolve([]) : searchUsers(rawQuery.trim(), 6),
   ]);
 
-  // 2. Spots Categorization
-  const matchedSpots: GlobalSearchResultItem[] = [];
-  allPins.forEach((p) => {
-    const titleNorm = normalizeString(p.title);
-    const descNorm = normalizeString(p.description || '');
-    const locNorm = normalizeString(p.locationName || '');
-    const catNorm = normalizeString(p.category || '');
-
-    const matchTitle = titleNorm.includes(normClean) || (normTagClean && titleNorm.includes(normTagClean));
-    const matchDesc = descNorm.includes(normClean) || (normTagClean && descNorm.includes(normTagClean));
-    const matchLocation = locNorm.includes(normClean) || (normTagClean && locNorm.includes(normTagClean));
-    const matchCat = catNorm.includes(normClean) || (normTagClean && catNorm.includes(normTagClean));
-    const matchTag = p.tags?.some((t) => {
-      const tNorm = normalizeString(t.replace(/^#/, ''));
-      return tNorm.includes(normTagClean) || tNorm.includes(normClean);
-    });
-
-    if (matchTitle || matchDesc || matchLocation || matchCat || matchTag) {
-      matchedSpots.push({
-        id: `spot_${p.id}`,
-        type: 'spot',
-        title: p.title,
-        subtitle: p.locationName || p.category,
-        category: p.category,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        pin: p,
-      });
-    }
-  });
+  const matchedSpots: GlobalSearchResultItem[] = (pins ?? []).map(pin => ({
+    id: `spot_${pin.id}`,
+    type: 'spot',
+    title: pin.title,
+    subtitle: pin.locationName || pin.city || pin.category,
+    category: pin.category,
+    latitude: pin.latitude,
+    longitude: pin.longitude,
+    pin,
+  }));
 
   // 3. Cities Categorization (Derived dynamically from real pins)
   const cityBuckets = new Map<
@@ -110,10 +74,11 @@ export async function executeGlobalSearch(
     }
   >();
 
-  allPins.forEach((p) => {
-    if (!p.locationName) return;
-    const cleanCityName = p.locationName.trim();
-    const cityKey = normalizeString(cleanCityName);
+  (isTagQuery ? [] : pins ?? []).forEach((p) => {
+    const cityName = typeof p.city === 'string' && p.city.trim() ? p.city : p.locationName;
+    const cleanCityName = typeof cityName === 'string' ? cityName.trim() : '';
+    const cityKey = normalizeSearchText(cleanCityName);
+    if (!cleanCityName || !cityKey.includes(term)) return;
 
     if (!cityBuckets.has(cityKey)) {
       cityBuckets.set(cityKey, {
@@ -129,54 +94,32 @@ export async function executeGlobalSearch(
 
   const matchedCities: GlobalSearchResultItem[] = [];
   cityBuckets.forEach((c, key) => {
-    if (
-      key.includes(normClean) ||
-      (normTagClean && key.includes(normTagClean))
-    ) {
-      matchedCities.push({
-        id: `city_${key}`,
-        type: 'city',
-        title: c.cityName,
-        subtitle: `${c.count} ${c.count === 1 ? 'spot' : 'spots'} on map`,
-        city: c.cityName,
-        latitude: c.lat,
-        longitude: c.lng,
-        spotCount: c.count,
-      });
-    }
-  });
-
-  // 4. Tags Categorization
-  const tagBuckets = new Map<string, { tag: string; count: number }>();
-  allPins.forEach((p) => {
-    p.tags?.forEach((rawTag) => {
-      const cleanTag = rawTag.toLowerCase().replace(/^#/, '').trim();
-      if (!cleanTag) return;
-      const normT = normalizeString(cleanTag);
-      if (!tagBuckets.has(normT)) {
-        tagBuckets.set(normT, { tag: cleanTag, count: 1 });
-      } else {
-        tagBuckets.get(normT)!.count += 1;
-      }
+    matchedCities.push({
+      id: `city_${key}`,
+      type: 'city',
+      title: c.cityName,
+      subtitle: `${c.count} ${c.count === 1 ? 'spot' : 'spots'} on map`,
+      city: c.cityName,
+      latitude: c.lat,
+      longitude: c.lng,
+      spotCount: c.count,
     });
   });
 
-  const matchedTags: GlobalSearchResultItem[] = [];
-  tagBuckets.forEach((entry, key) => {
-    if (
-      key.includes(normTagClean) ||
-      key.includes(normClean)
-    ) {
-      matchedTags.push({
-        id: `tag_${key}`,
-        type: 'tag',
-        title: `#${entry.tag}`,
-        subtitle: `${entry.count} ${entry.count === 1 ? 'spot' : 'spots'} tagged`,
-        tag: entry.tag,
-        spotCount: entry.count,
-      });
+  const tagCounts = new Map<string, number>();
+  for (const pin of pins ?? []) {
+    for (const tag of getSpotSearchTags(pin)) {
+      if (tag.includes(term)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
     }
-  });
+  }
+  const matchedTags: GlobalSearchResultItem[] = Array.from(tagCounts, ([tag, count]) => ({
+    id: `tag_${tag}`,
+    type: 'tag',
+    title: `#${tag}`,
+    subtitle: `${count} ${count === 1 ? 'spot' : 'spots'} tagged`,
+    tag,
+    spotCount: count,
+  }));
 
   // 5. People Categorization
   const matchedPeople: GlobalSearchResultItem[] = users.map((u) => ({
@@ -199,5 +142,6 @@ export async function executeGlobalSearch(
     cities,
     tags,
     totalCount: spots.length + people.length + cities.length + tags.length,
+    spotsUnavailable: pins === null,
   };
 }
