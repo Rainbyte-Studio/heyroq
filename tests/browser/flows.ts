@@ -12,12 +12,22 @@ import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
-    mountAchievementsTrigger(uid: string) {
+    mountAchievementsTrigger(uid: string, nested = false) {
       const host = document.createElement('div');
       const trigger = document.createElement('button');
-      trigger.textContent = 'Open Explorer Progression';
-      document.body.append(trigger);
-      document.body.append(host);
+      trigger.textContent = nested ? 'Open Profile Achievements' : 'Open Explorer Progression';
+      const parent = nested ? document.createElement('dialog') : null;
+      const fallback = document.createElement('button');
+      fallback.textContent = 'Close fixture profile';
+      if (parent) {
+        parent.setAttribute('aria-label', 'Fixture profile');
+        parent.append(fallback, trigger, host);
+        document.body.append(parent);
+        parent.showModal();
+        fallback.addEventListener('click', () => parent.close());
+      } else {
+        document.body.append(trigger, host);
+      }
       const root = createRoot(host);
       trigger.dataset.backgroundEscaped = 'false';
       window.addEventListener('keydown', (event) => {
@@ -28,8 +38,17 @@ Object.assign(window, {
           userId: uid,
           displayName: 'Browser fixture',
           onClose: () => root.render(null),
+          fallbackFocusRef: { current: fallback },
         }));
       });
+    },
+    async tryWriteVerifiedProgress(uid: string) {
+      try {
+        await updateDoc(doc(db, 'users', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
+        return 'unexpected success';
+      } catch (error) {
+        return (error as { code: string }).code;
+      }
     },
     async signUp(email: string, password: string) {
       const { user } = await createUserWithEmailAndPassword(auth, email, password);

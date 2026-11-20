@@ -162,6 +162,7 @@ function HeyroqMainApp() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [isAccountSecurityOpen, setIsAccountSecurityOpen] = useState(false);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
+  const mainContentRef = useRef<HTMLElement>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isDiscoverPeopleOpen, setIsDiscoverPeopleOpen] = useState(false);
@@ -683,7 +684,7 @@ function HeyroqMainApp() {
       />
 
       {/* Main Map & Discovery Feed Workspace */}
-      <main className="flex-1 min-h-0 w-full flex flex-col lg:flex-row relative overflow-hidden bg-[var(--heyroq-bg-canvas)]">
+      <main ref={mainContentRef} tabIndex={-1} className="flex-1 min-h-0 w-full flex flex-col lg:flex-row relative overflow-hidden bg-[var(--heyroq-bg-canvas)]">
         {/* The Interactive Social Map */}
         <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden">
           <HeyroqMap
@@ -988,6 +989,7 @@ function HeyroqMainApp() {
         <AchievementsModal
           userId={user.uid}
           displayName={profile?.displayName}
+          fallbackFocusRef={mainContentRef}
           onClose={() => setIsProgressionOpen(false)}
         />
       )}

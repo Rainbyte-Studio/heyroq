@@ -377,14 +377,33 @@ export function subscribeToUserAchievements(
 
   return onSnapshot(
     achCol,
+    { includeMetadataChanges: true },
     (snap) => {
-      const saved = new Map(snap.docs.map(doc => [doc.id, doc.data() as UserAchievement]));
+      const saved = new Map(snap.docs.map(doc => [doc.id, doc]));
       onUpdate(getDefaultAchievements().map(defaultBadge => {
-        const found = saved.get(defaultBadge.id);
-        if (!found) return defaultBadge;
-        if (found.isUnlocked) return { ...defaultBadge, ...found, description: defaultBadge.description };
+        const record = saved.get(defaultBadge.id);
+        if (!record) return defaultBadge;
+        const found = record.data() as UserAchievement;
+        const verifiedGeographicProgress = !record.metadata.fromCache && !record.metadata.hasPendingWrites
+          ? found.verifiedGeographicProgress
+          : undefined;
+        if (found.isUnlocked === true) {
+          return {
+            ...defaultBadge,
+            ...found,
+            id: defaultBadge.id,
+            category: defaultBadge.category,
+            description: defaultBadge.description,
+            verifiedGeographicProgress,
+          };
+        }
         const progress = found.id === 'visual_storyteller' ? (found.qualifiedPhotoProgress ?? 0) : found.progress;
-        return { ...defaultBadge, progress, updatedAt: found.updatedAt };
+        return {
+          ...defaultBadge,
+          progress,
+          verifiedGeographicProgress,
+          updatedAt: found.updatedAt,
+        };
       }));
     },
     (err) => {

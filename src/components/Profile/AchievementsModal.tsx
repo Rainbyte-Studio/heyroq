@@ -14,6 +14,7 @@ import {
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
 import { CloseButton } from '../Common/CloseButton';
+import { getAchievementPresentation } from '../../config/achievementAvailability';
 import {
   Trophy,
   Compass,
@@ -44,6 +45,7 @@ interface AchievementsModalProps {
   userId: string;
   displayName?: string;
   onClose: () => void;
+  fallbackFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 const CATEGORIES: { id: 'All' | AchievementCategory; label: string }[] = [
@@ -55,15 +57,11 @@ const CATEGORIES: { id: 'All' | AchievementCategory; label: string }[] = [
   { id: 'Special', label: 'Special' },
 ];
 
-// Presentation only. The server independently controls eligibility and awards.
-const COMING_SOON_CATEGORIES: Partial<Record<AchievementCategory, string>> = {
-  Geography: 'Geographic Achievements are coming soon. Explore new places and share your discoveries while we prepare verified location-based rewards.',
-};
-
 export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   userId,
   displayName,
   onClose,
+  fallbackFocusRef,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'All' | AchievementCategory>('All');
   const [summary, setSummary] = useState<UserProgressionSummary | null>(null);
@@ -73,7 +71,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const pointerStartedOnBackdrop = useRef(false);
   const dialogId = useId();
 
   useLayoutEffect(() => {
@@ -88,9 +86,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
       dialog.close();
       if (trigger instanceof HTMLElement && trigger.isConnected) {
         trigger.focus({ preventScroll: true });
+        if (trigger !== document.body && document.activeElement === trigger) return;
       }
+      fallbackFocusRef?.current?.focus({ preventScroll: true });
     };
-  }, []);
+  }, [fallbackFocusRef]);
 
   useEffect(() => {
     if (!userId) return;
@@ -142,8 +142,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const filteredAchievements = achievements.filter((a) => {
     if (selectedCategory === 'All') return true;
     return a.category === selectedCategory;
-  });
-  const categoryNotice = selectedCategory === 'All' ? undefined : COMING_SOON_CATEGORIES[selectedCategory];
+  }).map((achievement) => ({ achievement, ...getAchievementPresentation(achievement) }));
+  const showGeographyNotice = selectedCategory === 'Geography'
+    && filteredAchievements.length > 0
+    && filteredAchievements.every(({ state }) => state !== 'available')
+    && filteredAchievements.some(({ state }) => state === 'coming_soon');
 
   const renderIcon = (iconName: string, isUnlocked: boolean, tier: ProgressionTier) => {
     const iconProps = { className: 'w-5 h-5', 'aria-hidden': true as const };
@@ -253,8 +256,18 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     }
     if (event.key !== 'Tab') return;
 
-    const boundary = event.shiftKey ? closeButtonRef.current : historyButtonRef.current;
-    const wrapTarget = event.shiftKey ? historyButtonRef.current : closeButtonRef.current;
+    // The native modal makes the page inert. Wrap at the current boundaries
+    // so Tab never lands in browser chrome when the dialog content changes.
+    const dialog: HTMLDialogElement = event.currentTarget;
+    const tabbable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button, a[href], input, select, textarea, summary, iframe, [tabindex], [contenteditable]',
+    )).filter((element) => element.tabIndex >= 0 && !element.matches(':disabled')
+      && !element.closest('[inert]') && element.getClientRects().length > 0
+      && getComputedStyle(element).visibility === 'visible');
+    const first = tabbable[0];
+    const last = tabbable.at(-1);
+    const boundary = event.shiftKey ? first : last;
+    const wrapTarget = event.shiftKey ? last : first;
     if (document.activeElement === boundary && wrapTarget) {
       event.preventDefault();
       wrapTarget.focus();
@@ -267,17 +280,24 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
       ref={dialogRef}
       aria-labelledby={`${dialogId}-title`}
       className="liquid-glass-backdrop fixed inset-0 m-0 h-full max-h-none w-full max-w-none overflow-hidden p-3 backdrop:bg-transparent open:flex open:items-center open:justify-center sm:p-4"
+      onPointerDown={(event) => {
+        pointerStartedOnBackdrop.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        event.stopPropagation();
+        if (event.target === event.currentTarget && pointerStartedOnBackdrop.current) onClose();
+        pointerStartedOnBackdrop.current = false;
       }}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }}
       onKeyDown={handleDialogKeyDown}
     >
       <div
-        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[min(92dvh,100%)] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
         {/* Header Bar */}
         <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between relative z-20">
@@ -289,7 +309,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
               <h2 id={`${dialogId}-title`} className="font-heading text-lg sm:text-xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
                 Explorer Progression
               </h2>
-              <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 truncate">
+              <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 line-clamp-2 wrap-anywhere">
                 {displayName ? `${displayName}'s journey & milestones` : 'Earn XP by discovering genuine places'}
               </p>
             </div>
@@ -309,7 +329,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           <div className="liquid-glass-card rounded-3xl p-5 relative overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 relative z-10">
               <div>
-                <div className="flex items-center gap-2.5 mb-1">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-1">
                   <span className="font-heading text-xs font-bold uppercase tracking-wider text-[var(--heyroq-accent-text)] tabular-nums">
                     LEVEL {level}
                   </span>
@@ -408,9 +428,9 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             })}
           </div>
 
-          {categoryNotice && (
+          {showGeographyNotice && (
             <p className="rounded-xl border border-slate-500/25 bg-slate-500/8 px-3.5 py-3 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
-              {categoryNotice}
+              Geographic Achievements are coming soon. Explore new places and share your discoveries while we prepare verified location-based rewards.
             </p>
           )}
 
@@ -422,9 +442,10 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {filteredAchievements.map((ach) => {
-                const isComingSoon = !ach.isUnlocked && Boolean(COMING_SOON_CATEGORIES[ach.category]);
-                const earnedDate = ach.isUnlocked && ach.category === 'Geography' && ach.unlockedAt
+              {filteredAchievements.map(({ achievement: ach, state, progress }) => {
+                const isComingSoon = state === 'coming_soon';
+                const isCompleted = state === 'completed';
+                const earnedDate = isCompleted && ach.category === 'Geography' && ach.unlockedAt
                   ? new Date(ach.unlockedAt)
                   : null;
                 const badgeTitleId = `${dialogId}-${ach.id}-title`;
@@ -434,7 +455,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   <article
                     key={ach.id}
                     aria-labelledby={badgeTitleId}
-                    aria-describedby={isComingSoon || ach.isUnlocked ? badgeStatusId : undefined}
+                    aria-describedby={isComingSoon || isCompleted || progress === null ? badgeStatusId : undefined}
                     className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${
                       ach.isUnlocked
                         ? 'border-slate-900/14 dark:border-white/20'
@@ -482,11 +503,16 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                         </span>
                         <span className="tabular-nums">Goal {ach.target}</span>
                       </div>
+                    ) : progress === null ? (
+                      <div className="flex flex-wrap justify-between gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                        <span id={badgeStatusId}>Progress unavailable</span>
+                        <span className="tabular-nums">Goal {ach.target}</span>
+                      </div>
                     ) : (
                       <div>
                         <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-700 dark:text-slate-200">
-                          <span id={ach.isUnlocked ? badgeStatusId : undefined}>
-                            {ach.isUnlocked ? (
+                          <span id={isCompleted ? badgeStatusId : undefined}>
+                            {isCompleted ? (
                               <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                                 Completed
                               </span>
@@ -495,18 +521,18 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                             )}
                           </span>
                           <span>
-                            {ach.progress} / {ach.target}
+                            {progress} / {ach.target}
                           </span>
                         </div>
 
-                        <div className="h-1.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden">
+                        <div aria-hidden="true" className="h-1.5 w-full bg-slate-900/8 dark:bg-black/50 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all duration-300 ${
                               ach.isUnlocked
                                 ? 'bg-gradient-to-r from-emerald-500 to-[var(--brand-primary)]'
                                 : 'bg-slate-400 dark:bg-white/40'
                             }`}
-                            style={{ width: `${Math.min(100, Math.round((ach.progress / Math.max(1, ach.target)) * 100))}%` }}
+                            style={{ width: `${Math.min(100, Math.round((progress / Math.max(1, ach.target)) * 100))}%` }}
                           />
                         </div>
                         {earnedDate && Number.isFinite(earnedDate.getTime()) && (
@@ -527,24 +553,24 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           {/* XP History Ledger Section */}
           <div className="pt-2 border-t border-slate-900/8 dark:border-white/10">
             <button
-              ref={historyButtonRef}
               type="button"
-              onClick={() => setShowHistory(!showHistory)}
+              onClick={() => setShowHistory((shown) => !shown)}
+              aria-labelledby={`${dialogId}-history-label`}
               aria-expanded={showHistory}
-              className="liquid-glass-card w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring focus-visible:outline-[var(--heyroq-accent-text)]!"
+              aria-controls={`${dialogId}-history`}
+              className="liquid-glass-card w-full flex items-center justify-between gap-2 p-3.5 min-h-[44px] rounded-xl text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring focus-visible:outline-[var(--heyroq-accent-text)]!"
             >
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-[var(--brand-primary)]" />
-                <span>Recent Milestone Activity</span>
+                <History aria-hidden="true" className="w-4 h-4 shrink-0 text-[var(--brand-primary)]" />
+                <span id={`${dialogId}-history-label`}>Recent Milestone Activity</span>
               </div>
               <span className="text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
                 {showHistory ? 'Hide' : `View ${xpEvents.length} Recent Events`}
               </span>
             </button>
 
-            {showHistory && (
-              <div className="mt-3 space-y-2 animate-in fade-in duration-150">
-                {xpEvents.length === 0 ? (
+            <div id={`${dialogId}-history`} hidden={!showHistory} className="mt-3 space-y-2 animate-in fade-in duration-150">
+              {showHistory && (xpEvents.length === 0 ? (
                   <p className="text-xs text-slate-700 dark:text-slate-200 text-center py-4">
                     No recent XP events recorded yet.
                   </p>
@@ -555,9 +581,9 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                       className="liquid-glass-card p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <TrendingUp aria-hidden="true" className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <div className="min-w-0">
-                          <span className="font-semibold text-slate-900 dark:text-white block truncate">
+                          <span className="font-semibold text-slate-900 dark:text-white block wrap-anywhere">
                             {ev.description}
                           </span>
                           <span className="text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
@@ -575,9 +601,8 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                       </span>
                     </div>
                   ))
-                )}
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         </div>
       </div>

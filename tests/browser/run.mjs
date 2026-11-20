@@ -119,8 +119,9 @@ try {
   assert.ok(await geography.evaluate(button => button === document.activeElement));
   assert.equal(await modal.getByRole('article').count(), 26);
   assert.equal(await soon.count(), 7);
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
   assert.equal(await geography.getAttribute('aria-pressed'), 'true');
+  assert.ok(await geography.evaluate(button => button === document.activeElement));
   await modal.getByText('Geographic Achievements are coming soon.', { exact: false }).waitFor();
   const textContrast = locator => locator.evaluate(text => {
     const canvas = document.createElement('canvas');
@@ -162,7 +163,7 @@ try {
     assert.equal(await card.locator('[style*="width"]').count(), 0);
   }
   const screenshotDir = process.env.HEYROQ_QA_SCREENSHOTS;
-  for (const [width, height, dark] of [[320, 640, false], [375, 844, false], [768, 1024, true], [1024, 900, true], [1280, 1180, true]]) {
+  for (const [width, height, dark] of [[320, 440, false], [375, 667, false], [768, 600, true], [1024, 360, true], [1280, 800, true]]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
     await geography.evaluate(button => button.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
@@ -176,6 +177,12 @@ try {
     }));
     assert.ok(layout.every(card => card.x >= 0 && card.right <= width && !card.overflow && card.border === 'dashed'));
     assert.equal(new Set(layout.map(card => card.x)).size, width < 640 ? 1 : 2);
+    const panelFits = await modal.evaluate(dialog => {
+      const panel = dialog.firstElementChild;
+      const bounds = panel.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight && panel.scrollWidth <= panel.clientWidth;
+    });
+    assert.ok(panelFits, `the dialog fits at ${width}×${height}`);
     const filtersFit = await modal.getByRole('group', { name: 'Filter badges by category' }).evaluate(group => {
       const bounds = group.getBoundingClientRect();
       return Array.from(group.querySelectorAll('button')).every(button => {
@@ -210,6 +217,8 @@ try {
   assert.equal(await earned.getByText('Coming Soon', { exact: true }).count(), 0);
   const locked = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'City Pathfinder' }) });
   assert.equal(await locked.getByText('10 / 10', { exact: true }).count(), 0);
+  assert.equal(await locked.locator('[style*="width"]').count(), 0);
+  assert.equal(await page.evaluate(uid => window.heyroqTest.tryWriteVerifiedProgress(uid), uid), 'permission-denied');
   assert.equal(await soon.count(), 6);
   assert.deepEqual((await historical.get()).data(), history);
   assert.deepEqual((await legacyProgress.get()).data(), { progress: 10, isUnlocked: false });
@@ -219,9 +228,53 @@ try {
   await modal.getByRole('button', { name: /^All Badges/ }).click();
   assert.equal(await modal.getByRole('article').count(), 26);
   assert.equal(await modal.getByText('Progress', { exact: true }).count(), 19);
+  await historyButton.press('Space');
+  assert.equal(await historyButton.getAttribute('aria-expanded'), 'true');
+  assert.ok(await historyButton.evaluate(button => button === document.activeElement));
+  const historyPanel = modal.locator('div[id$="-history"]');
+  assert.equal(await historyButton.getAttribute('aria-controls'), await historyPanel.getAttribute('id'));
+  await historyPanel.getByText('No recent XP events recorded yet.').waitFor();
+  await historyPanel.evaluate(panel => {
+    const action = document.createElement('button');
+    action.textContent = 'Fixture history action';
+    panel.append(action);
+  });
+  const historyAction = modal.getByRole('button', { name: 'Fixture history action' });
+  await page.keyboard.press('Tab');
+  assert.ok(await historyAction.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await closeAchievements.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Shift+Tab');
+  assert.ok(await historyAction.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Enter');
+  assert.equal(await historyButton.getAttribute('aria-expanded'), 'false');
+  assert.ok(await historyButton.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await closeAchievements.evaluate(button => button === document.activeElement));
   await page.keyboard.press('Escape');
   await modal.waitFor({ state: 'detached' });
   assert.ok(await achievementsTrigger.evaluate(button => button === document.activeElement));
+  await achievementsTrigger.press('Space');
+  await closeAchievements.waitFor();
+  await page.mouse.click(1, 1);
+  await modal.waitFor({ state: 'detached' });
+  assert.ok(await achievementsTrigger.evaluate(button => button === document.activeElement));
+  await page.evaluate(uid => window.heyroqTest.mountAchievementsTrigger(uid, true), uid);
+  const nestedTrigger = page.getByRole('button', { name: 'Open Profile Achievements' });
+  const parentDialog = page.getByRole('dialog', { name: 'Fixture profile' });
+  await nestedTrigger.press('Enter');
+  await closeAchievements.waitFor();
+  await page.evaluate(() => {
+    const parent = document.querySelector('dialog[aria-label="Fixture profile"]');
+    Array.from(parent.querySelectorAll('button')).find(button => button.textContent === 'Open Profile Achievements').remove();
+  });
+  await page.keyboard.press('Escape');
+  await modal.waitFor({ state: 'detached' });
+  assert.ok(await parentDialog.evaluate(dialog => dialog.matches(':modal')));
+  const fallback = parentDialog.getByRole('button', { name: 'Close fixture profile' });
+  assert.ok(await fallback.evaluate(button => button === document.activeElement));
+  await fallback.press('Enter');
   assert.equal(await achievementsTrigger.getAttribute('data-background-escaped'), 'false');
   await achievementsTrigger.press('Enter');
   await closeAchievements.waitFor();
@@ -236,6 +289,15 @@ try {
 
   const { pinId, retry, urls } = await page.evaluate(args => window.heyroqTest.publish(...args), [uid, png]);
   assert.equal(retry, pinId);
+  const xpEvents = profile.collection('xpEvents');
+  for (let attempt = 0; attempt < 80 && !(await xpEvents.doc(`pin_created:${pinId}`).get()).exists; attempt++) {
+    await delay(250);
+  }
+  assert.equal((await xpEvents.doc(`pin_created:${pinId}`).get()).get('action'), 'PIN_CREATED');
+  assert.deepEqual((await xpEvents.get()).docs.filter(doc =>
+    /^(?:UNIQUE_CITY|UNIQUE_COUNTRY)$/.test(doc.get('action')) || doc.id.startsWith('geo_v1:')), []);
+  const geographicAwards = await profile.collection('achievements').where('category', '==', 'Geography').get();
+  assert.deepEqual(geographicAwards.docs.filter(doc => doc.get('isUnlocked')).map(doc => doc.id), ['city_scout']);
   assert.equal(urls.length, 1);
   assert.deepEqual(await read(urls[0]), { status: 200, bytes: png });
   const invalid = new URL(urls[0]);
