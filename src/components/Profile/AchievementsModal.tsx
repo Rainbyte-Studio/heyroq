@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   UserProgressionSummary,
   UserAchievement,
@@ -71,6 +71,26 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const [xpEvents, setXpEvents] = useState<XpEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const historyButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogId = useId();
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const trigger = document.activeElement;
+    dialog.showModal();
+    closeButtonRef.current?.focus();
+
+    return () => {
+      dialog.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) {
+        trigger.focus({ preventScroll: true });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -126,7 +146,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const categoryNotice = selectedCategory === 'All' ? undefined : COMING_SOON_CATEGORIES[selectedCategory];
 
   const renderIcon = (iconName: string, isUnlocked: boolean, tier: ProgressionTier) => {
-    const iconProps = { className: 'w-5 h-5' };
+    const iconProps = { className: 'w-5 h-5', 'aria-hidden': true as const };
     let iconElement: React.ReactNode;
 
     switch (iconName) {
@@ -226,54 +246,65 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     );
   };
 
-  // Keyboard navigation & Escape key dismiss
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDialogElement>) => {
+    if (event.key === 'Escape') {
+      // Native cancel closes this dialog. Keep the underlying profile open.
+      event.stopPropagation();
+    }
+    if (event.key !== 'Tab') return;
+
+    const boundary = event.shiftKey ? closeButtonRef.current : historyButtonRef.current;
+    const wrapTarget = event.shiftKey ? historyButtonRef.current : closeButtonRef.current;
+    if (document.activeElement === boundary && wrapTarget) {
+      event.preventDefault();
+      wrapTarget.focus();
+    }
+  };
 
   return (
-    <div
-      onClick={onClose}
-      className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
+    <dialog
+      id="achievements-modal"
+      ref={dialogRef}
+      aria-labelledby={`${dialogId}-title`}
+      className="liquid-glass-backdrop fixed inset-0 m-0 h-full max-h-none w-full max-w-none overflow-hidden p-3 backdrop:bg-transparent open:flex open:items-center open:justify-center sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onKeyDown={handleDialogKeyDown}
     >
       <div
-        id="achievements-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Explorer Progression"
-        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[92vh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
         {/* Header Bar */}
         <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between relative z-20">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
-              <Trophy className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Trophy aria-hidden="true" className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 truncate">
+              <h2 id={`${dialogId}-title`} className="font-heading text-lg sm:text-xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
                 Explorer Progression
               </h2>
-              <p className="text-[11px] sm:text-xs text-slate-500 dark:text-white/50 truncate">
+              <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 truncate">
                 {displayName ? `${displayName}'s journey & milestones` : 'Earn XP by discovering genuine places'}
               </p>
             </div>
           </div>
 
           <CloseButton
+            ref={closeButtonRef}
             onClick={onClose}
             ariaLabel="Close Explorer Progression"
+            className="focus-visible:outline-[var(--heyroq-accent-text)]!"
           />
         </div>
 
         {/* Modal Scroll Content */}
-        <div className="flex-1 overflow-y-auto subtle-glass-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain subtle-glass-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
           {/* Main Progression Card */}
           <div className="liquid-glass-card rounded-3xl p-5 relative overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 relative z-10">
@@ -289,7 +320,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                     {currentDef.title}
                   </span>
                 </div>
-                <p className="text-xs font-medium tabular-nums text-slate-600 dark:text-white/60">
+                <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">
                   {isMaxLevel ? (
                     <span className="text-[var(--heyroq-accent-text)] font-semibold">
                       Highest explorer rank achieved
@@ -307,7 +338,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   <span className="font-heading text-xl font-bold tabular-nums text-slate-900 dark:text-white block">
                     {xp.toLocaleString()}
                   </span>
-                  <span className="text-[11px] font-medium text-slate-500 dark:text-white/45">
+                  <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200">
                     Total XP
                   </span>
                 </div>
@@ -316,7 +347,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   <span className="font-heading text-xl font-bold tabular-nums text-[var(--heyroq-accent-text)] block">
                     {unlockedCount} / {totalCount}
                   </span>
-                  <span className="text-[11px] font-medium text-slate-500 dark:text-white/45 tabular-nums">
+                  <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200 tabular-nums">
                     Badges ({completionPercent}%)
                   </span>
                 </div>
@@ -334,16 +365,16 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   }}
                 />
               </div>
-              <div className="flex justify-between items-center text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
+              <div className="flex justify-between items-center text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
                 <span>{xp.toLocaleString()} XP</span>
-                <span className="text-slate-700 dark:text-white/70 font-semibold">{progressPercent}%</span>
+                <span className="text-slate-700 dark:text-slate-200 font-semibold">{progressPercent}%</span>
                 <span>{isMaxLevel ? 'MAX' : `${nextLevelXp.toLocaleString()} XP`}</span>
               </div>
             </div>
           </div>
 
           {/* Category Filter Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <div role="group" aria-label="Filter badges by category" className="flex flex-wrap items-center gap-2 pb-1">
             {CATEGORIES.map((cat) => {
               const isSelected = selectedCategory === cat.id;
               const catCount =
@@ -361,18 +392,14 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   type="button"
                   onClick={() => setSelectedCategory(cat.id)}
                   aria-pressed={isSelected}
-                  className={`px-3.5 py-2 min-h-[38px] rounded-full text-xs font-semibold transition-all duration-150 whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer heyroq-focus-ring ${
+                  className={`px-3.5 py-2 min-h-[44px] rounded-full text-xs font-semibold transition-all duration-150 whitespace-nowrap flex items-center gap-1.5 cursor-pointer heyroq-focus-ring focus-visible:outline-[var(--heyroq-accent-text)]! ${
                     isSelected
                       ? 'heyroq-btn-primary'
-                      : 'liquid-glass-pill text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white'
+                      : 'liquid-glass-pill text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white'
                   }`}
                 >
                   <span>{cat.label}</span>
-                  <span
-                    className={`text-[10px] font-semibold tabular-nums ${
-                      isSelected ? 'text-white/90' : 'text-slate-400 dark:text-white/45'
-                    }`}
-                  >
+                  <span aria-label={`${catUnlocked} of ${catCount} completed`} className="text-[10px] font-semibold tabular-nums">
                     {catUnlocked}/{catCount}
                   </span>
                 </button>
@@ -388,7 +415,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
 
           {/* Achievements Grid */}
           {isLoading ? (
-            <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-white/45">
+            <div role="status" className="py-16 flex flex-col items-center justify-center gap-3 text-slate-700 dark:text-slate-200">
               <Loader2 className="w-7 h-7 animate-spin text-[var(--brand-primary)]" />
               <span className="text-xs font-medium">Loading progression...</span>
             </div>
@@ -399,16 +426,20 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                 const earnedDate = ach.isUnlocked && ach.category === 'Geography' && ach.unlockedAt
                   ? new Date(ach.unlockedAt)
                   : null;
+                const badgeTitleId = `${dialogId}-${ach.id}-title`;
+                const badgeStatusId = `${dialogId}-${ach.id}-status`;
 
                 return (
                   <article
                     key={ach.id}
+                    aria-labelledby={badgeTitleId}
+                    aria-describedby={badgeStatusId}
                     className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${
                       ach.isUnlocked
                         ? 'border-slate-900/14 dark:border-white/20'
                         : isComingSoon
                           ? 'border-dashed! border-slate-500/35! dark:border-slate-400/35!'
-                          : 'opacity-80'
+                          : ''
                     }`}
                   >
                     {/* Top Row: Icon, Title & Reward */}
@@ -418,14 +449,14 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                           {renderIcon(ach.iconName, ach.isUnlocked, ach.tier)}
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <h4 className={`font-heading text-sm font-bold tracking-tight text-slate-900 dark:text-white ${isComingSoon ? 'break-words' : 'truncate'}`}>
+                              <h3 id={badgeTitleId} className="font-heading text-sm font-bold tracking-tight text-slate-900 dark:text-white wrap-anywhere">
                                 {ach.title}
-                              </h4>
+                              </h3>
                               {ach.isUnlocked && (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <CheckCircle2 aria-hidden="true" className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
                               )}
                             </div>
-                            <span className={`text-[11px] capitalize ${isComingSoon ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-white/45'}`}>
+                            <span className="text-[11px] capitalize text-slate-700 dark:text-slate-200">
                               {ach.category} · {ach.tier}
                             </span>
                           </div>
@@ -436,7 +467,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                         </span>
                       </div>
 
-                      <p className="text-xs text-slate-600 dark:text-white/65 leading-relaxed mb-3">
+                      <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
                         {ach.description}
                       </p>
                     </div>
@@ -444,18 +475,18 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                     {isComingSoon ? (
                       // Locked legacy counts have no verified provenance. Keep
                       // the goal visible without presenting them as progress.
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                        <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-200">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                        <span id={badgeStatusId} className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-200">
                           Coming Soon
                         </span>
                         <span className="tabular-nums">Goal {ach.target}</span>
                       </div>
                     ) : (
                       <div>
-                        <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-500 dark:text-white/50">
-                          <span>
+                        <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-700 dark:text-slate-200">
+                          <span id={badgeStatusId}>
                             {ach.isUnlocked ? (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                                 Completed
                               </span>
                             ) : (
@@ -478,7 +509,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                           />
                         </div>
                         {earnedDate && Number.isFinite(earnedDate.getTime()) && (
-                          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          <p className="mt-2 text-[11px] text-slate-700 dark:text-slate-200">
                             Unlocked <time dateTime={ach.unlockedAt ?? undefined}>{earnedDate.toLocaleDateString(undefined, {
                               dateStyle: 'medium', timeZone: 'UTC',
                             })}</time>
@@ -495,16 +526,17 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           {/* XP History Ledger Section */}
           <div className="pt-2 border-t border-slate-900/8 dark:border-white/10">
             <button
+              ref={historyButtonRef}
               type="button"
               onClick={() => setShowHistory(!showHistory)}
               aria-expanded={showHistory}
-              className="liquid-glass-card w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-700 dark:text-white/75 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring"
+              className="liquid-glass-card w-full flex items-center justify-between p-3.5 min-h-[44px] rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer heyroq-focus-ring focus-visible:outline-[var(--heyroq-accent-text)]!"
             >
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-[var(--brand-primary)]" />
                 <span>Recent Milestone Activity</span>
               </div>
-              <span className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
+              <span className="text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
                 {showHistory ? 'Hide' : `View ${xpEvents.length} Recent Events`}
               </span>
             </button>
@@ -512,7 +544,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
             {showHistory && (
               <div className="mt-3 space-y-2 animate-in fade-in duration-150">
                 {xpEvents.length === 0 ? (
-                  <p className="text-xs text-slate-500 dark:text-white/45 text-center py-4">
+                  <p className="text-xs text-slate-700 dark:text-slate-200 text-center py-4">
                     No recent XP events recorded yet.
                   </p>
                 ) : (
@@ -527,7 +559,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                           <span className="font-semibold text-slate-900 dark:text-white block truncate">
                             {ev.description}
                           </span>
-                          <span className="text-[11px] font-medium tabular-nums text-slate-500 dark:text-white/45">
+                          <span className="text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
                             {new Date(ev.createdAt).toLocaleDateString(undefined, {
                               month: 'short',
                               day: 'numeric',
@@ -548,6 +580,6 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };

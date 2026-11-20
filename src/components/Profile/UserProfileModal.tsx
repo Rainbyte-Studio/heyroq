@@ -515,7 +515,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   // Keyboard navigation & Escape key dismiss
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showAccountSecurityModal) return;
+      if (showAccountSecurityModal || showAchievementsModal) return;
       if (e.key === 'Escape') {
         if (pendingAvatarFile || isAvatarControlsOpen) {
           clearPendingAvatarSelection();
@@ -529,7 +529,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, onClose]);
+  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, showAchievementsModal, onClose]);
 
   const handleBackdropClick = () => {
     if (isEditing) {

@@ -96,14 +96,29 @@ try {
   const uid = await page.evaluate(async id => window.heyroqTest.signUp(id + '@example.test', id), randomUUID());
   const profile = db.collection('users').doc(uid);
   await profile.set({ displayName: 'Browser fixture' });
-  await page.evaluate(uid => window.heyroqTest.openAchievements(uid), uid);
+  await page.evaluate(uid => window.heyroqTest.mountAchievementsTrigger(uid), uid);
+  const achievementsTrigger = page.getByRole('button', { name: 'Open Explorer Progression' });
+  await achievementsTrigger.press('Enter');
   const modal = page.getByRole('dialog', { name: 'Explorer Progression' });
+  const closeAchievements = modal.getByRole('button', { name: 'Close Explorer Progression' });
+  const historyButton = modal.getByRole('button', { name: /^Recent Milestone Activity/ });
+  const allBadges = modal.getByRole('button', { name: /^All Badges/ });
   const geography = modal.getByRole('button', { name: /^Geography/ });
   const soon = modal.getByText('Coming Soon', { exact: true });
   await soon.first().waitFor();
+  assert.ok(await modal.evaluate(dialog => dialog.matches(':modal')));
+  assert.ok(await closeAchievements.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Shift+Tab');
+  assert.ok(await historyButton.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await closeAchievements.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await allBadges.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.ok(await geography.evaluate(button => button === document.activeElement));
   assert.equal(await modal.getByRole('article').count(), 26);
   assert.equal(await soon.count(), 7);
-  await geography.focus();
   await page.keyboard.press('Enter');
   assert.equal(await geography.getAttribute('aria-pressed'), 'true');
   await modal.getByText('Geographic Achievements are coming soon.', { exact: false }).waitFor();
@@ -116,11 +131,13 @@ try {
   for (const [name, target, tier, xp] of badges) {
     const card = modal.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card.getByText('Coming Soon', { exact: true }).waitFor();
+    assert.equal(await card.getAttribute('aria-labelledby'), await card.getByRole('heading').getAttribute('id'));
+    assert.equal(await card.getAttribute('aria-describedby'), await card.getByText('Coming Soon', { exact: true }).getAttribute('id'));
     assert.match(await card.innerText(), new RegExp(`Geography · ${tier}.*\\+${xp} XP.*Goal ${target}`, 'is'));
     assert.equal(await card.locator('[style*="width"]').count(), 0);
   }
   const screenshotDir = process.env.HEYROQ_QA_SCREENSHOTS;
-  for (const [width, height, dark] of [[375, 844, false], [768, 1024, true], [1280, 1180, true]]) {
+  for (const [width, height, dark] of [[320, 640, false], [375, 844, false], [768, 1024, true], [1024, 900, true], [1280, 1180, true]]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
     await geography.evaluate(button => button.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
@@ -134,6 +151,14 @@ try {
     }));
     assert.ok(layout.every(card => card.x >= 0 && card.right <= width && !card.overflow && card.border === 'dashed'));
     assert.equal(new Set(layout.map(card => card.x)).size, width < 640 ? 1 : 2);
+    const filtersFit = await modal.getByRole('group', { name: 'Filter badges by category' }).evaluate(group => {
+      const bounds = group.getBoundingClientRect();
+      return Array.from(group.querySelectorAll('button')).every(button => {
+        const item = button.getBoundingClientRect();
+        return item.x >= bounds.x && item.right <= bounds.right && item.height >= 44;
+      });
+    });
+    assert.ok(filtersFit, `filters fit at ${width}px`);
     if (screenshotDir && width !== 768) {
       await page.screenshot({
         path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
@@ -151,6 +176,7 @@ try {
   await db.batch().set(historical, history).set(legacyProgress, { progress: 10, isUnlocked: false }).commit();
   const earned = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Urban Scout' }) });
   await earned.getByText('Completed', { exact: true }).waitFor();
+  assert.ok(await earned.evaluate(card => document.getElementById(card.getAttribute('aria-describedby'))?.textContent === 'Completed'));
   assert.match(await earned.innerText(), /Geography · gold.*\+90 XP.*2 \/ 2/is);
   assert.equal(await earned.locator('time').getAttribute('datetime'), history.unlockedAt);
   assert.equal(await earned.getByText('Coming Soon', { exact: true }).count(), 0);
@@ -167,6 +193,13 @@ try {
   assert.equal(await modal.getByText('Progress', { exact: true }).count(), 19);
   await page.keyboard.press('Escape');
   await modal.waitFor({ state: 'detached' });
+  assert.ok(await achievementsTrigger.evaluate(button => button === document.activeElement));
+  assert.equal(await achievementsTrigger.getAttribute('data-background-escaped'), 'false');
+  await achievementsTrigger.press('Enter');
+  await closeAchievements.waitFor();
+  await page.keyboard.press('Enter');
+  await modal.waitFor({ state: 'detached' });
+  assert.ok(await achievementsTrigger.evaluate(button => button === document.activeElement));
   console.log('Achievements browser passed: all geography states, historical date and tier, keyboard, themes and responsive grid.');
 
   const legacyPath = 'pins/' + uid + '/legacy.png';

@@ -12,18 +12,24 @@ import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
-    openAchievements(uid: string) {
+    mountAchievementsTrigger(uid: string) {
       const host = document.createElement('div');
+      const trigger = document.createElement('button');
+      trigger.textContent = 'Open Explorer Progression';
+      document.body.append(trigger);
       document.body.append(host);
       const root = createRoot(host);
-      root.render(createElement(AchievementsModal, {
-        userId: uid,
-        displayName: 'Browser fixture',
-        onClose: () => {
-          root.unmount();
-          host.remove();
-        },
-      }));
+      trigger.dataset.backgroundEscaped = 'false';
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') trigger.dataset.backgroundEscaped = 'true';
+      });
+      trigger.addEventListener('click', () => {
+        root.render(createElement(AchievementsModal, {
+          userId: uid,
+          displayName: 'Browser fixture',
+          onClose: () => root.render(null),
+        }));
+      });
     },
     async signUp(email: string, password: string) {
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
