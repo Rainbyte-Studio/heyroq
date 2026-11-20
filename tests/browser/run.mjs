@@ -122,6 +122,31 @@ try {
   await page.keyboard.press('Enter');
   assert.equal(await geography.getAttribute('aria-pressed'), 'true');
   await modal.getByText('Geographic Achievements are coming soon.', { exact: false }).waitFor();
+  const textContrast = locator => locator.evaluate(text => {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    const backgrounds = [];
+    for (let node = text; node; node = node.parentElement) {
+      backgrounds.unshift(getComputedStyle(node).backgroundColor);
+    }
+    const paint = color => {
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+    };
+    const luminance = () => {
+      const [red, green, blue] = Array.from(context.getImageData(0, 0, 1, 1).data, value => {
+        const channel = value / 255;
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    paint('white');
+    backgrounds.forEach(paint);
+    const background = luminance();
+    paint(getComputedStyle(text).color);
+    const foreground = luminance();
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
   const badges = [
     ['Local Explorer', 1, 'bronze', 25], ['Urban Scout', 2, 'bronze', 30],
     ['Metro Nomad', 5, 'silver', 75], ['City Pathfinder', 10, 'gold', 150],
@@ -159,6 +184,8 @@ try {
       });
     });
     assert.ok(filtersFit, `filters fit at ${width}px`);
+    assert.ok(await textContrast(soon.first()) >= 4.5, `Coming Soon text passes at ${width}px`);
+    assert.ok(await textContrast(geography) >= 4.5, `selected filter text passes at ${width}px`);
     if (screenshotDir && width !== 768) {
       await page.screenshot({
         path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
@@ -176,6 +203,7 @@ try {
   await db.batch().set(historical, history).set(legacyProgress, { progress: 10, isUnlocked: false }).commit();
   const earned = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Urban Scout' }) });
   await earned.getByText('Completed', { exact: true }).waitFor();
+  assert.ok(await textContrast(earned.getByText('Completed', { exact: true })) >= 4.5);
   assert.ok(await earned.evaluate(card => document.getElementById(card.getAttribute('aria-describedby'))?.textContent === 'Completed'));
   assert.match(await earned.innerText(), /Geography · gold.*\+90 XP.*2 \/ 2/is);
   assert.equal(await earned.locator('time').getAttribute('datetime'), history.unlockedAt);

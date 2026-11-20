@@ -399,9 +399,10 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   }`}
                 >
                   <span>{cat.label}</span>
-                  <span aria-label={`${catUnlocked} of ${catCount} completed`} className="text-[10px] font-semibold tabular-nums">
+                  <span aria-hidden="true" className="text-[10px] font-semibold tabular-nums">
                     {catUnlocked}/{catCount}
                   </span>
+                  <span className="sr-only">{catUnlocked} of {catCount} completed</span>
                 </button>
               );
             })}
@@ -433,7 +434,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   <article
                     key={ach.id}
                     aria-labelledby={badgeTitleId}
-                    aria-describedby={badgeStatusId}
+                    aria-describedby={isComingSoon || ach.isUnlocked ? badgeStatusId : undefined}
                     className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${
                       ach.isUnlocked
                         ? 'border-slate-900/14 dark:border-white/20'
@@ -484,7 +485,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                     ) : (
                       <div>
                         <div className="flex justify-between items-center text-[11px] font-medium tabular-nums mb-1.5 text-slate-700 dark:text-slate-200">
-                          <span id={badgeStatusId}>
+                          <span id={ach.isUnlocked ? badgeStatusId : undefined}>
                             {ach.isUnlocked ? (
                               <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                                 Completed
