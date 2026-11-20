@@ -430,7 +430,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               onFocus={() => setIsSearchFocused(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape' || (e.key === 'Enter' && hasSpotSearchQuery(searchQuery))) {
+                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                  e.preventDefault();
+                  setIsSearchFocused(false);
+                } else if (e.key === 'Escape') {
                   setIsSearchFocused(false);
                 }
               }}
@@ -810,7 +813,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               onFocus={() => setIsSearchFocused(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) closeMobileSearch();
+                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeMobileSearch();
+                }
               }}
               placeholder="Search spots, coffee, tags, cities..."
               className="liquid-glass-input w-full text-base pl-9.5 pr-18 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
