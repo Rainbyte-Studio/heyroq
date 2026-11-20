@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDocFromServer, updateDoc } from 'firebase/firestore';
 import { getBytes, ref } from 'firebase/storage';
 import { createElement } from 'react';
@@ -13,6 +13,7 @@ import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
+    signOut: () => signOut(auth),
     mountSearchApp() {
       window.history.replaceState(null, '', '/');
       const host = document.createElement('div');

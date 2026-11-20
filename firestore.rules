@@ -40,6 +40,56 @@ service cloud.firestore {
       );
     }
 
+    function validUsername(username) {
+      return username is string && username.matches('^[a-z0-9_]{3,24}$');
+    }
+
+    function usernameRegistryReady() {
+      return get(/databases/$(database)/documents/usernameRegistryState/v1).data.ready == true;
+    }
+
+    function hasUsernameClaim(userId, data) {
+      return validUsername(data.username) && data.usernameLower == data.username &&
+        getAfter(/databases/$(database)/documents/usernames/$(data.username)).data.uid == userId;
+    }
+
+    function usernameWriteAllowed(userId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower']) ||
+        (usernameRegistryReady() && isNonAnonymous() && isOwner(userId) && isActiveUser(userId) &&
+          hasUsernameClaim(userId, request.resource.data));
+    }
+
+    function canClaimUsername(username) {
+      let uid = request.auth.uid;
+      let profile = /databases/$(database)/documents/users/$(uid);
+      return isNonAnonymous() && usernameRegistryReady() && validUsername(username) &&
+        request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == uid &&
+        !exists(/databases/$(database)/documents/accountDeletionLocks/$(uid)) &&
+        getAfter(profile).data.username == username &&
+        getAfter(profile).data.usernameLower == username &&
+        getAfter(profile).data.get('deletionStatus', '') != 'deleting';
+    }
+
+    function isClaimOwnerCurrent(username) {
+      let owner = /databases/$(database)/documents/users/$(resource.data.uid);
+      return exists(owner) && get(owner).data.get('username', '') == resource.data.get('legacyUsername', username);
+    }
+
+    match /usernameRegistryState/v1 {
+      allow get: if true;
+    }
+
+    match /usernames/{username} {
+      allow get: if true;
+      allow create: if canClaimUsername(username);
+      allow update: if canClaimUsername(username) && resource.data.get('blocked', false) == false &&
+        (resource.data.uid == request.auth.uid || !isClaimOwnerCurrent(username));
+      allow delete: if usernameRegistryReady() && isNonAnonymous() && resource.data.uid == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username !=
+          resource.data.get('legacyUsername', username) &&
+        hasUsernameClaim(request.auth.uid, getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data);
+    }
+
     // User profile creation validation
     function isValidUserCreate(data, userId) {
       return (
@@ -146,13 +196,14 @@ service cloud.firestore {
       allow read: if true;
 
       // Only authenticated owner may create their own profile matching auth UID
-      allow create: if isOwner(userId) &&
+      allow create: if isNonAnonymous() && isOwner(userId) && usernameRegistryReady() &&
                        !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId)) &&
-                       isValidUserCreate(request.resource.data, userId);
+                       isValidUserCreate(request.resource.data, userId) &&
+                       hasUsernameClaim(userId, request.resource.data);
 
       // Only the authenticated owner may update their own profile (or admin)
       // Users can NEVER modify another user's profile, nor modify protected fields
-      allow update: if (isValidUserUpdate(userId) || isAdmin()) &&
+      allow update: if (isValidUserUpdate(userId) || isAdmin()) && usernameWriteAllowed(userId) &&
                     !request.resource.data.diff(resource.data).addedKeys().hasAny(['email']) &&
                     !request.resource.data.diff(resource.data).changedKeys().hasAny(['email']);
 

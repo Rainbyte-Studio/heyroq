@@ -66,7 +66,7 @@ class AdminLoadBoundary extends React.Component<AdminLoadBoundaryProps> {
 }
 
 function HeyroqMainApp() {
-  const { user, profile } = useAuth();
+  const { user, profile, needsProfile } = useAuth();
 
   // Scroll and layout reset on auth transition to ensure iOS Safari navbar recovery
   useEffect(() => {
@@ -968,7 +968,7 @@ function HeyroqMainApp() {
 
       {/* 6. Authentication Modal */}
       <AuthModal
-        isOpen={isAuthOpen}
+        isOpen={isAuthOpen || needsProfile}
         onAuthenticated={() => { authSucceededRef.current = true; }}
         onClose={() => {
           setIsAuthOpen(false);

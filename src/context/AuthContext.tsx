@@ -10,7 +10,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { resolveCustomAvatarUrl } from '../utils/avatarUtils';
@@ -19,6 +19,7 @@ import {
   getLinkedProviderStatus,
 } from '../services/accountSecurityService';
 import { invalidateUserProfileCache } from '../services/userService';
+import { checkUsernameAvailable, saveProfileWithUsername, validateUsername } from '../services/usernameService';
 
 export interface AuthUser {
   uid: string;
@@ -34,9 +35,11 @@ interface AuthContextType {
   providerStatus: LinkedProviderStatus;
   loading: boolean;
   isAdmin: boolean;
-  signIn: (email: string, pass: string) => Promise<void>;
+  needsProfile: boolean;
+  signIn: (email: string, pass: string) => Promise<boolean>;
   signUp: (email: string, pass: string, displayName: string, username: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<boolean>;
+  completeProfile: (displayName: string, username: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -47,6 +50,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function validateDisplayName(value: string): string {
+  const name = value.trim();
+  if (!name || name.length > 100) throw new Error('Enter a display name between 1 and 100 characters.');
+  return name;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<(User | AuthUser) | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
@@ -56,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdminClaim, setIsAdminClaim] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [missingProfileUid, setMissingProfileUid] = useState<string | null>(null);
 
   // Load Firestore user profile while keeping email strictly in memory (never written to public users/{uid})
   const fetchProfile = useCallback(async (uid: string, fallbackEmail?: string, fallbackDisplayName?: string | null) => {
@@ -97,52 +107,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ? 'admin'
               : data.role || 'user',
         };
-        setProfile(loadedProfile);
-      } else {
-        // First-time registration or Google sign-in: create users/{uid} document in Firestore
-        // Default avatar fields are empty strings ('') so deterministic initials avatar renders cleanly
-        // without external DiceBear or Google photo dependencies.
-        const defaultEmail = fallbackEmail || '';
-        const defaultUsername = (
-          defaultEmail ? defaultEmail.split('@')[0] : `explorer_${uid.slice(0, 6)}`
-        )
-          .toLowerCase()
-          .replace(/[^a-z0-9_]/g, '');
-        const defaultDisplayName =
-          (fallbackDisplayName && fallbackDisplayName.trim() ? fallbackDisplayName.trim() : '') ||
-          (defaultEmail ? defaultEmail.split('@')[0] : 'Explorer');
-
-        const finalUsername = defaultUsername || `user_${uid.slice(0, 5)}`;
-        const newProfile: UserProfile = {
-          id: uid,
-          uid,
-          email: defaultEmail,
-          displayName: defaultDisplayName,
-          username: finalUsername,
-          usernameLower: finalUsername.toLowerCase(),
-          displayNameLower: defaultDisplayName.toLowerCase(),
-          photoURL: '',
-          avatarUrl: '',
-          bio: 'Exploring the world on Heyroq.',
-          createdAt: now,
-          updatedAt: now,
-          followersCount: 0,
-          followingCount: 0,
-          pinsCount: 0,
-          role: 'user',
-        };
-
-        try {
-          const { email: _privateEmail, ...publicProfile } = newProfile;
-          await setDoc(userDocRef, publicProfile);
-          invalidateUserProfileCache(uid);
-        } catch (setErr) {
-          console.warn('Notice creating initial user profile in Firestore:', setErr);
+        if (auth.currentUser?.uid === uid) {
+          setProfile(loadedProfile);
+          setMissingProfileUid(null);
         }
-        setProfile(newProfile);
+        return true;
+      } else {
+        if (auth.currentUser?.uid === uid) setMissingProfileUid(uid);
+        return false;
       }
     } catch (err) {
       console.warn('Notice fetching user profile:', err);
+      return null;
     }
   }, []);
 
@@ -197,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             currentUser.displayName
           );
 
+          if (activeUid !== currentUser.uid || auth.currentUser?.uid !== currentUser.uid) return;
           unsubscribeSnapshot = onSnapshot(
             doc(db, 'users', currentUser.uid),
             (snap) => {
@@ -243,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFirebaseUser(null);
         setProviderStatus(getLinkedProviderStatus(null));
         setProfile(null);
+        setMissingProfileUid(null);
         setIsAdminClaim(false);
       }
       setLoading(false);
@@ -278,42 +256,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return updatedStatus;
   }, []);
 
-  const signIn = async (email: string, pass: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email, pass);
-    if (cred.user) {
-      setFirebaseUser(cred.user);
-      setProviderStatus(getLinkedProviderStatus(cred.user));
-      try {
-        const tokenResult = await cred.user.getIdTokenResult(true);
-        setIsAdminClaim(tokenResult.claims.admin === true || tokenResult.claims.role === 'admin');
-      } catch (err) {
-        console.warn('[Heyroq Auth] Token refresh note:', err);
-      }
-      await fetchProfile(cred.user.uid, cred.user.email || undefined, cred.user.displayName);
-    }
+  const finishSignIn = async (current: User): Promise<boolean> => {
+    const exists = await fetchProfile(current.uid, current.email || undefined, current.displayName);
+    if (exists === null) throw new Error('Could not load your profile. Please try signing in again.');
+    return exists;
   };
 
-  const signUp = async (
-    email: string,
-    pass: string,
-    displayName: string,
-    username: string
-  ) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    const uid = cred.user.uid;
-    const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  const signIn = async (email: string, pass: string) => {
+    const { user: current } = await signInWithEmailAndPassword(auth, email, pass);
+    return finishSignIn(current);
+  };
+
+  const completeProfile = async (displayName: string, value: string) => {
+    const current = auth.currentUser;
+    if (!current) throw new Error('Sign in to finish creating your profile.');
+    const username = validateUsername(value);
+    const finalDisplayName = validateDisplayName(displayName);
 
     const now = new Date().toISOString();
-    const finalUsername = cleanUsername || `user_${uid.slice(0, 5)}`;
-    const finalDisplayName = displayName.trim() || 'Explorer';
-    const newProfile: UserProfile = {
-      id: uid,
-      uid,
-      username: finalUsername,
-      usernameLower: finalUsername.toLowerCase(),
+    await saveProfileWithUsername(current.uid, username, {
+      id: current.uid,
+      uid: current.uid,
       displayName: finalDisplayName,
       displayNameLower: finalDisplayName.toLowerCase(),
-      email: email.trim().toLowerCase(),
       photoURL: '',
       avatarUrl: '',
       bio: 'New explorer on Heyroq!',
@@ -323,36 +288,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       followingCount: 0,
       pinsCount: 0,
       role: 'user',
-    };
-
-    setFirebaseUser(cred.user);
-    setProviderStatus(getLinkedProviderStatus(cred.user));
-
-    try {
-      const { email: _privateEmail, ...publicProfile } = newProfile;
-      await setDoc(doc(db, 'users', uid), publicProfile);
-      invalidateUserProfileCache(uid);
-      setProfile(newProfile);
-    } catch (err) {
-      console.warn('Notice saving profile doc to Firestore:', err);
-      setProfile(newProfile);
+    }, true);
+    invalidateUserProfileCache(current.uid);
+    if (auth.currentUser?.uid !== current.uid || !(await finishSignIn(current))) {
+      throw new Error('Your profile could not be loaded. Sign in again to continue.');
     }
   };
 
+  const signUp = async (email: string, pass: string, displayName: string, username: string) => {
+    const name = validateDisplayName(displayName);
+    const available = await checkUsernameAvailable(username);
+    const { user: current } = await createUserWithEmailAndPassword(auth, email, pass);
+    setMissingProfileUid(current.uid);
+    await completeProfile(name, available);
+  };
+
   const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    const cred = await signInWithPopup(auth, provider);
-    if (cred.user) {
-      setFirebaseUser(cred.user);
-      setProviderStatus(getLinkedProviderStatus(cred.user));
-      try {
-        const tokenResult = await cred.user.getIdTokenResult(true);
-        setIsAdminClaim(tokenResult.claims.admin === true || tokenResult.claims.role === 'admin');
-      } catch (err) {
-        console.warn('[Heyroq Auth] Google token refresh note:', err);
-      }
-      await fetchProfile(cred.user.uid, cred.user.email || undefined, cred.user.displayName);
-    }
+    const { user: current } = await signInWithPopup(auth, new GoogleAuthProvider());
+    return finishSignIn(current);
   };
 
   const signOut = async () => {
@@ -365,6 +318,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFirebaseUser(null);
     setProviderStatus(getLinkedProviderStatus(null));
     setProfile(null);
+    setMissingProfileUid(null);
     setIsAdminClaim(false);
   };
 
@@ -379,9 +333,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...data,
       updatedAt: new Date().toISOString(),
     };
-    if (typeof data.username === 'string') {
-      enrichedData.usernameLower = data.username.toLowerCase();
-    }
+    const username = typeof data.username === 'string'
+      ? validateUsername(data.username)
+      : undefined;
     if (typeof data.displayName === 'string') {
       enrichedData.displayNameLower = data.displayName.toLowerCase();
     }
@@ -391,14 +345,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       enrichedData.photoURL = normalized;
     }
 
-    setProfile((prev) => (prev ? { ...prev, ...enrichedData } : null));
     try {
       const userRef = doc(db, 'users', user.uid);
-      const { email: _privateEmail, ...publicChanges } = enrichedData;
-      if (Object.keys(publicChanges).length > 0) {
+      const { email: _privateEmail, username: _username, usernameLower: _usernameLower, ...publicChanges } = enrichedData;
+      if (username !== undefined) {
+        await saveProfileWithUsername(user.uid, username, publicChanges);
+      } else {
         await updateDoc(userRef, publicChanges);
-        invalidateUserProfileCache(user.uid);
       }
+      invalidateUserProfileCache(user.uid);
+      setProfile(previous => previous?.uid === user.uid ? {
+        ...previous, ...publicChanges,
+        ...(username !== undefined ? { username, usernameLower: username } : {}),
+      } : previous);
     } catch (err) {
       console.warn('Notice updating profile on server:', err);
       throw err;
@@ -427,15 +386,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAdminClaim ||
     (user?.uid === '1XUiIYnfOWTG7uFU736I25CskZU2' && user?.email === 'n.kalogerogiannis@gmail.com');
 
+  const profileReady = Boolean(user && profile && user.uid === profile.uid);
+  const needsProfile = Boolean(firebaseUser && !profileReady && missingProfileUid === firebaseUser.uid);
+
   return (
     <AuthContext.Provider
       value={{
-        user,
+        user: profileReady ? user : null,
         firebaseUser,
         profile,
         providerStatus,
         loading,
-        isAdmin,
+        isAdmin: profileReady && isAdmin,
+        needsProfile,
+        completeProfile,
         signIn,
         signUp,
         signInWithGoogle,
