@@ -99,6 +99,8 @@ try {
   }, url);
   const uid = await page.evaluate(async id => window.heyroqTest.signUp(id + '@example.test', id), randomUUID());
   const profile = db.collection('users').doc(uid);
+  await db.doc('usernameRegistryState/v1').set({ ready: true });
+  await db.doc('usernames/reserved_test').set({ blocked: true });
   await profile.set({ displayName: 'Browser fixture' });
   await page.evaluate(uid => window.heyroqTest.mountAchievementsTrigger(uid), uid);
   const achievementsTrigger = page.getByRole('button', { name: 'Open Explorer Progression' });
@@ -423,6 +425,52 @@ try {
 
   await peopleSearch.fill('@explorer_maria');
   await people.getByText('Μαρία Παπαδοπούλου', { exact: true }).waitFor();
+  await people.getByRole('button', { name: 'Close Discover Explorers' }).click();
+  await page.evaluate(() => window.heyroqTest.signOut());
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  const signIn = page.getByRole('dialog', { name: 'Sign in to Heyroq' });
+  await signIn.getByRole('button', { name: 'Sign up' }).click();
+  const join = page.getByRole('dialog', { name: 'Join Heyroq' });
+  const signupUsername = join.getByRole('textbox', { name: 'Username' });
+  await join.getByRole('textbox', { name: 'Display Name' }).fill('Username Tester');
+  await join.getByLabel('Email Address').fill(randomUUID() + '@example.test');
+  await join.getByLabel('Password', { exact: true }).fill('username-test-password');
+  await signupUsername.fill('Reserved_Test');
+  await join.getByRole('button', { name: 'Create Free Account' }).click();
+  await join.getByText('That username is already taken. Choose another.').waitFor();
+
+  await signupUsername.fill('First_Handle');
+  await join.getByRole('button', { name: 'Create Free Account' }).click();
+  const userMenu = page.getByRole('button', { name: 'User menu' });
+  await userMenu.waitFor();
+  const claim = await db.doc('usernames/first_handle').get();
+  assert.equal((await db.doc('users/' + claim.get('uid')).get()).get('username'), 'first_handle');
+
+  await userMenu.click();
+  await page.getByRole('menuitem', { name: 'My Profile & Spots' }).click();
+  const ownerProfile = page.getByRole('dialog', { name: "Username Tester's profile" });
+  await ownerProfile.getByRole('button', { name: 'Edit Profile' }).click();
+  const editUsername = ownerProfile.getByRole('textbox', { name: 'Username' });
+  await editUsername.fill('reserved_test');
+  await ownerProfile.getByRole('button', { name: 'Save Profile' }).click();
+  await ownerProfile.getByRole('alert').getByText('That username is already taken. Choose another.').waitFor();
+  assert.ok((await db.doc('usernames/first_handle').get()).exists);
+
+  await editUsername.fill('Second_Handle');
+  await ownerProfile.getByRole('button', { name: 'Save Profile' }).click();
+  await ownerProfile.getByText('@second_handle', { exact: true }).waitFor();
+  assert.equal((await db.doc('usernames/first_handle').get()).exists, false);
+  assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
+
+  await page.evaluate(() => window.heyroqTest.signOut());
+  await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), randomUUID() + '@example.test');
+  const setup = page.getByRole('dialog', { name: 'Finish setting up your profile' });
+  await setup.getByRole('textbox', { name: 'Display Name' }).fill('Resumed Explorer');
+  await setup.getByRole('textbox', { name: 'Username' }).fill('resumed_explorer');
+  await setup.getByRole('button', { name: 'Save Username' }).click();
+  await userMenu.waitFor();
+  assert.ok((await db.doc('usernames/resumed_explorer').get()).exists);
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {

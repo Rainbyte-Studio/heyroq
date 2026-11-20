@@ -1,3 +1,4 @@
+import { USERNAME_HINT } from '../../services/usernameService';
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -28,9 +29,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onAuthenticated,
   initialMode = 'signin',
 }) => {
-  const { signIn, signUp, signInWithGoogle, resetPassword } = useAuth();
+  const { signIn, signUp, signInWithGoogle, resetPassword, needsProfile, firebaseUser, completeProfile, signOut } = useAuth();
 
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
+  const [requestedMode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
+  const mode = needsProfile ? 'complete' : requestedMode;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -51,6 +53,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     onClose();
   }, [onClose]);
 
+  const dismissModal = useCallback(() => {
+    if (loading) return;
+    if (needsProfile) void signOut();
+    handleModalClose();
+  }, [loading, needsProfile, signOut, handleModalClose]);
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorCode(null);
@@ -59,7 +67,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      if (mode === 'signup') {
+      if (mode === 'complete') {
+        await completeProfile(displayName, username);
+        onAuthenticated?.();
+        handleModalClose();
+      } else if (mode === 'signup') {
         if (!displayName.trim() || !username.trim()) {
           throw new Error('Please enter a display name and username.');
         }
@@ -70,7 +82,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onAuthenticated?.();
         handleModalClose();
       } else if (mode === 'signin') {
-        await signIn(email, password);
+        if (!(await signIn(email, password))) return;
         onAuthenticated?.();
         handleModalClose();
       } else if (mode === 'forgot') {
@@ -108,7 +120,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMsg(null);
     setLoading(true);
     try {
-      await signInWithGoogle();
+      if (!(await signInWithGoogle())) return;
       onAuthenticated?.();
       handleModalClose();
     } catch (err: any) {
@@ -141,6 +153,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen, initialMode]);
 
+  useEffect(() => {
+    if (needsProfile && firebaseUser?.displayName) {
+      setDisplayName(value => value || firebaseUser.displayName || '');
+    }
+  }, [needsProfile, firebaseUser]);
+
   // Ensure scroll position is completely restored when modal closes or unmounts (prevents iOS Safari post-login viewport shift)
   useEffect(() => {
     if (!isOpen && typeof window !== 'undefined') {
@@ -169,19 +187,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleModalClose();
+        dismissModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleModalClose]);
+  }, [isOpen, dismissModal]);
 
   if (!isOpen) return null;
 
   const modalContent = (
     <div
       id="auth-modal-overlay"
-      onClick={handleModalClose}
+      onClick={dismissModal}
       className="liquid-glass-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
     >
       <div
@@ -189,12 +207,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={mode === 'signup' ? 'Join Heyroq' : mode === 'signin' ? 'Sign in to Heyroq' : 'Reset password'}
+        aria-label={mode === 'complete' ? 'Finish setting up your profile' : mode === 'signup' ? 'Join Heyroq' : mode === 'signin' ? 'Sign in to Heyroq' : 'Reset password'}
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-md w-full max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto subtle-glass-scrollbar p-5 sm:p-7 relative text-slate-900 dark:text-white"
       >
         {/* Close Button */}
         <CloseButton
-          onClick={handleModalClose}
+          onClick={dismissModal}
+          disabled={loading}
           ariaLabel="Close Authentication"
           className="absolute top-4 right-4 sm:top-5 sm:right-5 z-10"
         />
@@ -205,14 +224,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <Wordmark id="auth-brand-wordmark" size="modal" />
           </div>
           <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            {mode === 'signup'
+            {mode === 'complete' ? 'Finish setting up your profile' : mode === 'signup'
               ? 'Join Heyroq'
               : mode === 'signin'
                 ? 'Welcome Back'
                 : 'Reset Password'}
           </h2>
           <p className="text-xs text-slate-500 dark:text-white/55 mt-1 max-w-xs mx-auto leading-relaxed">
-            {mode === 'signup'
+            {mode === 'complete' ? 'Choose the username people will use to find you.' : mode === 'signup'
               ? 'Discover and pin secret places, food hubs & events'
               : mode === 'signin'
                 ? 'Sign in to like, comment, and save your map discoveries'
@@ -240,11 +259,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       if (!displayName && email) {
                         const namePart = email.split('@')[0] || '';
                         setDisplayName(namePart.charAt(0).toUpperCase() + namePart.slice(1));
-                      }
-                      if (!username && email) {
-                        setUsername(
-                          email.split('@')[0]?.toLowerCase().replace(/[^a-z0-9_]/g, '') || ''
-                        );
                       }
                     }}
                     className="heyroq-btn-primary px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer min-h-[38px]"
@@ -291,17 +305,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Form */}
         <form onSubmit={handleAuthSubmit} className="space-y-3.5">
-          {mode === 'signup' && (
+          {(mode === 'signup' || mode === 'complete') && (
             <>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
+                <label htmlFor="auth-display-name" className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
                   Display Name
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                   <input
                     type="text"
+                    id="auth-display-name"
                     required
+                    maxLength={100}
+                    autoComplete="name"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="e.g. Alex Rivera"
@@ -311,31 +328,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
+                <label htmlFor="auth-username" className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
                   Username
                 </label>
                 <div className="relative">
                   <AtSign className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                   <input
                     type="text"
+                    id="auth-username"
                     required
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    aria-describedby="auth-username-hint"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="e.g. alex_rivera"
                     className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
                   />
                 </div>
+                <p id="auth-username-hint" className="mt-1 text-xs text-[var(--heyroq-text-secondary)]">{USERNAME_HINT}</p>
               </div>
             </>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
+          {mode !== 'complete' && <div>
+            <label htmlFor="auth-email" className="block text-xs font-semibold text-slate-700 dark:text-white/75 mb-1">
               Email Address
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
               <input
+                id="auth-email"
                 type="email"
                 required
                 value={email}
@@ -344,12 +368,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className="liquid-glass-input w-full text-base sm:text-sm pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 focus:outline-none focus:border-[var(--brand-primary)]"
               />
             </div>
-          </div>
+          </div>}
 
-          {mode !== 'forgot' && (
+          {(mode === 'signup' || mode === 'signin') && (
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-white/75">
+                <label htmlFor="auth-password" className="text-xs font-semibold text-slate-700 dark:text-white/75">
                   Password
                 </label>
                 {mode === 'signin' && (
@@ -365,6 +389,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 dark:text-white/40 absolute left-3.5 top-3.5 pointer-events-none" />
                 <input
+                  id="auth-password"
                   type="password"
                   required
                   value={password}
@@ -383,6 +408,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
+            ) : mode === 'complete' ? (
+              'Save Username'
             ) : mode === 'signup' ? (
               'Create Free Account'
             ) : mode === 'signin' ? (
@@ -394,7 +421,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </form>
 
         {/* Google sign in */}
-        {mode !== 'forgot' && (
+        {(mode === 'signup' || mode === 'signin') && (
           <div className="mt-4">
             <div className="relative flex py-2 items-center">
               <div className="flex-grow border-t border-slate-900/10 dark:border-white/10" />
@@ -434,7 +461,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Mode Switchers */}
-        <div className="mt-5 text-center text-xs text-slate-500 dark:text-white/55">
+        {mode !== 'complete' && <div className="mt-5 text-center text-xs text-slate-500 dark:text-white/55">
           {mode === 'signin' ? (
             <p>
               Don&apos;t have an account yet?{' '}
@@ -458,7 +485,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
             </p>
           )}
-        </div>
+        </div>}
 
         {/* Legal & Operator Attribution Links */}
         <div className="mt-4 pt-3.5 border-t border-slate-900/8 dark:border-white/10 text-center space-y-1.5">

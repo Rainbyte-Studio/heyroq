@@ -16,7 +16,12 @@ before(async () => {
     ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync('storage.rules', 'utf8') } } : {}),
   });
 });
-beforeEach(async () => { await env.clearFirestore(); });
+beforeEach(async () => {
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(context => {
+    return setDoc(doc(context.firestore(), 'usernameRegistryState/v1'), { ready: true });
+  });
+});
 after(async () => { if (env) await env.cleanup(); });
 
 const profile = (overrides = {}) => ({
@@ -24,6 +29,11 @@ const profile = (overrides = {}) => ({
   followersCount: 0, followingCount: 0, pinsCount: 0, role: 'user',
   createdAt: '2026-01-01T00:00:00.000Z', ...overrides,
 });
+const createProfile = (client, data) => writeBatch(client)
+  .set(doc(client, 'usernames', data.username), { uid: data.uid })
+  .set(doc(client, 'users', data.uid), { ...data, usernameLower: data.username })
+  .commit();
+
 const pin = (overrides = {}) => ({
   userId: 'alice', title: 'A real place', latitude: 37.98, longitude: 23.73,
   category: 'Other', createdAt: '2026-01-01T00:00:00.000Z',
@@ -57,19 +67,19 @@ it('follow and unfollow preserve both records in the same batch', async () => {
 
 describe('Firestore create-time server counter protection', () => {
   it('allows legitimate profile creation with zero counters', async () => {
-    await assertSucceeds(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertSucceeds(createProfile(alice(), profile()));
   });
   it('allows profile creation with counters omitted', async () => {
     const { followersCount, followingCount, pinsCount, ...withoutCounters } = profile();
-    await assertSucceeds(setDoc(doc(alice(), 'users/alice'), withoutCounters));
+    await assertSucceeds(createProfile(alice(), withoutCounters));
   });
   for (const field of ['followersCount', 'followingCount', 'pinsCount']) {
     it(`rejects forged profile ${field}`, async () => {
-      await assertFails(setDoc(doc(alice(), 'users/alice'), profile({ [field]: 100000 })));
+      await assertFails(createProfile(alice(), profile({ [field]: 100000 })));
     });
   }
   it('rejects profile creation by a different user', async () => {
-    await assertFails(setDoc(doc(bob(), 'users/alice'), profile()));
+    await assertFails(createProfile(bob(), profile()));
   });
   it('allows legitimate pin creation with zero counters', async () => {
     await seedAlice();
@@ -96,8 +106,63 @@ describe('Firestore create-time server counter protection', () => {
     await assertFails(updateDoc(doc(alice(), 'pins/spot1'), { likeCount: 100000 }));
   });
   it('rejects client update of existing profile counters', async () => {
-    await assertSucceeds(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertSucceeds(createProfile(alice(), profile()));
     await assertFails(updateDoc(doc(alice(), 'users/alice'), { followersCount: 100000 }));
+  });
+});
+
+describe('Username registry', () => {
+  it('gates signup until the registry is active without blocking ordinary legacy edits', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await deleteDoc(doc(context.firestore(), 'usernameRegistryState/v1'));
+      await setDoc(doc(context.firestore(), 'users/alice'), profile());
+    });
+    const client = alice();
+    await assertSucceeds(updateDoc(doc(client, 'users/alice'), { bio: 'Existing profile' }));
+    await assertFails(createProfile(bob(), profile({ uid: 'bob', username: 'bobby' })));
+    await assertFails(writeBatch(client)
+      .set(doc(client, 'usernames/new_name'), { uid: 'alice' })
+      .update(doc(client, 'users/alice'), { username: 'new_name', usernameLower: 'new_name' })
+      .commit());
+  });
+
+  it('rejects a standalone claim, an unclaimed profile and a duplicate claim', async () => {
+    await assertFails(setDoc(doc(alice(), 'usernames/alice'), { uid: 'alice' }));
+    await assertFails(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertSucceeds(createProfile(alice(), profile()));
+    await assertFails(createProfile(bob(), profile({ uid: 'bob' })));
+    await assertFails(updateDoc(doc(alice(), 'users/alice'), { username: 'another', usernameLower: 'another' }));
+  });
+
+  it('commits only one of two concurrent registrations for the same username', async () => {
+    const results = await Promise.allSettled([
+      createProfile(alice(), profile()),
+      createProfile(bob(), profile({ uid: 'bob' })),
+    ]);
+    if (results.filter(result => result.status === 'fulfilled').length !== 1) {
+      throw new Error('Exactly one registration should succeed.');
+    }
+  });
+
+  it('commits an owner rename and releases the previous claim atomically', async () => {
+    const client = alice();
+    await assertSucceeds(createProfile(client, profile()));
+    await assertSucceeds(writeBatch(client)
+      .set(doc(client, 'usernames/new_name'), { uid: 'alice' })
+      .update(doc(client, 'users/alice'), { username: 'new_name', usernameLower: 'new_name' })
+      .delete(doc(client, 'usernames/alice'))
+      .commit());
+    await assertSucceeds(createProfile(bob(), profile({ uid: 'bob' })));
+  });
+
+  it('preserves legacy usernames and blocks claims of colliding legacy handles', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      const admin = context.firestore();
+      await setDoc(doc(admin, 'users/alice'), profile({ username: 'LegacyName' }));
+      await setDoc(doc(admin, 'usernames/legacyname'), { blocked: true });
+    });
+    await assertSucceeds(updateDoc(doc(alice(), 'users/alice'), { bio: 'A legacy profile' }));
+    await assertFails(createProfile(bob(), profile({ uid: 'bob', username: 'legacyname' })));
   });
 });
 
@@ -114,7 +179,7 @@ describe('Account deletion lock', () => {
 
   it('blocks profile recreation after account deletion is locked', async () => {
     await lockAlice();
-    await assertFails(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertFails(createProfile(alice(), profile()));
   });
 
   it('blocks forged client deletion locks', async () => {
@@ -157,10 +222,10 @@ describe('Canonical comment identity', () => {
 
 describe('Public profile email privacy', () => {
   it('rejects email on creation', async () => {
-    await assertFails(setDoc(doc(alice(), 'users/alice'), profile({ email: 'alice@example.test' })));
+    await assertFails(createProfile(alice(), profile({ email: 'alice@example.test' })));
   });
   it('rejects adding email to an existing profile', async () => {
-    await assertSucceeds(setDoc(doc(alice(), 'users/alice'), profile()));
+    await assertSucceeds(createProfile(alice(), profile()));
     await assertFails(updateDoc(doc(alice(), 'users/alice'), { email: 'alice@example.test' }));
   });
 });
