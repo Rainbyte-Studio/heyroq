@@ -384,7 +384,12 @@ export function subscribeToUserAchievements(
         if (!found) return defaultBadge;
         if (found.isUnlocked) return { ...defaultBadge, ...found, description: defaultBadge.description };
         const progress = found.id === 'visual_storyteller' ? (found.qualifiedPhotoProgress ?? 0) : found.progress;
-        return { ...defaultBadge, progress, updatedAt: found.updatedAt };
+        return {
+          ...defaultBadge,
+          progress,
+          verifiedGeographicProgress: found.verifiedGeographicProgress,
+          updatedAt: found.updatedAt,
+        };
       }));
     },
     (err) => {
