@@ -124,6 +124,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const profileCloseButtonRef = useRef<HTMLButtonElement>(null);
   const settingsSectionRef = useRef<HTMLDivElement>(null);
   const settingsHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -515,7 +516,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   // Keyboard navigation & Escape key dismiss
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showAccountSecurityModal) return;
+      if (showAccountSecurityModal || showAchievementsModal) return;
       if (e.key === 'Escape') {
         if (pendingAvatarFile || isAvatarControlsOpen) {
           clearPendingAvatarSelection();
@@ -529,7 +530,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, onClose]);
+  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, showAchievementsModal, onClose]);
 
   const handleBackdropClick = () => {
     if (isEditing) {
@@ -554,6 +555,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       >
         {/* Close Button */}
         <CloseButton
+          ref={profileCloseButtonRef}
           onClick={onClose}
           ariaLabel="Close Profile"
           className="absolute top-3.5 sm:top-5 right-3.5 sm:right-5 z-20"
@@ -1110,6 +1112,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <AchievementsModal
           userId={userId}
           displayName={profile?.displayName}
+          fallbackFocusRef={profileCloseButtonRef}
           onClose={() => setShowAchievementsModal(false)}
         />
       )}

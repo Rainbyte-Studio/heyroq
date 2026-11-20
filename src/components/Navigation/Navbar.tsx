@@ -122,6 +122,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const globalSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const globalSearchSeqRef = useRef(0);
   const mobileSearchToggleRef = useRef<HTMLButtonElement>(null);
+  const profileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchPanelRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
@@ -579,6 +580,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="relative shrink-0" ref={dropdownRef}>
               <button
                 id="user-profile-menu-btn"
+                ref={profileMenuButtonRef}
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 aria-expanded={userDropdownOpen}
@@ -669,6 +671,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     role="menuitem"
                     onClick={() => {
                       if (onOpenProgression) {
+                        profileMenuButtonRef.current?.focus({ preventScroll: true });
                         onOpenProgression();
                       }
                       setUserDropdownOpen(false);

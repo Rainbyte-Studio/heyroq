@@ -12,18 +12,43 @@ import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
-    openAchievements(uid: string) {
+    mountAchievementsTrigger(uid: string, nested = false) {
       const host = document.createElement('div');
-      document.body.append(host);
+      const trigger = document.createElement('button');
+      trigger.textContent = nested ? 'Open Profile Achievements' : 'Open Explorer Progression';
+      const parent = nested ? document.createElement('dialog') : null;
+      const fallback = document.createElement('button');
+      fallback.textContent = 'Close fixture profile';
+      if (parent) {
+        parent.setAttribute('aria-label', 'Fixture profile');
+        parent.append(fallback, trigger, host);
+        document.body.append(parent);
+        parent.showModal();
+        fallback.addEventListener('click', () => parent.close());
+      } else {
+        document.body.append(trigger, host);
+      }
       const root = createRoot(host);
-      root.render(createElement(AchievementsModal, {
-        userId: uid,
-        displayName: 'Browser fixture',
-        onClose: () => {
-          root.unmount();
-          host.remove();
-        },
-      }));
+      trigger.dataset.backgroundEscaped = 'false';
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') trigger.dataset.backgroundEscaped = 'true';
+      });
+      trigger.addEventListener('click', () => {
+        root.render(createElement(AchievementsModal, {
+          userId: uid,
+          displayName: 'Browser fixture',
+          onClose: () => root.render(null),
+          fallbackFocusRef: { current: fallback },
+        }));
+      });
+    },
+    async tryWriteVerifiedProgress(uid: string) {
+      try {
+        await updateDoc(doc(db, 'users', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
+        return 'unexpected success';
+      } catch (error) {
+        return (error as { code: string }).code;
+      }
     },
     async signUp(email: string, password: string) {
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
