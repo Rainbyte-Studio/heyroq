@@ -112,6 +112,19 @@ describe('Firestore create-time server counter protection', () => {
 });
 
 describe('Username registry', () => {
+  it('gates signup until the registry is active without blocking ordinary legacy edits', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await deleteDoc(doc(context.firestore(), 'usernameRegistryState/v1'));
+      await setDoc(doc(context.firestore(), 'users/alice'), profile());
+    });
+    await assertSucceeds(updateDoc(doc(alice(), 'users/alice'), { bio: 'Existing profile' }));
+    await assertFails(createProfile(bob(), profile({ uid: 'bob', username: 'bobby' })));
+    await assertFails(writeBatch(alice())
+      .set(doc(alice(), 'usernames/new_name'), { uid: 'alice' })
+      .update(doc(alice(), 'users/alice'), { username: 'new_name', usernameLower: 'new_name' })
+      .commit());
+  });
+
   it('rejects a standalone claim, an unclaimed profile and a duplicate claim', async () => {
     await assertFails(setDoc(doc(alice(), 'usernames/alice'), { uid: 'alice' }));
     await assertFails(setDoc(doc(alice(), 'users/alice'), profile()));
@@ -208,7 +221,7 @@ describe('Canonical comment identity', () => {
 
 describe('Public profile email privacy', () => {
   it('rejects email on creation', async () => {
-    await assertFails(setDoc(doc(alice(), 'users/alice'), profile({ email: 'alice@example.test' })));
+    await assertFails(createProfile(alice(), profile({ email: 'alice@example.test' })));
   });
   it('rejects adding email to an existing profile', async () => {
     await assertSucceeds(createProfile(alice(), profile()));
