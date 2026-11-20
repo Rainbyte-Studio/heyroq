@@ -6,12 +6,19 @@ import { createRoot } from 'react-dom/client';
 import { AchievementsModal } from '../../src/components/Profile/AchievementsModal';
 import { auth, db, storage } from '../../src/lib/firebase';
 import '../../src/index.css';
+import App from '../../src/App';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
 import { createPin, deletePin, newPinPublishAttempt } from '../../src/services/pinService';
 import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
+    mountSearchApp() {
+      window.history.replaceState(null, '', '/');
+      const host = document.createElement('div');
+      document.body.replaceChildren(host);
+      createRoot(host).render(createElement(App));
+    },
     mountAchievementsTrigger(uid: string, nested = false) {
       const host = document.createElement('div');
       const trigger = document.createElement('button');

@@ -209,11 +209,11 @@ test('Nearby Spots header and empty state follow unified hierarchy with accurate
 
   assert.ok(pinFeedSrc.includes('Nearby Spots'));
   assert.ok(
-    pinFeedSrc.includes("`${pins.length} ${pins.length === 1 ? 'spot' : 'spots'} in this area`"),
+    pinFeedSrc.includes("`${pins.length} ${pins.length === 1 ? 'spot' : 'spots'}`") && pinFeedSrc.includes("count + ' in this area'"),
     'Nearby Spots header must render accurate singular/plural viewport spot count'
   );
   assert.ok(
-    appSrc.includes('isLive={!isDiscoveryError && searchQuery.trim().length <= 1}'),
+    appSrc.includes('isLive={!isDiscoveryError && !isSearchActive}'),
     'App.tsx must only pass isLive=true when real-time Firestore discovery listener is active'
   );
   assert.ok(
@@ -224,7 +224,7 @@ test('Nearby Spots header and empty state follow unified hierarchy with accurate
     'Nearby Spots Live indicator must use a static Solaris Orange dot with zero blinking/pulse animation'
   );
   assert.ok(
-    pinFeedSrc.includes('<CloseButton onClick={onToggle} ariaLabel="Close Nearby Spots" />') &&
+    pinFeedSrc.includes('<CloseButton onClick={onToggle} ariaLabel={`Close ${heading}`} />') &&
       !pinFeedSrc.includes('<span>Close</span>'),
     'Nearby Spots header must use icon-only CloseButton without visible "Close" text'
   );

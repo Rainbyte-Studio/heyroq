@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { CategorizedSearchResults } from '../../services/searchService';
 import { Pin } from '../../types';
+import { hasSpotSearchQuery } from '../../utils/spotSearch';
 import { UserAvatar } from '../Common/UserAvatar';
 
 interface GlobalSearchDropdownProps {
@@ -39,7 +40,7 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
   if (!isOpen) return null;
 
   const cleanQuery = query.trim();
-  const hasMinLength = cleanQuery.length >= 2;
+  const hasMinLength = hasSpotSearchQuery(cleanQuery);
   const hasAnyResults = results.totalCount > 0;
 
   return (
@@ -50,7 +51,7 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
       className="liquid-glass-popover absolute left-0 right-0 top-full mt-2 w-full max-h-[min(60dvh,32rem)] overscroll-contain overflow-y-auto rounded-2xl z-50 text-[var(--heyroq-text-primary)] divide-y divide-[var(--heyroq-border-subtle)] no-scrollbar animate-in fade-in zoom-in-95 duration-150"
     >
       <span role="status" className="sr-only">
-        {hasMinLength && (isLoading ? 'Searching' : `${results.totalCount} search results`)}
+        {hasMinLength && (isLoading ? 'Searching' : results.spotsUnavailable ? 'Spot search unavailable' : `${results.totalCount} search results`)}
       </span>
       {/* Search Header / Status Bar */}
       <div className="px-3.5 py-2.5 bg-slate-900/[0.03] dark:bg-black/30 flex items-center justify-between text-[11px] text-[var(--heyroq-text-muted)]">
@@ -94,38 +95,20 @@ export const GlobalSearchDropdown: React.FC<GlobalSearchDropdownProps> = ({
         </div>
       )}
 
+      {hasMinLength && !isLoading && results.spotsUnavailable && (
+        <p className="p-4 text-center text-xs text-[var(--heyroq-text-secondary)]">
+          Spot, city and tag search is unavailable. Check your connection and try again.
+        </p>
+      )}
+
       {/* Completed search with zero results */}
-      {hasMinLength && !isLoading && !hasAnyResults && (
+      {hasMinLength && !isLoading && !hasAnyResults && !results.spotsUnavailable && (
         <div className="py-10 px-4 text-center text-xs text-[var(--heyroq-text-muted)]">
           <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">No results found</p>
           <p className="text-[11px] text-[var(--heyroq-text-muted)] mt-1 max-w-xs mx-auto">
             We couldn&apos;t find any spots, people, cities, or tags matching &ldquo;{cleanQuery}
             &rdquo;.
           </p>
-          <div className="mt-4 pt-3 border-t border-[var(--heyroq-border-subtle)] flex flex-wrap items-center justify-center gap-2 text-[11px] text-[var(--heyroq-text-muted)]">
-            <span>Suggestions:</span>
-            <button
-              type="button"
-              onClick={() => onSelectTag('coffee')}
-              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
-            >
-              #coffee
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectTag('ramen')}
-              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
-            >
-              #ramen
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectCity('Zakynthos, Greece', 37.8594, 20.6249)}
-              className="px-2.5 py-1 rounded-full bg-slate-900/[0.05] dark:bg-white/5 hover:bg-slate-900/10 dark:hover:bg-white/10 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] transition cursor-pointer"
-            >
-              Zakynthos
-            </button>
-          </div>
         </div>
       )}
 

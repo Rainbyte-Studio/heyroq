@@ -6,7 +6,8 @@ import { PinCategory, DiscoveryFilter, Pin, UserProgressionSummary } from '../..
 import { normalizeCategory, isSameCategory } from '../../utils/categoryUtils';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { GlobalSearchDropdown } from './GlobalSearchDropdown';
-import { executeGlobalSearch, CategorizedSearchResults } from '../../services/searchService';
+import { executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { hasSpotSearchQuery } from '../../utils/spotSearch';
 import {
   Search,
   Plus,
@@ -111,13 +112,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Global Search Dropdown State
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [globalSearchResults, setGlobalSearchResults] = useState<CategorizedSearchResults>({
-    spots: [],
-    people: [],
-    cities: [],
-    tags: [],
-    totalCount: 0,
-  });
+  const [globalSearchResults, setGlobalSearchResults] = useState<CategorizedSearchResults>(EMPTY_SEARCH_RESULTS);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const globalSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const globalSearchSeqRef = useRef(0);
@@ -134,17 +129,9 @@ export const Navbar: React.FC<NavbarProps> = ({
       clearTimeout(globalSearchDebounceRef.current);
     }
 
-    if (q.length < 2) {
+    setGlobalSearchResults(EMPTY_SEARCH_RESULTS);
+    if (!hasSpotSearchQuery(q)) {
       setIsSearchingGlobal(false);
-      if (q.length === 0) {
-        setGlobalSearchResults({
-          spots: [],
-          people: [],
-          cities: [],
-          tags: [],
-          totalCount: 0,
-        });
-      }
       return;
     }
 
@@ -157,6 +144,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       } catch (err) {
         if (seq === globalSearchSeqRef.current) {
           console.error('[Heyroq Global Search] Error:', err);
+          setGlobalSearchResults({ ...EMPTY_SEARCH_RESULTS, spotsUnavailable: true });
         }
       } finally {
         if (seq === globalSearchSeqRef.current) {
@@ -442,7 +430,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               onFocus={() => setIsSearchFocused(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') {
+                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                  e.preventDefault();
+                  setIsSearchFocused(false);
+                } else if (e.key === 'Escape') {
                   setIsSearchFocused(false);
                 }
               }}
@@ -493,7 +484,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             isLoading={isSearchingGlobal}
             onSelectSpot={(pin) => {
               onSelectSpot?.(pin);
-              onSearchChange(pin.title);
               setIsSearchFocused(false);
             }}
             onSelectPerson={(uid) => {
@@ -822,6 +812,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setIsSearchFocused(true);
               }}
               onFocus={() => setIsSearchFocused(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeMobileSearch();
+                }
+              }}
               placeholder="Search spots, coffee, tags, cities..."
               className="liquid-glass-input w-full text-base pl-9.5 pr-18 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
             />
@@ -859,7 +856,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             isLoading={isSearchingGlobal}
             onSelectSpot={(pin) => {
               onSelectSpot?.(pin);
-              onSearchChange(pin.title);
               setIsSearchFocused(false);
               setMobileSearchOpen(false);
             }}

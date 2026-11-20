@@ -332,6 +332,48 @@ try {
   await waitForRemoval(objectFor(urls[0]));
   assert.deepEqual(await page.evaluate(() => window.heyroqTest.deleteAccount()), ['deleting', 'deleting']);
   assert.equal((await db.collection('accountDeletionLocks').doc(uid).get()).get('status'), 'deleting');
+  const searchPins = db.collection('pins');
+  const batch = db.batch();
+  for (let i = 0; i < 150; i++) {
+    batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), { title: 'Unrelated fixture' });
+  }
+  const fixture = {
+    userId: 'search-fixture', userName: 'Search fixture', latitude: 37, longitude: 23,
+    category: 'Food', imageUrls: [], likeCount: 0, commentCount: 0, createdAt: new Date().toISOString(),
+  };
+  batch.set(searchPins.doc('zz-search-tag'), {
+    ...fixture, title: 'Roasters Corner', city: 'Αθήνα', countryName: 'Greece', tags: ['#Coffée', '#espresso'],
+  });
+  batch.set(searchPins.doc('zz-search-title'), {
+    ...fixture, title: 'Coffee Stand', description: '', tags: [],
+  });
+  batch.set(searchPins.doc('zz-search-private'), {
+    ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private',
+  });
+  await batch.commit();
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => window.heyroqTest.mountSearchApp());
+  const searchBox = page.getByRole('textbox', { name: 'Search Heyroq' });
+  const searchResults = page.getByRole('region', { name: 'Search results' });
+  const matchingSpots = page.getByRole('complementary', { name: 'Matching Spots' });
+  await searchBox.fill('coffee');
+  await searchResults.getByRole('button', { name: /Roasters Corner/ }).waitFor();
+  await searchResults.getByRole('button', { name: /Coffee Stand/ }).waitFor();
+  assert.equal(await searchResults.getByText('Private coffee').count(), 0);
+  await searchResults.getByRole('button', { name: /#coffee/ }).click();
+  assert.equal(await searchBox.inputValue(), '#coffee');
+  await matchingSpots.getByText('Roasters Corner').waitFor();
+  assert.equal(await matchingSpots.getByText('Coffee Stand').count(), 0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Toggle search' }).click();
+  await searchBox.fill('αθηνα');
+  await searchResults.getByRole('button', { name: /Roasters Corner/ }).waitFor();
+  await searchResults.getByRole('button', { name: /Αθήνα/, exact: false }).last().waitFor();
+  await searchBox.press('Enter');
+  await searchResults.waitFor({ state: 'hidden' });
+  await matchingSpots.getByText('1 spot found').waitFor();
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {

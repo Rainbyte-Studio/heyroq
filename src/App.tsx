@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Pin, LatLngBounds, LatLngPoint, PinCategory, DiscoveryFilter } from './types';
 import { normalizeCategory, matchesCategoryFilter } from './utils/categoryUtils';
+import { createSpotSearchMatcher, hasSpotSearchQuery } from './utils/spotSearch';
 import { Navbar } from './components/Navigation/Navbar';
 import { HeyroqMap } from './components/Map/HeyroqMap';
 import { PinPreviewCard } from './components/Pin/PinPreviewCard';
@@ -146,6 +147,8 @@ function HeyroqMainApp() {
   const [discoveryFilter, setDiscoveryFilter] = useState<DiscoveryFilter>('recent');
   const [selectedCategory, setSelectedCategory] = useState<PinCategory | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const isSearchActive = hasSpotSearchQuery(searchQuery);
+  const [completedSearch, setCompletedSearch] = useState<{ query: string; ids: Set<string> | null } | null>(null);
   const [mapCenter, setMapCenter] = useState<LatLngPoint>({ lat: 48.8867, lng: 2.3431 }); // Default to Paris discovery hub
 
   // State: Modals & Panels
@@ -213,6 +216,14 @@ function HeyroqMainApp() {
   // Nearby Spots expanded UI is architecturally impossible to render when Pin Detail is active or map location is being picked.
   const shouldRenderNearbySpots = isDrawerOpen && (!isPinDetailActive || isDesktop) && !isPickingLocationOnMap;
 
+  function handleSearchChange(query: string) {
+    setSearchQuery(query);
+    if (hasSpotSearchQuery(query)) {
+      setSelectedCategory(null);
+      setIsDrawerOpen(true);
+    }
+  }
+
   // Preserve Nearby Spots scroll position across mobile unmount/remount transitions
   const feedScrollTopRef = useRef<number>(0);
 
@@ -233,27 +244,19 @@ function HeyroqMainApp() {
   // Canonical selected category for consistent case/space matching
   const canonicalSelectedCategory = normalizeCategory(selectedCategory);
 
-  // Filter and locally sort pins strictly for map markers and discovery feed
+  // The map and feed use the same spot matching as the search dropdown.
   const displayedPins = useMemo(() => {
-    let result = pins;
-    if (canonicalSelectedCategory) {
-      result = result.filter((p) => matchesCategoryFilter(p.category, canonicalSelectedCategory));
+    if (isSearchActive) {
+      const ids = completedSearch?.query === searchQuery ? completedSearch.ids : null;
+      const matches = createSpotSearchMatcher(searchQuery);
+      return pins.filter(pin => (!ids || ids.has(pin.id)) && matches(pin));
     }
-    // Active search query bypasses discovery sorting; otherwise apply local deterministic sorting
-    if (searchQuery.trim().length <= 1) {
-      result = sortPins(result, discoveryFilter);
-    }
-    const auroraInCanonical = pins.some(
-      (p) => p.id === 'QCi5GdjStN5o2uXyBWlT' || p.title?.toLowerCase().includes('aurora')
-    );
-    const auroraPassesFilters = result.some(
-      (p) => p.id === 'QCi5GdjStN5o2uXyBWlT' || p.title?.toLowerCase().includes('aurora')
-    );
-    console.log(
-      `[FILTER]\ninput pins: ${pins.length}\noutput pins: ${result.length}\nsort: ${discoveryFilter}\nexplore/category: ${canonicalSelectedCategory || 'All spots'}\nAurora in canonical state: ${auroraInCanonical}\nAurora passes filters: ${auroraPassesFilters}`
-    );
-    return result;
-  }, [pins, canonicalSelectedCategory, discoveryFilter, searchQuery]);
+
+    const categoryPins = canonicalSelectedCategory
+      ? pins.filter(pin => matchesCategoryFilter(pin.category, canonicalSelectedCategory))
+      : pins;
+    return sortPins(categoryPins, discoveryFilter);
+  }, [pins, canonicalSelectedCategory, discoveryFilter, isSearchActive, searchQuery, completedSearch]);
 
   // Centralized marker rendering boundary: Heyroq markers are hidden purely visually
   // without mutating canonical pins, displayedPins, or viewport caches.
@@ -349,30 +352,25 @@ function HeyroqMainApp() {
 
   // Real-time synchronization of discovery pins (reads pin.commentCount directly from Pin doc without redundant count aggregations)
   useEffect(() => {
-    if (searchQuery.trim().length > 1) {
-      searchPins(searchQuery).then((results) => {
-        setPins((prev) => {
-          const map = new Map<string, Pin>();
-          prev.forEach((p) => map.set(p.id, p));
-          results.forEach((r) => {
-            const existing = map.get(r.id);
-            if (existing) {
-              map.set(r.id, {
-                ...existing,
-                ...r,
-                category: normalizeCategory(r.category) || 'Other',
-                commentCount: typeof r.commentCount === 'number' ? r.commentCount : (existing.commentCount ?? 0),
-                likeCount: typeof r.likeCount === 'number' ? r.likeCount : (existing.likeCount ?? 0),
-              });
-            } else {
-              map.set(r.id, r);
-            }
-          });
-          return Array.from(map.values());
+    if (isSearchActive) {
+      let cancelled = false;
+      setCompletedSearch(null);
+      searchPins(searchQuery).then(results => {
+        if (cancelled) return;
+        setPins(previous => {
+          const merged = new Map(previous.map(pin => [pin.id, pin]));
+          results.forEach(pin => merged.set(pin.id, pin));
+          return Array.from(merged.values());
         });
+        setCompletedSearch({ query: searchQuery, ids: new Set(results.map(pin => pin.id)) });
+      }).catch(error => {
+        if (cancelled) return;
+        console.warn('Spot search unavailable:', error);
+        setCompletedSearch({ query: searchQuery, ids: null });
       });
-      return;
+      return () => { cancelled = true; };
     }
+
 
     const canonical = normalizeCategory(selectedCategory);
     // Subscribe to discovery candidates. Sort mode (recent/popular/trending) is decoupled
@@ -421,13 +419,13 @@ function HeyroqMainApp() {
     return () => {
       unsubscribe();
     };
-  }, [selectedCategory, searchQuery, discoveryRetryCount]);
+  }, [selectedCategory, isSearchActive, searchQuery, discoveryRetryCount]);
 
   // Viewport bounds handler with spatial deduplication and thresholding
   const handleBoundsChange = useCallback(async (bounds: LatLngBounds) => {
     const canonical = normalizeCategory(selectedCategory);
     // Only query by geohash viewport if no keyword search or category filter is active
-    if (!searchQuery && !canonical) {
+    if (!isSearchActive && !canonical) {
       // Meaningful movement threshold check: skip micro-pans and container resizes (only if pins are already loaded)
       const prev = lastBoundsRef.current;
       if (prev && pins.length > 0) {
@@ -481,7 +479,7 @@ function HeyroqMainApp() {
         console.warn('Viewport fetch notice:', e);
       }
     }
-  }, [searchQuery, selectedCategory]);
+  }, [isSearchActive, selectedCategory]);
 
   // Real-time authoritative sync for selectedPin (only active when PinDetailModal is not open)
   const activeFocusPinId = detailPinId || selectedPinId;
@@ -633,9 +631,12 @@ function HeyroqMainApp() {
         discoveryFilter={discoveryFilter}
         onFilterChange={setDiscoveryFilter}
         selectedCategory={selectedCategory}
-        onCategoryChange={setSelectedCategory}
+        onCategoryChange={(category) => {
+          setSelectedCategory(category);
+          setSearchQuery('');
+        }}
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={handleSearchChange}
         onOpenCreatePin={() => {
           if (!user) {
             setPendingAuthAction({ type: 'create' });
@@ -676,11 +677,9 @@ function HeyroqMainApp() {
         }}
         onSelectCity={(cityName, lat, lng) => {
           setMapCenter({ lat, lng });
-          setSearchQuery(cityName);
+          handleSearchChange(cityName);
         }}
-        onSelectTag={(tag) => {
-          setSearchQuery('#' + tag);
-        }}
+        onSelectTag={(tag) => handleSearchChange('#' + tag)}
       />
 
       {/* Main Map & Discovery Feed Workspace */}
@@ -766,8 +765,13 @@ function HeyroqMainApp() {
             feedScrollTopRef.current = top;
           }}
           isDesktop={isDesktop}
-          isLive={!isDiscoveryError && searchQuery.trim().length <= 1}
-          isError={isDiscoveryError && displayedPins.length === 0}
+          isLive={!isDiscoveryError && !isSearchActive}
+          searchQuery={isSearchActive ? searchQuery.trim() : undefined}
+          isSearching={isSearchActive && completedSearch?.query !== searchQuery}
+          isError={
+            displayedPins.length === 0 &&
+            (isSearchActive ? completedSearch?.query === searchQuery && completedSearch.ids === null : isDiscoveryError)
+          }
           onRetry={handleRetryDiscovery}
         />
       </main>
@@ -895,6 +899,10 @@ function HeyroqMainApp() {
             setCreatePinDraft(null);
             setNewPinLocation(null);
             setPickedLocationName('');
+            if (isSearchActive) {
+              setDiscoveryRetryCount(count => count + 1);
+              return;
+            }
             const freshPins = await fetchPinsByDiscovery('all', selectedCategory);
             setPins(freshPins);
           }}
