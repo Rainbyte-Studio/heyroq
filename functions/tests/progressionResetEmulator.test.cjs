@@ -1,8 +1,6 @@
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
-const { mkdtemp, readFile } = require('node:fs/promises');
-const { tmpdir } = require('node:os');
-const { join, resolve } = require('node:path');
+const { resolve } = require('node:path');
 const { promisify } = require('node:util');
 const { test } = require('node:test');
 const { initializeApp, deleteApp } = require('firebase-admin/app');
@@ -12,10 +10,8 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
   assert.match(process.env.FIRESTORE_EMULATOR_HOST ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
   const app = initializeApp({ projectId: 'demo-heyroq' });
   const db = getFirestore(app, 'ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3');
-  const directory = await mkdtemp(join(tmpdir(), 'heyroq-progression-reset-'));
-  const backup = join(directory, 'reset.json');
   const script = resolve(__dirname, '../../scripts/reset-explorer-progression.mjs');
-  const run = () => promisify(execFile)(process.execPath, [script, 'rehearse', backup]);
+  const run = (mode = 'rehearse-no-backup') => promisify(execFile)(process.execPath, [script, mode]);
   const profile = db.doc('users/reset-fixture');
   const pin = db.doc('pins/reset-fixture');
   const cityBadge = profile.collection('achievements').doc('local_explorer');
@@ -38,12 +34,20 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
     assert.equal((await summary.get()).get('xp'), 450);
     await pin.delete();
 
+    const inventory = JSON.parse((await run('inventory')).stdout);
+    assert.equal(inventory.writes, 4);
+    assert.equal((await ledger.get()).exists, true);
+
     const { stdout } = await run();
     const report = JSON.parse(stdout);
     assert.equal(report.unlockedGeography, 1);
     assert.equal(report.positiveXp, 1);
     assert.equal(report.xpEvents, 1);
     assert.equal(report.writes, 4);
+    assert.equal(Object.hasOwn(report, 'backupSha256'), false);
+    assert.deepEqual((await db.doc('progressionMaintenance/geography-v11-reset').get()).data(), {
+      resetVersion: 1,
+    });
     assert.deepEqual((await profile.get()).data(), originalProfile);
     for (const doc of [summary, cityBadge, ledger]) assert.equal((await doc.get()).exists, false);
 
@@ -51,17 +55,6 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
     assert.match((await run()).stdout, /already exists/);
     assert.equal((await ledger.get()).get('xpEarned'), 150);
 
-    // Restore the backed-up Firestore field values to an isolated document.
-    const { records } = JSON.parse(await readFile(backup, 'utf8'));
-    const savedBadge = records.find(document => document.name.endsWith(cityBadge.path));
-    const restorePath = savedBadge.name.replace(/local_explorer$/, 'restore_check');
-    const response = await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/${restorePath}`, {
-      method: 'PATCH',
-      headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: savedBadge.fields }),
-    });
-    assert.equal(response.ok, true);
-    assert.deepEqual((await cityBadge.parent.doc('restore_check').get()).get('unlockedAt'), earnedAt);
   } finally {
     await deleteApp(app);
   }

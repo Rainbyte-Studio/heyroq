@@ -3,15 +3,18 @@ import { open, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const [mode, backupPath, ...extra] = process.argv.slice(2);
-if (!['plan', 'rehearse'].includes(mode) || !backupPath || extra.length) {
-  throw new Error('Usage: node scripts/reset-explorer-progression.mjs plan|rehearse NEW_BACKUP_PATH');
+const noBackup = mode === 'rehearse-no-backup';
+if (extra.length || (mode === 'inventory' || noBackup ? backupPath !== undefined :
+    !['plan', 'rehearse'].includes(mode) || !backupPath)) {
+  throw new Error('Usage: node scripts/reset-explorer-progression.mjs inventory | rehearse-no-backup | plan|rehearse NEW_BACKUP_PATH');
 }
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
 if (emulator && !/^(127\.0\.0\.1|localhost):\d+$/.test(emulator)) {
   throw new Error('Expected a local Firestore emulator');
 }
-if (mode === 'rehearse' && !emulator) throw new Error('Writes require a local emulator');
+const readOnly = mode === 'inventory' || mode === 'plan';
+if (!readOnly && !emulator) throw new Error('Writes require a local emulator');
 
 const project = emulator ? 'demo-heyroq' : 'rainbyte-studio';
 const database = `projects/${project}/databases/ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`;
@@ -52,7 +55,7 @@ async function inspect(transaction) {
   if (users.length === 500 || markers.length === 500) throw new Error('Inventory exceeds supported size');
   if (markers.some(document => document.name === marker)) return { alreadyApplied: true };
   const control = markers.find(document => document.name === writerControl);
-  if (mode === 'rehearse' && (control?.fields?.schemaVersion?.integerValue !== '1' ||
+  if (!readOnly && (control?.fields?.schemaVersion?.integerValue !== '1' ||
       control.fields?.mode?.stringValue !== 'frozen')) {
     throw new Error('Reset requires an explicit writer freeze');
   }
@@ -106,7 +109,6 @@ async function inspect(transaction) {
   };
 }
 
-const readOnly = mode === 'plan';
 const { transaction } = await request(`${root}:beginTransaction`, {
   options: readOnly ? { readOnly: {} } : { readWrite: {} },
 });
@@ -116,29 +118,34 @@ try {
   if (plan.alreadyApplied) {
     console.log('Reset marker already exists');
   } else {
-    const path = resolve(backupPath);
-    const bytes = JSON.stringify(plan, null, 2) + '\n';
-    const handle = await open(path, 'wx', 0o600);
-    try {
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    const checksum = hash(bytes);
-    if (hash(await readFile(path)) !== checksum) throw new Error('Backup verification failed');
     const { records, profiles, writes, ...counts } = plan;
-    console.log(JSON.stringify({ ...counts, writes: writes.length, backupSha256: checksum }));
+    let checksum;
+    if (backupPath) {
+      const path = resolve(backupPath);
+      const bytes = JSON.stringify(plan, null, 2) + '\n';
+      const handle = await open(path, 'wx', 0o600);
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      checksum = hash(bytes);
+      if (hash(await readFile(path)) !== checksum) throw new Error('Backup verification failed');
+    }
     if (!readOnly) {
+      const fields = { resetVersion: { integerValue: '1' } };
+      if (checksum) fields.backupSha256 = { stringValue: checksum };
       await request(`${root}:commit`, {
         transaction,
         writes: [...writes, {
-          update: { name: marker, fields: { backupSha256: { stringValue: checksum } } },
+          update: { name: marker, fields },
           currentDocument: { exists: false },
         }],
       });
       committed = true;
     }
+    console.log(JSON.stringify({ ...counts, writes: writes.length, backupSha256: checksum }));
   }
 } finally {
   if (!committed) await request(`${root}:rollback`, { transaction });

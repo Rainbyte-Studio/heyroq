@@ -10,19 +10,16 @@ receipts remain outside the deletion scope.
 
 ## Inventory and rehearsal
 
-Run `node scripts/reset-explorer-progression.mjs plan NEW_BACKUP_PATH`
+Run `node scripts/reset-explorer-progression.mjs inventory`
 with a short-lived Firestore read token supplied through
 `HEYROQ_FIRESTORE_READ_TOKEN`. The named production database is fixed.
-Keep the inventory file private because it contains Firestore paths and
-unredacted progression documents. The transaction supplies one snapshot,
-the backup preserves Firestore value types, and the file records the exact
-document operations and preconditions. The command prints counts and the
-SHA-256 after reading the backup back. It has no production write mode.
+The command prints counts from a read-only transaction and creates no
+backup or file. It has no production write mode.
 
-The same script's `rehearse` mode requires the loopback emulator, an explicit
+The script's `rehearse-no-backup` mode requires the loopback emulator, an explicit
 `{schemaVersion: 1, mode: "frozen"}` control document, and uses
 the fixed demo project. It checks document versions and commits the reset
-and backup-checksum marker atomically. After an uncertain result, the
+and versioned reset marker atomically. After an uncertain result, the
 marker prevents a second pass from deleting newly earned records. The
 selective operation deliberately aborts if it finds preserved pins,
 posts, publication receipts, follow edges, or nonzero follower counts.
@@ -66,13 +63,12 @@ any data or runtime path outside the reviewed inventory.
    cutoff enforced on the persisted pin creation timestamp and reject
    delayed pre-cutoff Geography awards.
 4. Under the verified freeze, repeat the inventory and check exact paths
-   and values against the backup. Rehearse restoration of that snapshot
-   in the emulator. Implement the production commit against the same
-   inspected snapshot with concurrency preconditions and the atomic
-   marker. Verify the result while writers are frozen and reconcile
-   protected account/profile/content inventories. Keep the snapshot and
-   its hash private. On drift, stop before committing and take a new
-   snapshot after resolving the cause.
+   in memory. Use the inspected transaction and document version
+   preconditions for the reset, with the versioned marker created atomically.
+   Verify counts after the commit while writers are frozen and reconcile
+   the protected account, profile and content inventory. The authorized
+   cutover creates no backup and leaves prior artifacts untouched. On drift,
+   stop and repeat the inventory after resolving the cause.
 5. Run full CI on the exact merge candidate. Use
    `HEYROQ_GEOGRAPHY_V11_CAPABLE=true` only on an explicitly authorized
    Geography award runtime. Set the server control's `geographyStartsAtMs` to
@@ -102,3 +98,24 @@ progression. Its role is distinct from the Gen2 legacy reconciliation worker,
 which can recursively delete an outgoing profile and its progression.
 This snapshot establishes the baseline for per-function updates. It does not
 prove that the revisions have drained or that production is frozen.
+
+### Legacy write isolation
+
+Cloud Run routing changes do not interrupt in-flight requests. Treat an
+empty instance-metric response as missing evidence. For a data-plane fence,
+use a temporary IAM deny policy for Firestore document creation, update and
+deletion, limited to the audited legacy writer principals. Check all
+services sharing those identities before applying the policy, because it
+also affects their unrelated Firestore writes. Verify effective denial for
+each principal and verify the release operator can still perform the
+transaction. Keep the deny policy in place through replacement, verification
+of every route and binding, and the reset. Remove it only after compatible
+runtimes are exclusively reachable and old executions have drained.
+
+The existing Google session can update the Functions and act as the runtime
+identities for deployment, but lacks `iam.denypolicies.create`,
+`iam.denypolicies.update`, `iam.denypolicies.delete`, and
+`iam.serviceAccounts.getAccessToken` for the audited old writer identities.
+It cannot establish and directly verify this fence. Engage an authorized
+operator for the fence or establish positive old-revision retirement and
+delivery evidence before using a drain-only cutover.

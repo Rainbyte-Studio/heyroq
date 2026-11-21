@@ -244,7 +244,7 @@ async function syncUserProgression(userId, publication, concurrencyRetry = 0, or
     const reset = receipt && requiresResetProof ? await progressionReset.get() : undefined;
     const resetVerified = reset?.createTime && policy &&
         reset.createTime.toMillis() < policy.startsAtMs &&
-        /^[a-f0-9]{64}$/.test(reset.get('backupSha256') ?? '');
+        (reset.get('resetVersion') === 1 || /^[a-f0-9]{64}$/.test(reset.get('backupSha256') ?? ''));
     const geographic = pin && receipt && policy && (!requiresResetProof || resetVerified)
         ? { pin, receipt, policy }
         : undefined;

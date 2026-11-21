@@ -104,7 +104,7 @@ test('deployed pin entry point requires reset proof and a post-reset cutoff', as
     await deliver(oldPin);
     assert.equal((await geoEvents(user)).length, 0);
 
-    const proof = await marker.create({ backupSha256: 'a'.repeat(64) });
+    const proof = await marker.create({ resetVersion: 1 });
     const cutoff = Math.ceil(proof.writeTime.toMillis()) + 1;
     await writerControl.set({ ...state, geographyStartsAtMs: cutoff });
     await deliver(oldPin);
