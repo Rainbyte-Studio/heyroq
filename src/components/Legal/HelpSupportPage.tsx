@@ -54,7 +54,7 @@ const FAQ_ITEMS: ReadonlyArray<FaqEntry> = [
     category: 'pins',
     question: 'How do I choose an exact location when creating a pin?',
     answer:
-      'Open Drop Pin (+), then either search for a venue, landmark, or neighborhood using the Google Places search field, or select Pick on Map to tap the exact coordinate directly on the map canvas. Heyroq automatically formats a clean neighborhood/city label when available.',
+      'Open Drop Pin (+), then use Click on Map to Pick or enter the latitude and longitude. You can add a location name and optionally choose a country and city from the catalog.',
   },
   {
     id: 'faq-hide-vs-close',
@@ -219,8 +219,8 @@ export const HelpSupportPage: React.FC = () => {
               <strong className="text-[var(--heyroq-text-primary)]">Dropping a New Pin:</strong>{' '}
               Click <strong>Drop Pin</strong> (or choose <strong>Drop New Pin</strong> from your
               account menu). Enter a concise title (up to 140 characters), choose a category, add
-              optional tags and description (up to 2,000 characters), and select a location via
-              Places search or <strong>Pick on Map</strong>.
+              optional tags and description (up to 2,000 characters), and set the location with
+              <strong>Click on Map to Pick</strong> or by entering coordinates.
             </li>
             <li>
               <strong className="text-[var(--heyroq-text-primary)]">
@@ -253,7 +253,13 @@ export const HelpSupportPage: React.FC = () => {
               Open <strong>Progression &amp; Badges</strong> from your account menu to view your
               Explorer Level, total XP, unlocked badges across Exploration, Geography, Discovery,
               Community, and Special categories, and your global Footprint map.
-              New city and country bonuses are paused. Previously earned XP and badges remain visible.
+              With Geography Progression v1.1, you can earn +25 XP the first time you qualify for a city
+              and +150 XP the first time you qualify for a country. To qualify, publish a new public
+              pin with an approved photo and choose its city and country. Heyroq checks the photo
+              approval and that the pin is near the selected city. Each city and country can earn its
+              bonus only once per account. Up to five pins per account can earn Geography XP per
+              UTC day, based on when they were published. A pin that earns both bonuses counts once.
+              Geography achievements advance only with geographic evidence verified by Heyroq.
               A pin marks a location chosen by its author. Physical presence is unverified.
             </li>
           </ul>
