@@ -513,6 +513,9 @@ try {
   const now = Timestamp.now();
   const identifier = n => createHash('sha256').update(String(n)).digest('hex');
   const pinRef = db.doc('pins/activity-browser-fixture');
+  // Isolate the exact-count engagement fixtures from delayed XP for this
+  // synthetic pin. The real progression writer is exercised earlier above.
+  await db.doc('progressionMaintenance/writers').update({ mode: 'frozen' });
   await pinRef.create({ ...fixture, userId: engagementUid, title: 'Activity browser fixture' });
   const pinCreatedAt = (await pinRef.get()).createTime;
   const engagementSeed = db.batch();
@@ -541,7 +544,14 @@ try {
     await companion.waitForFunction(() => Boolean(window.heyroqTest));
     await companion.evaluate(email => window.heyroqTest.signIn(email, 'username-test-password'), engagementEmail);
     await companion.evaluate(() => window.heyroqTest.mountSearchApp());
-    await companion.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+    try {
+      await companion.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor({ timeout: 12_000 });
+    } catch (error) {
+      const bellLabel = await companion.locator('#nav-notifications-btn').getAttribute('aria-label', { timeout: 1000 }).catch(() => null);
+      const unread = (await engagementProfile.collection('notificationState').doc('inbox').get()).get('unread');
+      throw new Error('Unread sync failed in ' + (companion === secondTab ? 'the second tab' : 'the second device') +
+        ' with bell ' + bellLabel + ' and server count ' + unread, { cause: error });
+    }
   }
   await page.bringToFront();
   await bell.click();
