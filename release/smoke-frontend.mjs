@@ -13,9 +13,11 @@ for (let attempt = 0; attempt < 40; attempt++) {
 assert.equal(home?.status, 200);
 assert.equal(home.headers.get('cache-control'), 'no-cache');
 const html = await home.text();
-const spa = await request('/pins/rollback-smoke');
-assert.equal(spa.status, 200);
-assert.equal(await spa.text(), html);
+for (const path of ['/pins/rollback-smoke', '/settings', '/settings/account', '/settings/notifications', '/notifications', '/activity']) {
+  const spa = await request(path);
+  assert.equal(spa.status, 200, path);
+  assert.equal(await spa.text(), html, path);
+}
 const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
 assert.ok(assets.some(path => path.endsWith('.js')));
 for (const asset of assets) {

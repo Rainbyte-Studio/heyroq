@@ -558,7 +558,7 @@ try {
   await ownPinProfile.getByRole('button', { name: 'Scroll to profile settings' }).click();
   const profileSettingsLink = ownPinProfile.getByRole('button', { name: /Notifications & Activity/ });
   await profileSettingsLink.click();
-  const engagementSettings = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const engagementSettings = page.locator('#heyroq-settings-window');
   const closeSettings = engagementSettings.getByRole('button', { name: 'Close Settings' });
   await engagementSettings.getByRole('switch', { name: 'Share public activity with followers' }).waitFor();
   await closeSettings.click();
@@ -678,8 +678,8 @@ try {
   const settingsLink = page.getByRole('menuitem', { name: 'Settings', exact: true });
   const openNotificationSettings = async () => {
     await settingsLink.click();
-    await engagementSettings.getByRole('button', { name: 'Account & Security', exact: true }).waitFor();
-    await engagementSettings.getByRole('button', { name: 'Notifications & Activity', exact: true }).click();
+    await engagementSettings.locator('#settings-mobile-nav-account').waitFor();
+    await engagementSettings.locator('#settings-mobile-nav-notifications').click();
   };
   await openNotificationSettings();
   const likes = engagementSettings.getByRole('switch', { name: 'Likes on my spots' });
