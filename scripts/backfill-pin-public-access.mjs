@@ -11,7 +11,7 @@ export function legacyPinDecision(pin, receipt) {
   if (data.status !== undefined && data.status !== 'published') return null;
   if (['isPrivate', 'isDeleted', 'isReported', 'isDemo'].some(key => data[key] !== undefined && data[key] !== false)) return null;
   if (data.publishReceipt !== true || !pin.createTime || !receipt?.createTime?.isEqual(pin.createTime) ||
-      !receipt.get('publishedAt')?.isEqual?.(pin.createTime)) return null;
+      typeof receipt.get('publishedAt')?.toMillis !== 'function') return null;
   return { visibility: 'public', status: 'published', publicAccess: true };
 }
 

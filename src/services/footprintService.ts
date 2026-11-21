@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocsFromServer, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Pin } from '../types';
 import { publicPinFilters } from './pinVisibility';
@@ -172,7 +172,7 @@ export async function fetchUserFootprint(userId: string): Promise<UserFootprintD
         where('userId', '==', userId),
         limit(150)
       );
-      const snap = await getDocs(q);
+      const snap = await getDocsFromServer(q);
       rawPins = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Pin, 'id'>) }));
     } catch (e2) {
       console.error('Failed to load footprint pins:', e2);
