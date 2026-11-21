@@ -677,9 +677,15 @@ try {
   await settingsLink.click();
   const engagementSettings = page.getByRole('dialog', { name: 'Notifications & Activity' });
   const likes = engagementSettings.getByRole('checkbox', { name: 'Likes on my pins' });
+  const sharing = engagementSettings.getByRole('checkbox', { name: 'Show my public activity to followers' });
+  const preferences = engagementProfile.collection('notificationPreferences').doc('settings');
+  assert.equal((await preferences.get()).exists, false);
+  await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
+  assert.equal(await likes.isChecked(), true);
+  assert.equal(await sharing.isChecked(), false);
   await likes.uncheck();
   await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
-  assert.equal((await engagementProfile.collection('notificationPreferences').doc('settings').get()).get('likes'), false);
+  assert.deepEqual((await preferences.get()).data(), { likes: false });
   await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
   await userMenu.click();
   await settingsLink.click();
