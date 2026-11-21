@@ -63,7 +63,7 @@ const settings: { key: PreferenceKey; title: string; detail?: string }[] = [
 
 function EngagementSettings({ uid }: { uid: string }) {
   const [values, setValues] = useState<Record<PreferenceKey, boolean> | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<{ key: PreferenceKey; value: boolean } | null>(null);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -72,11 +72,14 @@ function EngagementSettings({ uid }: { uid: string }) {
     setOffline(cached);
   }, () => setError('Settings could not load.')), [uid, attempt]);
   async function save(key: PreferenceKey, checked: boolean) {
-    setSaving(true);
+    setPending({ key, value: checked });
     setError('');
-    try { await saveEngagementSetting(uid, key, checked); }
+    try {
+      await saveEngagementSetting(uid, key, checked);
+      setValues(previous => previous && { ...previous, [key]: checked });
+    }
     catch { setError('Your preference could not be saved.'); }
-    finally { setSaving(false); }
+    finally { setPending(null); }
   }
   return (
     <div className="space-y-5 px-4 py-3 sm:px-6">
@@ -84,7 +87,7 @@ function EngagementSettings({ uid }: { uid: string }) {
       {!values && !error && <p role="status">Loading preferences…</p>}
       {values && <>
         <p role="status" className={'text-sm ' + secondary}>
-          {offline ? 'Connect to the internet to change preferences.' : saving ? 'Saving…' : 'Preferences are synced across your devices.'}
+          {offline ? 'Connect to the internet to change preferences.' : pending ? 'Saving…' : 'Preferences are synced across your devices.'}
         </p>
         {[settings.slice(0, 8), settings.slice(8)].map((group, index) => (
           <fieldset key={group[0].key} className="space-y-1">
@@ -96,7 +99,7 @@ function EngagementSettings({ uid }: { uid: string }) {
                   {title}
                   {detail && <span id={'engagement-setting-' + key} className={'mt-1 block text-xs ' + secondary}>{detail}</span>}
                 </span>
-                <input type="checkbox" checked={values[key]} disabled={saving || offline}
+                <input type="checkbox" checked={pending?.key === key ? pending.value : values[key]} disabled={Boolean(pending) || offline}
                   aria-describedby={detail ? 'engagement-setting-' + key : undefined}
                   className="heyroq-focus-ring h-5 w-5 shrink-0 accent-[var(--brand-primary)]"
                   onChange={event => void save(key, event.currentTarget.checked)} />
