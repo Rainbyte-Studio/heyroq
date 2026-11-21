@@ -20,6 +20,12 @@ for (const path of ['/pins/rollback-smoke', '/settings', '/settings/account', '/
 }
 const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
 assert.ok(assets.some(path => path.endsWith('.js')));
+const stylesheetPath = assets.find(path => path.endsWith('.css'));
+assert.ok(stylesheetPath, 'The frontend loads a stylesheet');
+const stylesheet = await (await request(stylesheetPath)).text();
+const windowHeaderRule = stylesheet.match(/(?:^|[{}])[^{}]*\.heyroq-window-header(?=[\s,{])[^{}]*\{([^{}]*)\}/);
+assert.match(windowHeaderRule?.[1] ?? '', /(?:^|;)\s*backdrop-filter\s*:\s*blur\(/,
+  'The production stylesheet preserves the standard window header backdrop blur');
 for (const asset of assets) {
   const res = await request(asset, { method: 'HEAD' });
   assert.equal(res.status, 200);
