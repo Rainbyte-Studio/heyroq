@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 
 export type InfoPageRoute = '/about' | '/privacy' | '/terms' | '/support';
-export type AppRoute = '/' | InfoPageRoute;
+export type SettingsSection = 'account' | 'notifications';
+export type SettingsRoute = '/settings' | '/settings/account' | '/settings/notifications';
+export type EngagementPageRoute = '/notifications' | '/activity';
+export type AppRoute = '/' | InfoPageRoute | SettingsRoute | EngagementPageRoute;
 
 export const APP_ROUTES = Object.freeze({
   map: '/' as AppRoute,
@@ -9,6 +12,11 @@ export const APP_ROUTES = Object.freeze({
   privacy: '/privacy' as InfoPageRoute,
   terms: '/terms' as InfoPageRoute,
   support: '/support' as InfoPageRoute,
+  settings: '/settings' as SettingsRoute,
+  settingsAccount: '/settings/account' as SettingsRoute,
+  settingsNotifications: '/settings/notifications' as SettingsRoute,
+  notifications: '/notifications' as EngagementPageRoute,
+  activity: '/activity' as EngagementPageRoute,
 });
 
 export const INFO_PAGE_NAV_ITEMS: ReadonlyArray<{
@@ -23,6 +31,23 @@ export const INFO_PAGE_NAV_ITEMS: ReadonlyArray<{
 ]);
 
 const ROUTE_CHANGE_EVENT = 'heyroq:routechange';
+
+export type PendingMapDestination =
+  | { type: 'pin'; id: string }
+  | { type: 'profile'; id: string }
+  | { type: 'progression'; id?: string };
+
+let pendingMapDestination: PendingMapDestination | null = null;
+
+export function setPendingMapDestination(destination: PendingMapDestination | null): void {
+  pendingMapDestination = destination;
+}
+
+export function consumePendingMapDestination(): PendingMapDestination | null {
+  const next = pendingMapDestination;
+  pendingMapDestination = null;
+  return next;
+}
 
 /**
  * Normalizes any URL pathname into a clean, canonical Heyroq route.
@@ -46,6 +71,16 @@ export function resolveAppRoute(rawPathname: string | null | undefined): AppRout
       return '/terms';
     case '/support':
       return '/support';
+    case '/settings':
+      return '/settings';
+    case '/settings/account':
+      return '/settings/account';
+    case '/settings/notifications':
+      return '/settings/notifications';
+    case '/notifications':
+      return '/notifications';
+    case '/activity':
+      return '/activity';
     case '':
     case '/':
     default:
@@ -62,6 +97,22 @@ export function isInfoPageRoute(route: AppRoute): route is InfoPageRoute {
   );
 }
 
+export function isSettingsRoute(route: AppRoute): route is SettingsRoute {
+  return (
+    route === '/settings' ||
+    route === '/settings/account' ||
+    route === '/settings/notifications'
+  );
+}
+
+export function getSettingsSectionFromRoute(route: AppRoute): SettingsSection {
+  return route === '/settings/notifications' ? 'notifications' : 'account';
+}
+
+export function isEngagementPageRoute(route: AppRoute): route is EngagementPageRoute {
+  return route === '/notifications' || route === '/activity';
+}
+
 export function getDocumentTitleForRoute(route: AppRoute): string {
   switch (route) {
     case '/about':
@@ -72,6 +123,15 @@ export function getDocumentTitleForRoute(route: AppRoute): string {
       return 'Terms of Service — Heyroq';
     case '/support':
       return 'Help & Support — Heyroq';
+    case '/settings':
+    case '/settings/account':
+      return 'Settings — Heyroq';
+    case '/settings/notifications':
+      return 'Notifications & Activity — Settings — Heyroq';
+    case '/notifications':
+      return 'Notifications — Heyroq';
+    case '/activity':
+      return 'Activity — Heyroq';
     case '/':
     default:
       return 'Heyroq';

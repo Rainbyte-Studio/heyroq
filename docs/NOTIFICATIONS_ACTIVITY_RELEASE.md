@@ -121,3 +121,29 @@ Use the existing Functions deploy guard and the reviewed, explicit Gen 2 release
 path. First test an approved candidate and disposable accounts, including a first
 preference save and a reopened Settings window. If any component fails these
 checks, keep the frontend cutover on hold.
+
+## Unified Settings source and recovery
+
+The AI Studio panel reported that `Rainbyte-Studio/heyroq:main` was in sync.
+The running editor contained `src/components/Settings/SettingsWindow.tsx`.
+The remote `bf8308d6a836c7311307ec84508fe97afb787759` tree lacked that file.
+The editor export had SHA-256
+`4becf5a6e01871eb4862fb56e0455b522eb2fcd37e4f1c78a88c78ed59609c34`.
+Commit `23a7545b2f71e256cb938b795c813394685ce206` contains the reconciled
+runtime source, including the shared window, account and notification sections,
+compact notifications, history, Activity and navigation. The `src/` trees
+matched after normalizing line endings. Rules, indexes, Functions and
+dependency locks come from the reviewed Git tree.
+
+Build the final merged commit with Frontend Release Candidate and
+`production_profile=true`. Verify `COMMIT`,
+`BUILD_PROFILE=geography-v11-maps-configured`, `IMAGE_ID` and `SHA256SUMS`.
+Use the exact verified artifact for forward recovery from a failed publish or
+traffic switch. It preserves the approved UI, the strict public pin query and
+managed image protocol. Check the application with direct links to
+`/settings/notifications`, `/notifications` and `/activity`.
+
+If a defect is in the frontend code itself, exercise recovery with a known-good
+compatible revision or a reviewed fixed candidate before the Rules cutover.
+The legacy serving revision cannot query under the strict publicAccess
+contract. Keep restrictive Rules and image protections in effect during recovery.

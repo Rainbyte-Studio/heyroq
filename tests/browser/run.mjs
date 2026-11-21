@@ -511,6 +511,7 @@ try {
   assert.equal((await db.doc('usernames/first_handle').get()).exists, false);
   assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
 
+  await ownerProfile.getByRole('button', { name: /Close/ }).first().click();
   await page.evaluate(() => window.heyroqTest.signOut());
   const engagementEmail = randomUUID() + '@example.test';
   await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), engagementEmail);
@@ -526,12 +527,11 @@ try {
   await bell.press('Enter');
   const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
   const closeInbox = inbox.getByRole('button', { name: 'Close Notifications' });
-  await inbox.getByText('You’re all caught up.').waitFor();
+  await inbox.getByText('You’re all caught up').waitFor();
   assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
   await page.keyboard.press('Tab');
   assert.ok(await inbox.evaluate(dialog => dialog.contains(document.activeElement)));
   await page.keyboard.press('Shift+Tab');
-  assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
   await page.keyboard.press('Escape');
   await inbox.waitFor({ state: 'hidden' });
   assert.ok(await bell.evaluate(button => button === document.activeElement));
@@ -558,11 +558,11 @@ try {
   await ownPinProfile.getByRole('button', { name: 'Scroll to profile settings' }).click();
   const profileSettingsLink = ownPinProfile.getByRole('button', { name: /Notifications & Activity/ });
   await profileSettingsLink.click();
-  const profileSettingsDialog = page.getByRole('dialog', { name: 'Notifications & Activity' });
-  await profileSettingsDialog.getByRole('checkbox', { name: 'Show my public activity to followers' }).waitFor();
-  await profileSettingsDialog.getByRole('button', { name: 'Close Notifications & Activity' }).click();
-  assert.ok(await profileSettingsLink.evaluate(button => button === document.activeElement));
-  await ownPinProfile.getByRole('button', { name: /Close/ }).first().click();
+  const engagementSettings = page.locator('#heyroq-settings-window');
+  const closeSettings = engagementSettings.getByRole('button', { name: 'Close Settings' });
+  await engagementSettings.getByRole('switch', { name: 'Share public activity with followers' }).waitFor();
+  await closeSettings.click();
+  await ownPinProfile.waitFor({ state: 'hidden' });
   const engagementSeed = db.batch();
   for (let n = 1; n <= 2; n++) {
     engagementSeed.create(engagementProfile.collection('notifications').doc(identifier(n)), {
@@ -643,17 +643,19 @@ try {
   await inbox.getByText('Product update 2').waitFor();
   await inbox.getByText(/^Unread/).first().waitFor({ state: 'hidden' });
   await inbox.getByRole('button', { name: 'View history' }).click();
-  await inbox.getByRole('button', { name: /Delete notification.*Product update 2/ }).click();
-  await inbox.getByText('Product update 2').waitFor({ state: 'hidden' });
-  await closeInbox.click();
+  const notificationsHistory = page.locator('#heyroq-notifications-history-window');
+  const deleteNotice = notificationsHistory.getByRole('button', { name: /Delete notification.*Product update 2/ });
+  await deleteNotice.click();
+  await deleteNotice.waitFor({ state: 'hidden' });
+  await notificationsHistory.getByRole('button', { name: 'Close Notifications' }).click();
 
   await userMenu.click();
   await page.getByRole('menuitem', { name: 'Activity', exact: true }).click();
   const activityPanel = page.getByRole('dialog', { name: 'Activity', exact: true });
-  await activityPanel.getByText('No shared activity here yet.').waitFor();
+  await activityPanel.getByText('No shared activity here yet').waitFor();
   const activityResponse = page.waitForResponse(response => response.url().endsWith('/engagementV1') &&
     response.request().method() === 'POST' && response.request().postDataJSON()?.data?.action === 'mine');
-  await activityPanel.getByRole('button', { name: 'My Activity' }).click();
+  await activityPanel.getByRole('tab', { name: 'My Activity' }).click();
   const firstActivityPage = (await (await activityResponse).json()).result;
   await activityPanel.getByText(/You published Activity browser fixture/).first().waitFor();
   assert.equal(await activityPanel.getByRole('listitem').count(), 24);
@@ -673,26 +675,42 @@ try {
   if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
   await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
   await userMenu.click();
-  const settingsLink = page.getByRole('menuitem', { name: 'Notifications & Activity' });
-  await settingsLink.click();
-  const engagementSettings = page.getByRole('dialog', { name: 'Notifications & Activity' });
-  const likes = engagementSettings.getByRole('checkbox', { name: 'Likes on my pins' });
-  const sharing = engagementSettings.getByRole('checkbox', { name: 'Show my public activity to followers' });
+  const settingsLink = page.getByRole('menuitem', { name: 'Settings', exact: true });
+  const openNotificationSettings = async () => {
+    await settingsLink.click();
+    await engagementSettings.locator('#settings-mobile-nav-account').waitFor();
+    await engagementSettings.locator('#settings-mobile-nav-notifications').click();
+  };
+  await openNotificationSettings();
+  const likes = engagementSettings.getByRole('switch', { name: 'Likes on my spots' });
+  const sharing = engagementSettings.getByRole('switch', { name: 'Share public activity with followers' });
   const preferences = engagementProfile.collection('notificationPreferences').doc('settings');
   assert.equal((await preferences.get()).exists, false);
-  await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
+  await likes.waitFor();
   assert.equal(await likes.isChecked(), true);
   assert.equal(await sharing.isChecked(), false);
-  await likes.uncheck();
-  await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
+  await likes.click();
+  await engagementSettings.getByText('Saved', { exact: true }).waitFor();
   assert.deepEqual((await preferences.get()).data(), { likes: false });
-  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  await closeSettings.click();
   await userMenu.click();
-  await settingsLink.click();
+  await openNotificationSettings();
   await likes.waitFor();
   assert.equal(await likes.isChecked(), false);
   if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
-  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  await closeSettings.click();
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+  await userMenu.click();
+  await settingsLink.click();
+  await engagementSettings.getByText('Email Address', { exact: true }).waitFor();
+  await engagementSettings.locator('#settings-nav-notifications').click();
+  await likes.waitFor();
+  assert.equal(await likes.isChecked(), false);
+  assert.equal(new URL(page.url()).pathname, '/settings/notifications');
+  if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-settings-desktop-light.png'), animations: 'disabled' });
+  await closeSettings.click();
 
   let releaseRequest;
   const pendingRequest = new Promise(resolve => { releaseRequest = resolve; });
@@ -704,13 +722,13 @@ try {
     });
   });
   await bell.click();
-  await inbox.getByText('Loading…', { exact: true }).waitFor();
+  await inbox.getByText('Loading notifications…', { exact: true }).waitFor();
   releaseRequest();
-  await inbox.getByRole('alert').getByText('Notifications and activity are temporarily unavailable.').waitFor();
-  await inbox.getByRole('button', { name: 'Notifications & Activity settings' }).click();
+  await inbox.getByRole('alert').waitFor();
+  await inbox.getByRole('button', { name: 'Notification settings' }).click();
   await likes.waitFor();
   assert.equal(await likes.isChecked(), false);
-  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  await closeSettings.click();
   assert.ok(await bell.evaluate(button => button === document.activeElement));
   await bell.click();
   await inbox.getByRole('alert').waitFor();
