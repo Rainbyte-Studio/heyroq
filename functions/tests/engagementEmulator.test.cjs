@@ -42,7 +42,7 @@ async function createPin(uid) {
 
 async function runPrune() {
   let status;
-  await pruneEngagementHistory({ method: 'POST' }, {
+  await pruneEngagementHistory({ method: 'POST', headers: {} }, {
     status(code) { status = code; return this; },
     end() {},
     sendStatus(code) { status = code; },

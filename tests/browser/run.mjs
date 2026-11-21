@@ -553,8 +553,16 @@ try {
   await activityPanel.getByRole('button', { name: 'My Activity' }).click();
   await activityPanel.getByText(/You published Activity browser fixture/).first().waitFor();
   assert.equal(await activityPanel.getByRole('listitem').count(), 24);
+  const moreResponse = page.waitForResponse(response => {
+    const request = response.request();
+    return response.url().endsWith('/engagementV1') && request.method() === 'POST' &&
+      Boolean(request.postDataJSON()?.data?.before);
+  });
   await activityPanel.getByRole('button', { name: 'Load more' }).click();
-  await page.waitForFunction(() => document.querySelectorAll('dialog[open] ol li').length === 26);
+  const payload = await (await moreResponse).json();
+  assert.equal(payload.result?.items?.length, 2, JSON.stringify(payload.error ?? payload.result));
+  await activityPanel.getByRole('listitem').nth(25).waitFor();
+  assert.equal(await activityPanel.getByRole('listitem').count(), 26);
   if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
   await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
   await userMenu.click();
