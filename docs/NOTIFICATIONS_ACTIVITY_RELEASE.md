@@ -71,6 +71,8 @@ The production read-only check on 2026-11-21 returned zero pin documents and zer
 
 Use scripts/remediate-pin-image-tokens.mjs for a redacted dry run. Each reviewed apply accepts one digest plus verified owner-client readiness, requires active owner delivery and the exact Storage Rules, and checks current references and object versions before patching metadata. Keep pin writes frozen across the operation and verify public access to positive controls and owner access before reopening. Ambiguous and unreferenced objects require separate disposition. Cache invalidation prevents new fetches after revocation. Copies already downloaded or held by intermediaries may survive.
 
+The Storage emulator automatically issues a replacement token when its test-only API removes the final token. The emulator tests old-token denial and owner delivery on a separate tokenless fixture. Rehearse the exact production metadata operation on disposable media during a separately authorized release if remediation becomes necessary.
+
 ## Release sequence
 
 1. Use an explicitly authorized release with a reviewed immutable commit and the named Firestore database. Review the index build and security rule diff. Keep the existing progression config and identities intact.

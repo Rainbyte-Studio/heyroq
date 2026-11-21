@@ -1411,6 +1411,13 @@ test('restricted legacy media invalidates issued URLs and remains available to i
     assert.equal(removal.status, 200);
     assert.ok([401, 403, 404].includes((await fetch(base + storagePath + '&token=' + token)).status));
     assert.ok([401, 403, 404].includes((await fetch(base + storagePath)).status));
+    // The emulator automatically mints a replacement token when its last
+    // token is removed. Use a separate tokenless fixture to verify owner access.
+    const privateFile = bucket.file('pins/' + uid + '/tokenless.png');
+    await privateFile.save(png, { resumable: false, metadata: { contentType: 'image/png',
+      metadata: { heyroqRestricted: '1', heyroqRestrictedOwner: uid, heyroqRestrictedPin: pinId } } });
+    await pin.update({ imageUrls: ['https://firebasestorage.googleapis.com/v0/b/' + bucket.name + '/o/' +
+      encodeURIComponent(privateFile.name) + '?alt=media'] });
     assert.equal((await caller(uid)).content, png.toString('base64'));
     await assert.rejects(caller('other-user'), { code: 'not-found' });
     await assert.rejects(caller(uid, { pinId, index: 0, path: file.name }), { code: 'invalid-argument' });
@@ -1420,6 +1427,7 @@ test('restricted legacy media invalidates issued URLs and remains available to i
     await pin.delete();
     await owner.delete();
     await file.delete({ ignoreNotFound: true });
+    await bucket.file('pins/' + uid + '/tokenless.png').delete({ ignoreNotFound: true });
   }
 });
 
