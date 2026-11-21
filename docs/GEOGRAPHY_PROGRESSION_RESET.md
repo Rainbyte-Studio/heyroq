@@ -112,10 +112,56 @@ transaction. Keep the deny policy in place through replacement, verification
 of every route and binding, and the reset. Remove it only after compatible
 runtimes are exclusively reachable and old executions have drained.
 
-The existing Google session can update the Functions and act as the runtime
-identities for deployment, but lacks `iam.denypolicies.create`,
-`iam.denypolicies.update`, `iam.denypolicies.delete`, and
-`iam.serviceAccounts.getAccessToken` for the audited old writer identities.
-It cannot establish and directly verify this fence. Engage an authorized
-operator for the fence or establish positive old-revision retirement and
-delivery evidence before using a drain-only cutover.
+Run `node release/progression-isolation.mjs` with the authorized session's
+read token in `HEYROQ_RELEASE_READ_TOKEN`. The check prints the functions,
+routes, delivery identities and dependencies and exits 2 because those
+observations alone do not establish isolation. It does not persist data or
+change production.
+
+All twelve scoped Gen2 endpoints on the current baseline use their original
+source. The indirect paths include both comment counters and account deletion
+intake. The Gen1 Auth trigger records deletion receipts only. Note these
+limitations before choosing a cutover:
+
+* Scheduler pause prevents new dispatches. It does not fence a worker that
+  already holds a lease. Maintain the same job name, URI and OIDC identity,
+  and verify outstanding dispatches and leases. Leave the image cleanup job
+  running if its path is independent.
+* Keep the Eventarc-managed push configuration and subscription. Do not
+  implement pause by editing the managed push target. A zero backlog is a
+  point-in-time observation. Verify the stable service target, no legacy
+  traffic routes or tags, and positive old-execution retirement evidence.
+* A service-account disable rejects already issued tokens, but the compute
+  identity also serves the frontend and eight Eventarc triggers. Disabling it
+  would revoke delivery as well as Firestore and could interrupt unrelated
+  operations. It is unsuitable for this cutover.
+
+If positive retirement evidence is unavailable, the project IAM administrator
+should own a single temporary deny policy attached to project `856895300361`.
+Scope it to `datastore.googleapis.com/entities.create`, `entities.update`
+and `entities.delete` (each with the same service prefix) and only the four
+audited runtime principals:
+
+* `856895300361-compute@developer.gserviceaccount.com`
+* `hq-rt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com`
+* `hq-rt-account-delete@rainbyte-studio.iam.gserviceaccount.com`
+* `hq-rt-account-reconcile@rainbyte-studio.iam.gserviceaccount.com`
+
+Use a database tag condition for database-level scope when needed and verify
+that the tag applies to Firestore entity writes. The named database is
+currently the only Firestore database in the project. The policy would still
+fence all Firestore writes made under those identities on that database,
+including pin-deletion cleanup and account-deletion work. Confirm the effects
+of deferring that work before installation. Do not deny invocation, Storage,
+or Auth permissions. A dedicated compatible runtime outside the deny set
+can use a least-privilege database-specific role. Keep the existing Eventarc
+and Scheduler identities. Keep separate runtimes for image cleanup and
+account deletion where their roles differ.
+
+Before installing the policy, the administrator must be able to verify
+effective denial for each listed identity and the release operator's ability
+to commit on the named database. Apply and remove it through the IAM v2 API
+using project-scoped deny administration. Keep the old identities fenced
+until legacy execution and route checks pass. The current session lacks
+`iam.denypolicies.create`, `iam.denypolicies.update`, `iam.denypolicies.delete`,
+and `iam.serviceAccounts.getAccessToken` for the affected identities.
