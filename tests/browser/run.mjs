@@ -522,7 +522,7 @@ try {
   assert.ok((await db.doc('usernames/resumed_explorer').get()).exists);
   const engagementUid = (await db.doc('usernames/resumed_explorer').get()).get('uid');
   const engagementProfile = db.collection('users').doc(engagementUid);
-  const bell = page.getByRole('button', { name: /^Notifications/ });
+  const bell = page.getByRole('button', { name: /^Notifications(?:, \d+ unread)?$/ });
   await bell.press('Enter');
   const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
   const closeInbox = inbox.getByRole('button', { name: 'Close Notifications' });
@@ -555,6 +555,13 @@ try {
   const ownPinProfile = page.getByRole('dialog', { name: "Resumed Explorer's profile" });
   await ownPinProfile.getByText('Private owner spot', { exact: true }).waitFor();
   await ownPinProfile.getByText('Draft owner spot', { exact: true }).waitFor();
+  await ownPinProfile.getByRole('button', { name: 'Scroll to profile settings' }).click();
+  const profileSettingsLink = ownPinProfile.getByRole('button', { name: /Notifications & Activity/ });
+  await profileSettingsLink.click();
+  const profileSettingsDialog = page.getByRole('dialog', { name: 'Notifications & Activity' });
+  await profileSettingsDialog.getByRole('checkbox', { name: 'Show my public activity to followers' }).waitFor();
+  await profileSettingsDialog.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  assert.ok(await profileSettingsLink.evaluate(button => button === document.activeElement));
   await ownPinProfile.getByRole('button', { name: /Close/ }).first().click();
   const engagementSeed = db.batch();
   for (let n = 1; n <= 2; n++) {
@@ -602,6 +609,12 @@ try {
     const bounds = await inbox.boundingBox();
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
     if (width < 768) assert.equal(bounds.width, width);
+    else {
+      const anchor = await bell.boundingBox();
+      assert.ok(anchor && bounds.y >= anchor.y + anchor.height);
+      assert.ok(bounds.x > width / 3 && bounds.width <= 384 && bounds.y + bounds.height <= height);
+      assert.ok(Math.abs(bounds.x + bounds.width - anchor.x - anchor.width) <= 16);
+    }
     assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
     assert.ok(await inbox.evaluate(dialog => {
       const rgb = value => value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
@@ -687,7 +700,14 @@ try {
   await bell.click();
   await inbox.getByText('Loading…', { exact: true }).waitFor();
   releaseRequest();
-  await inbox.getByText('This view could not load.').waitFor();
+  await inbox.getByRole('alert').getByText('Notifications and activity are temporarily unavailable.').waitFor();
+  await inbox.getByRole('button', { name: 'Notifications & Activity settings' }).click();
+  await likes.waitFor();
+  assert.equal(await likes.isChecked(), false);
+  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  assert.ok(await bell.evaluate(button => button === document.activeElement));
+  await bell.click();
+  await inbox.getByRole('alert').waitFor();
   await page.unroute('**/engagementV1');
   await inbox.getByRole('button', { name: 'Retry' }).click();
   await inbox.getByText('Product update 1').waitFor();

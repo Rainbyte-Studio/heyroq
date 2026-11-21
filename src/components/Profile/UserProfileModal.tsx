@@ -51,6 +51,7 @@ interface UserProfileModalProps {
   onOpenCreatePin?: () => void;
   onOpenOtherProfile?: (userId: string) => void;
   onOpenAbout?: () => void;
+  onOpenEngagementSettings?: () => void;
   onAvatarUpdated?: (userId: string, newAvatarUrl: string) => void;
   onAccountDeleted?: () => void;
   initialOpenAccountSecurity?: boolean;
@@ -86,6 +87,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onOpenCreatePin,
   onOpenOtherProfile,
   onOpenAbout,
+  onOpenEngagementSettings,
   onAvatarUpdated,
   onAccountDeleted,
   initialOpenAccountSecurity = false,
@@ -956,6 +958,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       className="w-full sm:w-64"
                     />
                   </div>
+
+                  {onOpenEngagementSettings && (
+                    <button type="button" onClick={onOpenEngagementSettings} aria-haspopup="dialog"
+                      className="liquid-glass-card heyroq-focus-ring flex min-h-[54px] w-full flex-col justify-center rounded-2xl px-4 py-3 text-left hover:border-[var(--brand-primary)]/50">
+                      <span className="text-sm font-bold">Notifications &amp; Activity</span>
+                      <span className="text-xs text-[var(--heyroq-text-secondary)]">In-app notifications and activity privacy</span>
+                    </button>
+                  )}
 
                   {/* Account & Security Entry Row (Profile -> Settings -> Account & Security) */}
                   <button

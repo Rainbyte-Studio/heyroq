@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { Activity, Bell, Check, Compass, Heart, MapPin, MessageCircle, Reply, Sparkles, Trophy, UserPlus, X } from 'lucide-react';
+import { Activity, Bell, Check, Compass, Heart, MapPin, MessageCircle, Reply, Settings, Sparkles, Trophy, UserPlus, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { UserAvatar } from '../Common/UserAvatar';
 import {
@@ -66,6 +66,7 @@ function EngagementSettings({ uid }: { uid: string }) {
   const [pending, setPending] = useState<{ key: PreferenceKey; value: boolean } | null>(null);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
+  const [failedSave, setFailedSave] = useState<{ key: PreferenceKey; value: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => subscribeToEngagementSettings(uid, (current, cached) => {
     setValues(current);
@@ -73,17 +74,27 @@ function EngagementSettings({ uid }: { uid: string }) {
   }, () => setError('Settings could not load.')), [uid, attempt]);
   async function save(key: PreferenceKey, checked: boolean) {
     setPending({ key, value: checked });
+    setFailedSave(null);
     setError('');
     try {
       await saveEngagementSetting(uid, key, checked);
       setValues(previous => previous && { ...previous, [key]: checked });
     }
-    catch { setError('Your preference could not be saved.'); }
+    catch {
+      setFailedSave({ key, value: checked });
+      setError('Your preference could not be saved.');
+    }
     finally { setPending(null); }
   }
   return (
     <div className="space-y-5 px-4 py-3 sm:px-6">
-      {error && <p role="alert">{error} <button className={button} onClick={() => { setError(''); setAttempt(n => n + 1); }}>Retry</button></p>}
+      {error && <div className="rounded-2xl border border-[var(--heyroq-border-subtle)] p-3 text-sm">
+        <p role="alert">{error}</p>
+        <button type="button" className={button} disabled={Boolean(pending) || (Boolean(failedSave) && offline)} onClick={() => {
+          if (failedSave) void save(failedSave.key, failedSave.value);
+          else { setError(''); setAttempt(n => n + 1); }
+        }}>Retry</button>
+      </div>}
       {!values && !error && <p role="status">Loading preferences…</p>}
       {values && <>
         <p role="status" className={'text-sm ' + secondary}>
@@ -120,13 +131,16 @@ type Props = {
   unread: number;
   revision: number;
   offline: boolean;
+  listenerReady: boolean;
+  retryListener: () => void;
   openDestination: (destination: NonNullable<ReturnType<typeof engagementDestination>>, signal: AbortSignal) => Promise<boolean>;
   fallbackFocus: () => void;
 };
 
-export function EngagementPanel({ uid, view, setView, close, unread, revision, offline, openDestination, fallbackFocus }: Props) {
+export function EngagementPanel({ uid, view, setView, close, unread, revision, offline, listenerReady, retryListener, openDestination, fallbackFocus }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [page, setPage] = useState<EngagementPage | null>(null);
   const [error, setError] = useState('');
@@ -153,6 +167,11 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
     };
   }, [fallbackFocus]);
 
+  useLayoutEffect(() => {
+    scrollRef.current?.scrollTo(0, 0);
+    closeRef.current?.focus({ preventScroll: true });
+  }, [view]);
+
   useEffect(() => {
     function update() { setOnline(navigator.onLine); }
     window.addEventListener('online', update);
@@ -173,8 +192,12 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
     if (action && online) {
       void loadEngagement(action).then(result => {
         if (epoch.current === number) setPage(result);
-      }, () => {
-        if (epoch.current === number) setError('This view could not load.');
+      }, (failure: unknown) => {
+        if (epoch.current !== number) return;
+        const code = (failure as { code?: string } | null)?.code;
+        setError(code === 'functions/unauthenticated' ? 'Your session ended. Sign in again to continue.'
+          : code === 'functions/not-found' || code === 'functions/internal' || code === 'functions/unavailable'
+            ? 'Notifications and activity are temporarily unavailable.' : 'This view could not load.');
       });
     }
     return () => { epoch.current++; };
@@ -217,7 +240,10 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
   async function mutate(operation: 'read' | 'delete' | 'readAll', row?: EngagementRow) {
     setBusy(true);
     setError('');
-    try { await changeNotification(operation, row?.id); }
+    try {
+      await changeNotification(operation, row?.id);
+      if (!listenerReady) reload();
+    }
     catch { setError('Your inbox could not be updated.'); }
     finally {
       setBusy(false);
@@ -267,7 +293,8 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
       </span>
     </>;
     return (
-      <li key={row.id} className="rounded-2xl border border-[var(--heyroq-border-subtle)] px-2 py-1">
+      <li key={row.id} className={'rounded-2xl px-2 py-1 ' + (isInbox && !row.read
+        ? 'bg-[var(--brand-primary)]/[.08]' : 'border border-[var(--heyroq-border-subtle)]')}>
         {destination ? (
           <button type="button" disabled={busy || !online} onClick={() => void open(row)}
             className="heyroq-focus-ring flex w-full min-h-12 items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm">{detail}</button>
@@ -292,17 +319,37 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
 
   const groups = groupNotifications<EngagementRow>(page?.items ?? []);
   const compact = view === 'inbox';
+  useLayoutEffect(() => {
+    if (!compact) return;
+    const bell = document.getElementById('nav-notifications-btn');
+    const dialog = dialogRef.current;
+    if (!bell || !dialog) return;
+    function position() {
+      if (!bell || !dialog) return;
+      const bounds = bell.getBoundingClientRect();
+      const top = bounds.bottom + 8;
+      dialog.style.setProperty('--inbox-top', top + 'px');
+      dialog.style.setProperty('--inbox-right', Math.max(16, window.innerWidth - bounds.right) + 'px');
+    }
+    position();
+    window.addEventListener('resize', position);
+    return () => window.removeEventListener('resize', position);
+  }, [compact]);
   return createPortal(
     <dialog ref={dialogRef} aria-labelledby={titleId}
       onCancel={event => { event.preventDefault(); close(); }}
-      className={'fixed m-0 max-h-none max-w-none overflow-hidden bg-[var(--heyroq-bg-surface)] text-[var(--heyroq-text-primary)] shadow-2xl backdrop:bg-black/40 ' +
-        'inset-0 h-[100dvh] w-screen md:inset-auto md:rounded-3xl md:border md:border-[var(--heyroq-border-subtle)] ' +
-        (compact ? 'md:top-16 md:right-5 md:h-auto md:max-h-[min(76vh,700px)] md:w-[420px]'
-          : 'md:inset-0 md:m-auto md:h-[min(80dvh,780px)] md:w-[min(680px,90vw)]')}>
+      className={'fixed m-0 max-h-none max-w-none overflow-hidden bg-[var(--heyroq-bg-surface)] text-[var(--heyroq-text-primary)] shadow-2xl ' +
+        'inset-0 h-[100dvh] w-screen md:rounded-3xl md:border md:border-[var(--heyroq-border-subtle)] ' +
+        (compact ? 'backdrop:bg-black/10 md:inset-auto md:top-[var(--inbox-top,4rem)] md:right-[var(--inbox-right,1rem)] md:h-auto md:w-96'
+          : 'backdrop:bg-black/35 md:inset-0 md:m-auto md:h-[min(80dvh,720px)] md:w-[min(600px,90vw)]')}>
       <div className={'flex min-h-0 flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:p-0 ' +
-        (compact ? 'h-full md:h-auto md:max-h-[min(76vh,700px)]' : 'h-full')}>
-        <header className="flex items-center justify-between gap-2 px-4 py-2 sm:px-6">
-          <h2 id={titleId} className="text-lg font-bold">{heading}</h2>
+        (compact ? 'h-full md:h-auto md:max-h-[min(540px,calc(100dvh_-_var(--inbox-top,4rem)_-_1rem))]' : 'h-full')}>
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--heyroq-border-subtle)] px-4 py-2 sm:px-5">
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-lg font-bold">{heading}</h2>
+            {view === 'history' && <p className={'text-xs ' + secondary}>History</p>}
+          </div>
+          {view !== 'settings' && <button type="button" className={button + ' ml-auto'} aria-label="Notifications & Activity settings" onClick={() => setView('settings')}><Settings className="h-5 w-5" aria-hidden /></button>}
           <button ref={closeRef} className={button} type="button" aria-label={'Close ' + heading} onClick={close}><X className="h-5 w-5" /></button>
         </header>
         {isInbox && (
@@ -321,11 +368,18 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
             ))}
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {view === 'settings' ? <EngagementSettings uid={uid} /> : (
             <div className="px-4 pb-4 pt-2 sm:px-6">
               {!online && <p role="status">You’re offline. Connect to load {isInbox ? 'notifications' : 'activity'}.</p>}
-              {error && <p role="alert" className="text-sm">{error} <button className={button} onClick={reload}>Retry</button></p>}
+              {error && <div className="my-2 rounded-2xl border border-[var(--heyroq-border-subtle)] px-4 py-3 text-sm">
+                <p role="alert">{error}</p>
+                <button type="button" className={button + ' mt-1'} onClick={() => {
+                  closeRef.current?.focus();
+                  if (isInbox && !listenerReady) retryListener();
+                  reload();
+                }}>Retry</button>
+              </div>}
               {online && !page && !error && <p role="status" className={secondary}>Loading…</p>}
               {page?.limited && <p className={'mb-2 text-xs ' + secondary}>Showing activity from the 90 people you followed most recently.</p>}
               {page && !page.items.length && <p className={'py-7 text-center text-sm ' + secondary}>
