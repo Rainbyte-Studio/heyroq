@@ -39,7 +39,7 @@ import {
 } from '../utils/geo';
 import { sortPins } from '../utils/sortUtils';
 import { createSpotSearchMatcher, hasSpotSearchQuery } from '../utils/spotSearch';
-import { isPublicPin, publicPinFilter } from './pinVisibility';
+import { isPublicPin, publicPinFilters } from './pinVisibility';
 
 export function formatDocDate(val: any): string {
   if (!val) return new Date().toISOString();
@@ -102,7 +102,7 @@ export function subscribeToViewportPins(bounds: LatLngBounds, onUpdate: (pins: P
     onUpdate([...pins.values()].filter(pin => isPointInBounds(pin.latitude, pin.longitude, bounds)));
   }
   const unsubscribes = ranges.map(([start, end], index) => {
-    const source = query(collection(db, PINS_COLLECTION), publicPinFilter(), orderBy('geohash'),
+    const source = query(collection(db, PINS_COLLECTION), ...publicPinFilters, orderBy('geohash'),
       where('geohash', '>=', start), where('geohash', '<=', end), limit(50));
     return onSnapshot(source, { includeMetadataChanges: true }, snap => {
       snapshots.set(index, (snap.metadata.fromCache ? [] : snap.docs).map(doc => {
@@ -130,14 +130,14 @@ export async function fetchPinsByDiscovery(
     if (canonicalCategory) {
       const variants = getCategoryQueryVariants(canonicalCategory);
       if (variants.length === 1) {
-        q = query(pinsRef, publicPinFilter(), where('category', '==', variants[0]), limit(limitCount));
+        q = query(pinsRef, ...publicPinFilters, where('category', '==', variants[0]), limit(limitCount));
       } else {
-        q = query(pinsRef, publicPinFilter(), where('category', 'in', variants.slice(0, 10)), limit(limitCount));
+        q = query(pinsRef, ...publicPinFilters, where('category', 'in', variants.slice(0, 10)), limit(limitCount));
       }
     } else if (type === 'popular') {
-      q = query(pinsRef, publicPinFilter(), orderBy('likeCount', 'desc'), limit(limitCount));
+      q = query(pinsRef, ...publicPinFilters, orderBy('likeCount', 'desc'), limit(limitCount));
     } else {
-      q = query(pinsRef, publicPinFilter(), orderBy('createdAt', 'desc'), limit(limitCount));
+      q = query(pinsRef, ...publicPinFilters, orderBy('createdAt', 'desc'), limit(limitCount));
     }
 
     const snap = await getDocsFromServer(q);
@@ -188,14 +188,14 @@ export function subscribeToDiscoveryPins(
     if (canonicalCategory) {
       const variants = getCategoryQueryVariants(canonicalCategory);
       if (variants.length === 1) {
-        q = query(pinsRef, publicPinFilter(), where('category', '==', variants[0]), limit(limitCount));
+        q = query(pinsRef, ...publicPinFilters, where('category', '==', variants[0]), limit(limitCount));
       } else {
-        q = query(pinsRef, publicPinFilter(), where('category', 'in', variants.slice(0, 10)), limit(limitCount));
+        q = query(pinsRef, ...publicPinFilters, where('category', 'in', variants.slice(0, 10)), limit(limitCount));
       }
     } else if (type === 'popular') {
-      q = query(pinsRef, publicPinFilter(), orderBy('likeCount', 'desc'), limit(limitCount));
+      q = query(pinsRef, ...publicPinFilters, orderBy('likeCount', 'desc'), limit(limitCount));
     } else {
-      q = query(pinsRef, publicPinFilter(), orderBy('createdAt', 'desc'), limit(limitCount));
+      q = query(pinsRef, ...publicPinFilters, orderBy('createdAt', 'desc'), limit(limitCount));
     }
 
     return onSnapshot(
@@ -248,7 +248,7 @@ export function subscribeToDiscoveryPins(
 // 3. Search pins by keyword, tags, or location
 async function readSearchCatalog(): Promise<Pin[]> {
   const pageSize = 150;
-  const orderedPins = query(collection(db, PINS_COLLECTION), publicPinFilter(), orderBy(documentId()), limit(pageSize));
+  const orderedPins = query(collection(db, PINS_COLLECTION), ...publicPinFilters, orderBy(documentId()), limit(pageSize));
   const pins: Pin[] = [];
   let page = await getDocsFromServer(orderedPins);
 
@@ -271,7 +271,30 @@ async function readSearchCatalog(): Promise<Pin[]> {
 
 export async function searchPins(keyword: string): Promise<Pin[]> {
   if (!hasSpotSearchQuery(keyword)) return [];
-  return (await searchPinRead.read()).filter(createSpotSearchMatcher(keyword));
+  const matches = createSpotSearchMatcher(keyword);
+  return (await searchPinRead.read()).filter(pin => isPublicPin(pin) && matches(pin)).slice(0, 180);
+}
+
+export function subscribeToPublicPinResults(pins: Pin[], onUpdate: (pins: Pin[]) => void) {
+  if (!pins.length) {
+    onUpdate([]);
+    return () => {};
+  }
+  const groups = new Map<number, Set<string>>();
+  const unsubs: Array<() => void> = [];
+  for (let offset = 0; offset < pins.length; offset += 30) {
+    const ids = pins.slice(offset, offset + 30).map(pin => pin.id);
+    const source = query(collection(db, PINS_COLLECTION), ...publicPinFilters, where(documentId(), 'in', ids));
+    const update = (including: string[]) => {
+      groups.set(offset, new Set(including));
+      if (groups.size !== Math.ceil(pins.length / 30)) return;
+      onUpdate(pins.filter((pin, index) => groups.get(index - index % 30)?.has(pin.id)));
+    };
+    unsubs.push(onSnapshot(source, { includeMetadataChanges: true },
+      snap => update(snap.metadata.fromCache ? [] : snap.docs.filter(row => isPublicPin(row.data())).map(row => row.id)),
+      () => update([])));
+  }
+  return () => unsubs.forEach(unsubscribe => unsubscribe());
 }
 
 // 4. Fetch single pin by ID
@@ -998,7 +1021,7 @@ export async function fetchUserPins(userId: string): Promise<Pin[]> {
   try {
     const q = query(
       collection(db, PINS_COLLECTION),
-      publicPinFilter(),
+      ...publicPinFilters,
       where('userId', '==', userId),
       limit(50)
     );
@@ -1039,7 +1062,7 @@ export function subscribeToUserPins(
 
   const q = query(
     collection(db, PINS_COLLECTION),
-    ...(includeOwnRestricted && auth.currentUser?.uid === userId ? [] : [publicPinFilter()]),
+    ...(includeOwnRestricted && auth.currentUser?.uid === userId ? [] : publicPinFilters),
     where('userId', '==', userId),
     limit(50)
   );

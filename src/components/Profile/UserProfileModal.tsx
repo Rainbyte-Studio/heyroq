@@ -332,6 +332,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   }, [isMe, myProfile]);
 
   useEffect(() => {
+    setUserPins([]);
     let isMounted = true;
     let unsubscribeUserSnapshot: (() => void) | null = null;
     let unsubscribeFollowers: (() => void) | null = null;

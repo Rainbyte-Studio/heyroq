@@ -10,12 +10,21 @@ import App from '../../src/App';
 import { AuthProvider } from '../../src/context/AuthContext';
 import { CreatePinModal } from '../../src/components/Pin/CreatePinModal';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
-import { createPin, deletePin, newPinPublishAttempt } from '../../src/services/pinService';
+import { createPin, deletePin, fetchPinById, newPinPublishAttempt, subscribeToViewportPins } from '../../src/services/pinService';
+import { computeGeohash } from '../../src/utils/geo';
 import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
     signOut: () => signOut(auth),
+    async readablePin(id: string) {
+      return Boolean(await fetchPinById(id));
+    },
+    watchPinViewport(onResult: (ids: string[]) => void) {
+      return subscribeToViewportPins({ north: 37.1, south: 36.9, west: 22.9, east: 23.1 },
+        pins => onResult(pins.map(pin => pin.id)));
+    },
+    fixtureGeohash: () => computeGeohash(37, 23),
     signIn: (email: string, password: string) => signInWithEmailAndPassword(auth, email, password).then(() => undefined),
     mountCreatePin() {
       const host = document.createElement('div');

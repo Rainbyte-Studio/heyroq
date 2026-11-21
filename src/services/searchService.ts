@@ -27,6 +27,7 @@ export interface CategorizedSearchResults {
   tags: GlobalSearchResultItem[];
   totalCount: number;
   spotsUnavailable?: boolean;
+  sourcePins?: Pin[];
 }
 
 export const EMPTY_SEARCH_RESULTS: CategorizedSearchResults = {
@@ -51,7 +52,12 @@ export async function executeGlobalSearch(
     }),
     isTagQuery ? Promise.resolve([]) : searchUsers(rawQuery.trim(), 6),
   ]);
+  return categorizeSearchResults(rawQuery, pins, users);
+}
 
+export function categorizeSearchResults(rawQuery: string, pins: Pin[] | null, users: PublicUserProfile[]): CategorizedSearchResults {
+  const isTagQuery = rawQuery.trimStart().startsWith('#');
+  const term = normalizeSearchTag(rawQuery);
   const matchedSpots: GlobalSearchResultItem[] = (pins ?? []).map(pin => ({
     id: `spot_${pin.id}`,
     type: 'spot',
@@ -143,5 +149,6 @@ export async function executeGlobalSearch(
     tags,
     totalCount: spots.length + people.length + cities.length + tags.length,
     spotsUnavailable: pins === null,
+    sourcePins: pins ?? undefined,
   };
 }

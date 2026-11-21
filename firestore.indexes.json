@@ -163,6 +163,14 @@
           "order": "ASCENDING"
         },
         {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "geohash",
           "order": "ASCENDING"
         }
@@ -176,6 +184,14 @@
       "fields": [
         {
           "fieldPath": "publicAccess",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {
@@ -195,6 +211,14 @@
           "order": "ASCENDING"
         },
         {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "likeCount",
           "order": "DESCENDING"
         }
@@ -208,6 +232,14 @@
       "fields": [
         {
           "fieldPath": "publicAccess",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {
@@ -227,6 +259,14 @@
           "order": "ASCENDING"
         },
         {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "userId",
           "order": "ASCENDING"
         }
@@ -240,6 +280,14 @@
       "fields": [
         {
           "fieldPath": "publicAccess",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "visibility",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {

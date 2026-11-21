@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
+import { initializeApp, deleteApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { backfill } from '../scripts/backfill-pin-public-access.mjs';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, where, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 import { makePinImageTransitionRules, makePinImageTransitionStorageRules } from '../scripts/pin-image-transition-rules.mjs';
@@ -110,7 +113,8 @@ it('protects pin coordinates and related documents at the database boundary', as
     }
     await assertFails(getDocs(collection(client, 'pins')));
     assert.deepEqual((await assertSucceeds(getDocs(query(collection(client, 'pins'),
-      where('publicAccess', '==', true))))).docs.map(record => record.id), ['visible']);
+      where('publicAccess', '==', true), where('visibility', '==', 'public'),
+      where('status', '==', 'published'))))).docs.map(record => record.id), ['visible']);
   }
   const owner = alice();
   for (const id of ['private', 'draft', 'ambiguous']) assert.equal((await assertSucceeds(getDoc(doc(owner, 'pins/' + id)))).exists(), true);
@@ -132,6 +136,37 @@ it('protects pin coordinates and related documents at the database boundary', as
   await assertFails(getDoc(doc(guest, draft.path)));
   await assertSucceeds(updateDoc(draft, { status: 'published', publicAccess: true }));
   assert.equal((await assertSucceeds(getDoc(doc(guest, draft.path)))).exists(), true);
+  await assertFails(setDoc(doc(owner, 'pins/attached-to-draft'), pin({ status: 'draft', publicAccess: false,
+    imageUrls: ['https://example.test/bearer-image'] })));
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'pins/previously-shared-image'),
+    pin({ imageUrls: ['https://example.test/bearer-image'] })));
+  await assertFails(updateDoc(doc(owner, 'pins/previously-shared-image'), { visibility: 'private', publicAccess: false }));
+});
+
+it('backfills only a verified same-commit publication and remains safe to rerun', async () => {
+  assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
+  const app = initializeApp({ projectId }, 'pin-visibility-migration-test');
+  const admin = getFirestore(app);
+  try {
+    const { visibility, status, publicAccess, ...legacy } = pin({ publishReceipt: true });
+    await admin.batch()
+      .create(admin.doc('pins/verified'), legacy)
+      .create(admin.doc('users/alice/pinPublishReceipts/verified'), { publishedAt: FieldValue.serverTimestamp() })
+      .create(admin.doc('pins/uncertain'), legacy)
+      .create(admin.doc('pins/restricted'), { ...legacy, visibility: 'private' })
+      .create(admin.doc('users/alice/pinPublishReceipts/restricted'), { publishedAt: FieldValue.serverTimestamp() })
+      .commit();
+    assert.equal((await backfill(admin)).confirmedPublic, 1);
+    assert.equal((await admin.doc('pins/verified').get()).get('publicAccess'), undefined);
+    assert.equal((await backfill(admin, { apply: true })).confirmedPublic, 1);
+    assert.equal((await backfill(admin, { apply: true })).confirmedPublic, 0);
+    assert.equal((await admin.doc('pins/verified').get()).get('publicAccess'), true);
+    assert.equal((await admin.doc('pins/restricted').get()).get('publicAccess'), undefined);
+    assert.equal((await admin.doc('pins/uncertain').get()).get('publicAccess'), undefined);
+  } finally {
+    await admin.terminate();
+    await deleteApp(app);
+  }
 });
 
 it('accepts replies to existing top-level comments on the same pin and keeps their parent immutable', async () => {

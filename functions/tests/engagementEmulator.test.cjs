@@ -188,6 +188,11 @@ test('reads only committed progressionV11 events and revalidates every Following
   const feed = (await call(viewer, 'following')).items;
   assert.deepEqual(feed.map(row => row.type).sort(), ['achievement', 'city', 'country', 'pin']);
   assert.ok(feed.every(row => !('xp' in row) && !('geographicReceipt' in row) && !('level' in row)));
+  await pin.update({ visibility: 'private', publicAccess: false });
+  const revoked = await call(viewer, 'following', { before: '9'.repeat(16) + ':' + 'f'.repeat(64) });
+  assert.deepEqual(revoked.items.map(row => row.type), ['achievement']);
+  assert.ok(revoked.items.every(row => !('pinId' in row) && !('latitude' in row) && !('longitude' in row)));
+  await pin.update({ visibility: 'public', publicAccess: true });
   await db.doc('users/' + owner + '/followers/' + viewer).delete();
   assert.deepEqual((await call(viewer, 'following')).items, []);
   await link(viewer, owner);

@@ -37,6 +37,7 @@ import {
   fetchPinsByDiscovery,
   subscribeToDiscoveryPins,
   searchPins,
+  subscribeToPublicPinResults,
   toggleLike,
   checkIfLiked,
   subscribeToPinLike,
@@ -399,21 +400,22 @@ function HeyroqMainApp() {
   useEffect(() => {
     if (isSearchActive) {
       let cancelled = false;
+      let unsubscribeResults: (() => void) | undefined;
       setCompletedSearch(null);
       searchPins(searchQuery).then(results => {
         if (cancelled) return;
-        setPins(previous => {
-          const merged = new Map(previous.map(pin => [pin.id, pin]));
-          results.forEach(pin => merged.set(pin.id, pin));
-          return Array.from(merged.values());
+        const candidateIds = new Set(results.map(pin => pin.id));
+        unsubscribeResults = subscribeToPublicPinResults(results, current => {
+          if (cancelled) return;
+          setPins(previous => [...previous.filter(pin => !candidateIds.has(pin.id)), ...current]);
+          setCompletedSearch({ query: searchQuery, ids: new Set(current.map(pin => pin.id)) });
         });
-        setCompletedSearch({ query: searchQuery, ids: new Set(results.map(pin => pin.id)) });
       }).catch(error => {
         if (cancelled) return;
         console.warn('Spot search unavailable:', error);
         setCompletedSearch({ query: searchQuery, ids: null });
       });
-      return () => { cancelled = true; };
+      return () => { cancelled = true; unsubscribeResults?.(); };
     }
 
 

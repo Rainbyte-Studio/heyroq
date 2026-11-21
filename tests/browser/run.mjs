@@ -358,10 +358,13 @@ try {
   const searchPins = db.collection('pins');
   const batch = db.batch();
   for (let i = 0; i < 150; i++) {
-    batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), { title: 'Unrelated fixture' });
+    batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), {
+      title: 'Unrelated fixture', visibility: 'public', status: 'published', publicAccess: true,
+    });
   }
   const fixture = {
     visibility: 'public', status: 'published', publicAccess: true,
+    geohash: await page.evaluate(() => window.heyroqTest.fixtureGeohash()),
     userId: 'search-fixture', userName: 'Search fixture', latitude: 37, longitude: 23,
     category: 'Food', imageUrls: [], likeCount: 0, commentCount: 0, createdAt: new Date().toISOString(),
   };
@@ -384,6 +387,13 @@ try {
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => window.heyroqTest.mountSearchApp());
+  assert.equal(await page.evaluate(() => window.heyroqTest.readablePin('zz-search-private')), false);
+  await page.evaluate(() => {
+    window.pinViewportUnsubscribe = window.heyroqTest.watchPinViewport(ids => { window.pinViewportIds = ids; });
+  });
+  await page.waitForFunction(() => window.pinViewportIds?.includes('zz-search-tag'));
+  assert.equal(await page.evaluate(() => window.pinViewportIds.includes('zz-search-private')), false);
+  await page.evaluate(() => window.pinViewportUnsubscribe());
   const searchBox = page.getByRole('textbox', { name: 'Search Heyroq' });
   const searchResults = page.getByRole('region', { name: 'Search results' });
   const matchingSpots = page.getByRole('complementary', { name: 'Matching Spots' });
@@ -519,6 +529,18 @@ try {
   await db.doc('progressionMaintenance/writers').update({ mode: 'frozen' });
   await pinRef.create({ ...fixture, userId: engagementUid, title: 'Activity browser fixture' });
   const pinCreatedAt = (await pinRef.get()).createTime;
+  const ownRestricted = db.batch();
+  ownRestricted.create(db.doc('pins/own-private-browser'), { ...fixture, userId: engagementUid,
+    visibility: 'private', publicAccess: false, title: 'Private owner spot' });
+  ownRestricted.create(db.doc('pins/own-draft-browser'), { ...fixture, userId: engagementUid,
+    status: 'draft', publicAccess: false, title: 'Draft owner spot' });
+  await ownRestricted.commit();
+  await userMenu.click();
+  await page.getByRole('menuitem', { name: 'My Profile & Spots' }).click();
+  const ownPinProfile = page.getByRole('dialog', { name: "Resumed Explorer's profile" });
+  await ownPinProfile.getByText('Private owner spot', { exact: true }).waitFor();
+  await ownPinProfile.getByText('Draft owner spot', { exact: true }).waitFor();
+  await ownPinProfile.getByRole('button', { name: /Close/ }).first().click();
   const engagementSeed = db.batch();
   for (let n = 1; n <= 2; n++) {
     engagementSeed.create(engagementProfile.collection('notifications').doc(identifier(n)), {

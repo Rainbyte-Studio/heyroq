@@ -1,7 +1,7 @@
 import { collection, query, where, getDocs, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Pin } from '../types';
-import { publicPinFilter } from './pinVisibility';
+import { publicPinFilters } from './pinVisibility';
 import {
   GeographicCluster,
   FootprintStatsData,
@@ -99,7 +99,7 @@ export function subscribeToUserFootprint(
   try {
     const q = query(
       collection(db, 'pins'),
-      publicPinFilter(),
+      ...publicPinFilters,
       where('userId', '==', userId),
       limit(250)
     );
@@ -168,7 +168,7 @@ export async function fetchUserFootprint(userId: string): Promise<UserFootprintD
     try {
       const q = query(
         collection(db, 'pins'),
-        publicPinFilter(),
+        ...publicPinFilters,
         where('userId', '==', userId),
         limit(150)
       );

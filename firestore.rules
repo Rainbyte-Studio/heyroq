@@ -439,14 +439,15 @@ service cloud.firestore {
         (resource.data.get('publicAccess', false) == true && isPublicPinState(resource.data));
       // Only trusted migration or validated writes may set publicAccess. List queries
       // must constrain it explicitly because Firestore Rules do not filter results.
-      allow list: if isOwner(resource.data.userId) || isAdmin() || resource.data.publicAccess == true;
+      allow list: if isOwner(resource.data.userId) || isAdmin() ||
+        (resource.data.publicAccess == true && resource.data.visibility == 'public' && resource.data.status == 'published');
 
       // Only authenticated users may create pins; owner UID must equal request.auth.uid
       allow create: if progressionActivityOpen() && (isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        validPinAccess(request.resource.data) &&
-                       (request.resource.data.publicAccess || canPublishWithoutClaim(request.resource.data)) &&
+                       (request.resource.data.publicAccess || request.resource.data.get('imageUrls', []) == []) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
                        hasValidPublishReceipt(pinId, request.resource.data) &&
                        validGeographySelection(request.resource.data) &&

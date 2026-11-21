@@ -6,7 +6,8 @@ import { PinCategory, DiscoveryFilter, Pin, UserProgressionSummary } from '../..
 import { normalizeCategory, isSameCategory } from '../../utils/categoryUtils';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { GlobalSearchDropdown } from './GlobalSearchDropdown';
-import { executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { categorizeSearchResults, executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { subscribeToPublicPinResults } from '../../services/pinService';
 import { hasSpotSearchQuery } from '../../utils/spotSearch';
 import {
   Search,
@@ -135,6 +136,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   useEffect(() => {
     const q = searchQuery.trim();
     const seq = ++globalSearchSeqRef.current;
+    let unsubscribePins: (() => void) | undefined;
+    let disposed = false;
     if (globalSearchDebounceRef.current) {
       clearTimeout(globalSearchDebounceRef.current);
     }
@@ -149,8 +152,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     globalSearchDebounceRef.current = setTimeout(async () => {
       try {
         const results = await executeGlobalSearch(q);
-        if (seq !== globalSearchSeqRef.current) return;
-        setGlobalSearchResults(results);
+        if (disposed || seq !== globalSearchSeqRef.current) return;
+        if (!results.sourcePins?.length) setGlobalSearchResults(results);
+        else {
+          const users = results.people.flatMap(result => result.user ? [result.user] : []);
+          unsubscribePins = subscribeToPublicPinResults(results.sourcePins, pins => {
+            if (!disposed && seq === globalSearchSeqRef.current) setGlobalSearchResults(categorizeSearchResults(q, pins, users));
+          });
+        }
       } catch (err) {
         if (seq === globalSearchSeqRef.current) {
           console.error('[Heyroq Global Search] Error:', err);
@@ -164,6 +173,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     }, 300);
 
     return () => {
+      disposed = true;
+      unsubscribePins?.();
       if (globalSearchDebounceRef.current) {
         clearTimeout(globalSearchDebounceRef.current);
       }
