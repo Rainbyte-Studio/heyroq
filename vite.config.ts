@@ -16,10 +16,10 @@ function readCanonicalPackageMetadata(): {name: string; version: string} {
     const raw = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as RootPackageJson;
     return {
       name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'heyroq',
-      version: typeof raw.version === 'string' && raw.version.trim() ? raw.version.trim() : '0.1.0-beta.1',
+      version: typeof raw.version === 'string' && raw.version.trim() ? raw.version.trim() : '0.2.0-beta.1',
     };
   } catch {
-    return {name: 'heyroq', version: '0.1.0-beta.1'};
+    return {name: 'heyroq', version: '0.2.0-beta.1'};
   }
 }
 

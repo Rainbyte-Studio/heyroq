@@ -38,17 +38,17 @@ function collectFilesRecursively(dir: string, extensions: string[]): string[] {
   return results;
 }
 
-test('Root package.json defines canonical Heyroq identity and initial SemVer 0.1.0-beta.1', () => {
+test('Root package.json defines canonical Heyroq identity and SemVer 0.2.0-beta.1', () => {
   const pkgRaw = readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8');
   const pkg = JSON.parse(pkgRaw) as { name: string; version: string };
 
   assert.equal(pkg.name, 'heyroq');
-  assert.equal(pkg.version, '0.1.0-beta.1');
+  assert.equal(pkg.version, '0.2.0-beta.1');
 
   assert.equal(APP_VERSION.productName, 'Heyroq');
   assert.equal(APP_VERSION.packageName, 'heyroq');
   assert.equal(APP_VERSION.version, pkg.version);
-  assert.equal(APP_VERSION.displayVersion, 'v0.1.0-beta.1');
+  assert.equal(APP_VERSION.displayVersion, 'v0.2.0-beta.1');
   assert.equal(APP_VERSION.releaseChannel, 'Beta');
   assert.ok(Object.isFrozen(APP_VERSION), 'APP_VERSION must be immutable');
 });
@@ -334,6 +334,13 @@ test('No hardcoded stale UI version strings remain in src/ and About screen is w
       false,
       `Stale hardcoded version string v1.0.4 found in ${path.relative(ROOT_DIR, file)}`
     );
+    if (!file.endsWith(path.join('config', 'publicConfig.ts'))) {
+      assert.equal(
+        content.includes('0.1.0-beta.1'),
+        false,
+        `Stale hardcoded version string 0.1.0-beta.1 found in ${path.relative(ROOT_DIR, file)}`
+      );
+    }
   }
 
   const appSource = readFileSync(path.join(ROOT_DIR, 'src/App.tsx'), 'utf8');

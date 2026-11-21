@@ -17,9 +17,9 @@ export interface AppVersionConfig {
   readonly productName: 'Heyroq';
   /** Canonical npm package identifier from root package.json */
   readonly packageName: string;
-  /** Canonical Semantic Version string from root package.json (e.g. "0.1.0-beta.1") */
+  /** Canonical Semantic Version string from root package.json (e.g. "0.2.0-beta.1") */
   readonly version: string;
-  /** Formatted display version prefixed with "v" (e.g. "v0.1.0-beta.1") */
+  /** Formatted display version prefixed with "v" (e.g. "v0.2.0-beta.1") */
   readonly displayVersion: string;
   /** Parsed Semantic Versioning 2.0.0 components */
   readonly semver: ParsedSemVer;

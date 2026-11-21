@@ -8,7 +8,7 @@ Heyroq uses **Semantic Versioning 2.0.0** (`MAJOR.MINOR.PATCH[-prerelease][+buil
 
 - **File:** `/package.json`
 - **Package Name:** `"heyroq"`
-- **Current Version:** `"0.1.0-beta.1"`
+- **Current Version:** `"0.2.0-beta.1"`
 
 All UI surfaces—including the **About Heyroq** modal, navigation dropdown, user profile footer, and desktop status bar—read version data exclusively through `src/config/version.ts` (`APP_VERSION`).
 
