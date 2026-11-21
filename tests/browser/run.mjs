@@ -87,7 +87,7 @@ try {
         headers: { 'access-control-allow-origin': origin },
       });
     }
-    unexpected.add(url.origin);
+    unexpected.add(url.origin + url.pathname);
     return route.abort('blockedbyclient');
   });
 
@@ -603,9 +603,17 @@ try {
   await page.unroute('**/engagementV1');
   await inbox.getByRole('button', { name: 'Retry' }).click();
   await inbox.getByText('Product update 1').waitFor();
-  await context.setOffline(true);
+  // Exercise the application's connectivity handling without switching
+  // Chromium's network stack, which can try to probe external connectivity.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    window.dispatchEvent(new Event('offline'));
+  });
   await inbox.getByText('You’re offline. Connect to load notifications.').waitFor();
-  await context.setOffline(false);
+  await page.evaluate(() => {
+    Reflect.deleteProperty(navigator, 'onLine');
+    window.dispatchEvent(new Event('online'));
+  });
   await inbox.getByText('Product update 1').waitFor();
   await closeInbox.click();
   console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
