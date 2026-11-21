@@ -109,6 +109,15 @@ test('social and system delivery, replay, preferences, exact unread count and de
   assert.equal((await noticeState(owner)).get('unread'), 0);
   assert.ok((await call(owner, 'inbox')).items.every(row => row.read));
 
+  const concurrent = db.doc('users/' + owner + '/notificationCommands/concurrent');
+  await concurrent.create({ type: 'account', title: 'Account notice' });
+  const event = { data: await concurrent.get(), params: { uid: owner, id: concurrent.id } };
+  await Promise.all([onNotificationCommand.run(event), call(owner, 'readAll'), onNotificationCommand.run(event)]);
+  const concurrentInbox = await call(owner, 'inbox');
+  assert.equal(concurrentInbox.items.filter(row => row.type === 'account').length, 1);
+  assert.equal((await noticeState(owner)).get('unread'), concurrentInbox.items.filter(row => !row.read).length);
+  await call(owner, 'readAll');
+
   const command = db.doc('users/' + owner + '/notificationCommands/release');
   await command.create({ type: 'announcement', title: 'What’s new' });
   await emit(onNotificationCommand, command, { uid: owner, id: command.id });
@@ -185,7 +194,7 @@ test('reads only committed progressionV11 events and revalidates every Following
   assert.equal((await call(viewer, 'following')).items.length, 2);
   await db.doc('users/' + viewer + '/following/' + owner).delete();
   assert.equal((await call(viewer, 'following')).items.length, 0);
-  await control.update({ progressionStartsAtMs: Date.now() + 5000 });
+  await control.update({ progressionStartsAtMs: Date.now() + 86_400_000 });
   const beforeCutoff = xp.doc('follower_milestone:1');
   await beforeCutoff.create({ ...data, action: 'FOLLOWER_MILESTONE', referenceId: '1' });
   await xpEvent(beforeCutoff);

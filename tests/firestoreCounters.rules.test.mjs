@@ -79,6 +79,17 @@ it('isolates engagement settings, counters and raw projections', async () => {
   await assertFails(getDoc(doc(alice(), settings)));
 });
 
+it('documents the release blocker in existing raw pin access', async t => {
+  const privatePin = 'pins/audit-private-pin';
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), privatePin),
+    pin({ visibility: 'private', status: 'draft' })));
+  const snapshot = await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), privatePin)));
+  assert.equal(snapshot.get('visibility'), 'private');
+  assert.equal(snapshot.get('status'), 'draft');
+  assert.equal(typeof snapshot.get('latitude'), 'number');
+  t.diagnostic('Pre-existing pin Rules grant public reads of raw pin documents. This must be resolved before claiming database-wide private pin isolation.');
+});
+
 it('accepts replies to existing top-level comments on the same pin and keeps their parent immutable', async () => {
   await seedAlice();
   await env.withSecurityRulesDisabled(async context => {

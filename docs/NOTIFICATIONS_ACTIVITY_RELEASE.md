@@ -53,6 +53,10 @@ The frontend expects the callable and named database Rules to be live. Roll the 
 
 Confirm the indexes and runtime settings against the production Enterprise database during the authorized release. The emulator exercises Rules and application queries but does not certify Enterprise index build state, billing, Eventarc delivery or runtime IAM. The checked-in deployment manifest lists the intended trigger paths and bindings.
 
+### Merge gate for private and unpublished pins
+
+The engagement callable filters restricted pins and omits their details. The existing Firestore Rules still allow any client to get or list raw pin documents. An emulator fixture marked private and draft proves that the raw document, including coordinates, remains readable without authentication. Existing map, search, profile and discovery queries read that collection broadly, and legacy pins can lack visibility fields. Changing the Rules alone would break those queries. Resolve the raw pin access contract with compatible queries and a rollout for existing pins before certifying this privacy requirement.
+
 ## Release sequence
 
 1. Use an explicitly authorized release with a reviewed immutable commit and the named Firestore database. Review the index build and security rule diff. Keep the existing progression config and identities intact.
