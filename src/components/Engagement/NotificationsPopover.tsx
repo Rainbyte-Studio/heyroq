@@ -414,7 +414,7 @@ export const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({
       className="fixed z-50 inset-0 h-[100dvh] w-full flex flex-col bg-[var(--heyroq-bg-surface)] text-[var(--heyroq-text-primary)] md:inset-auto md:top-[var(--inbox-top)] md:right-[var(--inbox-right)] md:h-auto md:w-[384px] md:max-h-[min(540px,calc(100dvh-var(--inbox-top)-16px))] md:rounded-2xl md:border md:border-[var(--glass-border-strong)] md:shadow-[var(--heyroq-shadow-popover)] overflow-hidden"
     >
       {/* Header */}
-      <header className="shrink-0 flex items-center justify-between gap-2 border-b border-[var(--heyroq-border-subtle)] px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] md:pt-3">
+      <header className="heyroq-window-header shrink-0 z-20 flex items-center justify-between gap-2 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] md:pt-3">
         <div className="min-w-0 flex items-baseline gap-2">
           <h2 id={titleId} className="font-heading text-base font-semibold tracking-tight">
             Notifications
@@ -426,14 +426,14 @@ export const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             id="notifications-popover-settings-btn"
             type="button"
             onClick={goToSettings}
             aria-label="Notification settings"
             title="Notification settings"
-            className="heyroq-focus-ring w-11 h-11 md:w-9 md:h-9 rounded-full flex items-center justify-center text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[var(--heyroq-bg-subtle)] transition cursor-pointer"
+            className="heyroq-focus-ring relative w-9 h-9 after:content-[''] after:absolute after:-inset-1 md:after:inset-0 rounded-full inline-flex items-center justify-center shrink-0 select-none text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.10] active:bg-[#202124]/[0.14] dark:hover:bg-white/[0.14] dark:active:bg-white/[0.20] active:scale-95 transition-all duration-150 cursor-pointer touch-manipulation"
           >
             <Settings className="w-4 h-4" aria-hidden="true" />
           </button>

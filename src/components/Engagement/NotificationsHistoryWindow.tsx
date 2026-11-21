@@ -359,8 +359,9 @@ export const NotificationsHistoryWindow: React.FC<NotificationsHistoryWindowProp
       returnFocusElementId={returnFocusElementId}
       fallbackFocus={fallbackFocus}
     >
-      {/* Window Header */}
-      <header className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-slate-900/8 dark:border-white/10 space-y-3">
+      {/* Single Scroll Container with Sticky Translucent Window Header */}
+      <div className="flex-1 min-h-0 overflow-y-auto subtle-glass-scrollbar">
+        <header className="heyroq-window-header sticky top-0 z-20 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2
@@ -436,10 +437,10 @@ export const NotificationsHistoryWindow: React.FC<NotificationsHistoryWindowProp
             <span>Mark all as read</span>
           </button>
         </div>
-      </header>
+        </header>
 
-      {/* Scrollable Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto subtle-glass-scrollbar px-4 sm:px-6 py-4 sm:py-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] space-y-5">
+        {/* Scrollable Body Content */}
+        <div className="px-4 sm:px-6 py-4 sm:py-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] space-y-5">
         {!online && (
           <div
             role="status"
@@ -559,6 +560,7 @@ export const NotificationsHistoryWindow: React.FC<NotificationsHistoryWindowProp
             )}
           </div>
         )}
+        </div>
       </div>
     </AppWindow>
   );

@@ -134,6 +134,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const profileHeaderRef = useRef<HTMLElement>(null);
   const profileCloseButtonRef = useRef<HTMLButtonElement>(null);
   const settingsSectionRef = useRef<HTMLDivElement>(null);
   const settingsHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,9 +161,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     if (scrollContainer) {
       const containerRect = scrollContainer.getBoundingClientRect();
       const sectionRect = sectionEl.getBoundingClientRect();
+      const stickyHeaderOffset = profileHeaderRef.current?.offsetHeight ?? 64;
       const targetTop = Math.max(
         0,
-        scrollContainer.scrollTop + (sectionRect.top - containerRect.top) - 16
+        scrollContainer.scrollTop + (sectionRect.top - containerRect.top) - stickyHeaderOffset - 16
       );
       scrollContainer.scrollTo({
         top: targetTop,
@@ -569,24 +571,43 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         aria-label={profile?.displayName ? `${profile.displayName}'s profile` : 'Explorer profile'}
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl sm:max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
-        {/* Close Button */}
-        <CloseButton
-          ref={profileCloseButtonRef}
-          onClick={onClose}
-          ariaLabel="Close Profile"
-          className="absolute top-3.5 sm:top-5 right-3.5 sm:right-5 z-20"
-        />
-
-        {/* Scrollable Profile Content */}
+        {/* Scrollable Profile Content with Sticky Translucent Window Header */}
         <div
           ref={profileScrollContainerRef}
-          className="flex-1 overflow-y-auto subtle-glass-scrollbar"
+          className="flex-1 min-h-0 overflow-y-auto subtle-glass-scrollbar"
         >
+          <header
+            ref={profileHeaderRef}
+            className="heyroq-window-header sticky top-0 z-20 px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3"
+          >
+            <div className="min-w-0 flex items-baseline gap-2">
+              <span className="font-heading text-base sm:text-lg font-bold tracking-tight text-[var(--heyroq-text-primary)] truncate">
+                {isMe ? 'Profile' : profile?.displayName || 'Profile'}
+              </span>
+              {profile?.username && (
+                <span className="text-xs font-medium text-[var(--heyroq-text-muted)] truncate">
+                  @{profile.username.replace(/^@/, '')}
+                </span>
+              )}
+            </div>
+
+            <CloseButton
+              ref={profileCloseButtonRef}
+              onClick={onClose}
+              ariaLabel="Close Profile"
+              className="shrink-0"
+            />
+          </header>
+
           {/* Profile Info Header */}
           <div className="pt-5 sm:pt-6 px-4 sm:px-6 pb-4 relative">
-            <div className="flex justify-between items-start gap-3 mb-4 pr-12">
+            <div
+              className={`flex ${
+                isMe ? 'flex-col sm:flex-row sm:items-center' : 'items-center'
+              } justify-between gap-3.5 sm:gap-4 mb-4`}
+            >
               {/* Prominent Shared Avatar + Hidden File Input */}
-              <div className="relative shrink-0">
+              <div className="relative shrink-0 self-start sm:self-auto">
                 <UserAvatar
                   uid={userId}
                   displayName={isEditing ? displayNameInput || profile?.displayName : profile?.displayName}
@@ -613,36 +634,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
 
               {isMe ? (
-                <div className="flex items-center gap-2 flex-wrap justify-end">
-                  {onOpenAbout && (
-                    <button
-                      id="profile-about-heyroq-btn"
-                      type="button"
-                      onClick={onOpenAbout}
-                      aria-label="About Heyroq"
-                      className="liquid-glass-pill px-3.5 py-2 text-slate-700 dark:text-white/85 hover:text-slate-950 dark:hover:text-white rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring"
-                    >
-                      <Info className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
-                      <span>About</span>
-                    </button>
-                  )}
-
-                  <button
-                    id="profile-settings-btn"
-                    type="button"
-                    onClick={handleNavigateToSettings}
-                    aria-controls="profile-settings-panel"
-                    aria-label="Scroll to profile settings"
-                    className={`px-3.5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
-                      isSettingsHighlighted
-                        ? 'bg-slate-900/10 dark:bg-white/15 text-slate-950 dark:text-white border border-[var(--brand-primary)]/50'
-                        : 'liquid-glass-pill text-slate-700 dark:text-white/85 hover:text-slate-950 dark:hover:text-white hover:bg-slate-900/[0.07] dark:hover:bg-white/[0.12]'
-                    }`}
-                  >
-                    <Settings className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
-                    <span>Settings</span>
-                  </button>
-
+                <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:items-center gap-2">
+                  {/* Primary Action: Edit Profile — leads prominently on mobile and sits right-aligned on desktop */}
                   <button
                     type="button"
                     disabled={isSavingProfile}
@@ -658,23 +651,54 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         setIsEditing(true);
                       }
                     }}
-                    className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
+                    className={`col-span-2 sm:col-span-1 sm:order-3 min-h-[44px] sm:min-h-[40px] px-4 py-2 rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 cursor-pointer whitespace-nowrap heyroq-focus-ring ${
                       isEditing
                         ? 'heyroq-btn-primary'
-                        : 'liquid-glass-pill text-slate-800 dark:text-white hover:text-slate-950 dark:hover:text-white'
+                        : 'bg-[#202124] dark:bg-[#F5F4F1] text-[#FAF9F6] dark:text-[#17181B] hover:opacity-90 active:scale-[0.985] shadow-sm'
                     }`}
                   >
                     {isEditing ? (
                       <>
-                        <Check className="w-3.5 h-3.5" />
+                        <Check className="w-3.5 h-3.5 shrink-0" />
                         <span>{isSavingProfile ? 'Saving…' : 'Save Profile'}</span>
                       </>
                     ) : (
                       <>
-                        <Edit3 className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
                         <span>Edit Profile</span>
                       </>
                     )}
+                  </button>
+
+                  {onOpenAbout && (
+                    <button
+                      id="profile-about-heyroq-btn"
+                      type="button"
+                      onClick={onOpenAbout}
+                      aria-label="About Heyroq"
+                      className="sm:order-1 liquid-glass-pill min-h-[42px] sm:min-h-[40px] px-3.5 py-2 text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] dark:hover:bg-white/[0.10] rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors duration-150 cursor-pointer whitespace-nowrap heyroq-focus-ring"
+                    >
+                      <Info className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0" />
+                      <span>About</span>
+                    </button>
+                  )}
+
+                  <button
+                    id="profile-settings-btn"
+                    type="button"
+                    onClick={handleNavigateToSettings}
+                    aria-controls="profile-settings-panel"
+                    aria-label="Scroll to profile settings"
+                    className={`${
+                      onOpenAbout ? '' : 'col-span-2 sm:col-span-1'
+                    } sm:order-2 min-h-[42px] sm:min-h-[40px] px-3.5 py-2 rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 active:scale-[0.98] cursor-pointer whitespace-nowrap heyroq-focus-ring ${
+                      isSettingsHighlighted
+                        ? 'bg-slate-900/10 dark:bg-white/15 text-[var(--heyroq-text-primary)] border border-[var(--brand-primary)]/50'
+                        : 'liquid-glass-pill text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] dark:hover:bg-white/[0.10]'
+                    }`}
+                  >
+                    <Settings className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0" />
+                    <span>Settings</span>
                   </button>
                 </div>
               ) : (
@@ -682,7 +706,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   type="button"
                   onClick={handleToggleFollow}
                   disabled={isLoadingFollow}
-                  className={`px-4 sm:px-5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
+                  className={`px-4 sm:px-5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[42px] sm:min-h-[40px] whitespace-nowrap heyroq-focus-ring shrink-0 ${
                     isFollowing
                       ? 'liquid-glass-pill text-slate-800 dark:text-white hover:text-slate-950 dark:hover:text-white'
                       : 'heyroq-btn-primary'

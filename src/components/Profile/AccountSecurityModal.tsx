@@ -53,40 +53,42 @@ export const AccountSecurityModal: React.FC<AccountSecurityModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] w-full max-w-2xl max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative"
       >
-        <div className="px-5 sm:px-6 py-4 border-b border-[var(--heyroq-border-subtle)] flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium text-[var(--heyroq-text-muted)] truncate">
-                Settings
+        <div className="flex-1 min-h-0 overflow-y-auto subtle-glass-scrollbar">
+          <header className="heyroq-window-header sticky top-0 z-20 px-5 sm:px-6 py-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
+                <Shield className="w-5 h-5" />
               </div>
-              <h2
-                id="account-security-title"
-                className="font-heading text-lg sm:text-xl font-bold tracking-tight text-[var(--heyroq-text-primary)] truncate"
-              >
-                Account &amp; Security
-              </h2>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium text-[var(--heyroq-text-muted)] truncate">
+                  Settings
+                </div>
+                <h2
+                  id="account-security-title"
+                  className="font-heading text-lg sm:text-xl font-bold tracking-tight text-[var(--heyroq-text-primary)] truncate"
+                >
+                  Account &amp; Security
+                </h2>
+              </div>
             </div>
+
+            <CloseButton
+              onClick={onClose}
+              disabled={busyState.isDeleting}
+              ariaLabel="Close Account & Security"
+            />
+          </header>
+
+          <div className="px-5 sm:px-6 py-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+            <AccountSecuritySection
+              resetSignal={isOpen}
+              onBusyStateChange={handleBusyChange}
+              onAccountDeleted={() => {
+                onClose();
+                onAccountDeleted?.();
+              }}
+            />
           </div>
-
-          <CloseButton
-            onClick={onClose}
-            disabled={busyState.isDeleting}
-            ariaLabel="Close Account & Security"
-          />
-        </div>
-
-        <div className="flex-1 overflow-y-auto subtle-glass-scrollbar px-5 sm:px-6 py-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
-          <AccountSecuritySection
-            resetSignal={isOpen}
-            onBusyStateChange={handleBusyChange}
-            onAccountDeleted={() => {
-              onClose();
-              onAccountDeleted?.();
-            }}
-          />
         </div>
       </div>
     </div>

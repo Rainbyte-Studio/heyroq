@@ -222,7 +222,7 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
         aria-label="Discover Explorers"
       >
         {/* Header */}
-        <div className="shrink-0 p-3.5 sm:p-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-5">
+        <header className="heyroq-window-header shrink-0 z-20 p-3.5 sm:p-5 flex items-center justify-between pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-5">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
             <div className="w-9 h-9 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
               <Users className="w-5 h-5" />
@@ -241,7 +241,7 @@ export const DiscoverPeopleModal: React.FC<DiscoverPeopleModalProps> = ({
             onClick={handleModalClose}
             ariaLabel="Close Discover Explorers"
           />
-        </div>
+        </header>
 
         {/* Search Bar Input */}
         <div className="shrink-0 p-3 sm:p-4 border-b border-slate-900/8 dark:border-white/10">

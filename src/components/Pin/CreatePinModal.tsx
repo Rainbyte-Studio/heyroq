@@ -284,7 +284,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         )}
 
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-5 border-b border-[var(--heyroq-divider)] flex items-center justify-between bg-slate-900/[0.02] dark:bg-white/[0.02]">
+        <header className="heyroq-window-header shrink-0 z-20 px-4 sm:px-6 py-3.5 sm:py-5 flex items-center justify-between">
           <div className="min-w-0 pr-2">
             <h2 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white truncate">
               Share a Discovery
@@ -308,7 +308,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
               ariaLabel="Close Create Pin"
             />
           </div>
-        </div>
+        </header>
 
         {errorMsg && (
           <div className="mx-4 sm:mx-6 mt-4 p-3.5 bg-rose-50 dark:bg-rose-950/75 border border-rose-200 dark:border-rose-500/40 text-rose-800 dark:text-rose-200 rounded-2xl text-xs flex items-center gap-2">

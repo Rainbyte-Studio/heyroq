@@ -170,7 +170,7 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
         aria-label={activeTab === 'followers' ? 'Followers' : 'Following'}
       >
         {/* Header */}
-        <div className="p-3.5 sm:p-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between">
+        <header className="heyroq-window-header shrink-0 z-20 p-3.5 sm:p-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5 min-w-0 pr-2">
             <div className="w-9 h-9 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
               {activeTab === 'followers' ? (
@@ -193,7 +193,7 @@ export const FollowListModal: React.FC<FollowListModalProps> = ({
             onClick={onClose}
             ariaLabel="Close Followers & Following"
           />
-        </div>
+        </header>
 
         {/* Tab Switcher */}
         <div className="flex border-b border-slate-900/8 dark:border-white/10 px-4 pt-1">

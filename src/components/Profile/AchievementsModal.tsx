@@ -323,32 +323,33 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
       <div
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[min(92dvh,100%)] overflow-hidden flex flex-col text-slate-900 dark:text-white relative"
       >
-        {/* Header Bar */}
-        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between relative z-20">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
-              <Trophy aria-hidden="true" className="w-4 h-4 sm:w-5 sm:h-5" />
+        {/* Single Scroll Container with Sticky Translucent Header */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain subtle-glass-scrollbar">
+          <header className="heyroq-window-header sticky top-0 z-20 px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
+                <Trophy aria-hidden="true" className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 id={`${dialogId}-title`} className="font-heading text-lg sm:text-xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
+                  Explorer Progression
+                </h2>
+                <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 line-clamp-2 wrap-anywhere">
+                  {displayName ? `${displayName}'s journey & milestones` : 'Earn XP by discovering genuine places'}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h2 id={`${dialogId}-title`} className="font-heading text-lg sm:text-xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
-                Explorer Progression
-              </h2>
-              <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 line-clamp-2 wrap-anywhere">
-                {displayName ? `${displayName}'s journey & milestones` : 'Earn XP by discovering genuine places'}
-              </p>
-            </div>
-          </div>
 
-          <CloseButton
-            ref={closeButtonRef}
-            onClick={onClose}
-            ariaLabel="Close Explorer Progression"
-            className="focus-visible:outline-[var(--heyroq-accent-text)]!"
-          />
-        </div>
+            <CloseButton
+              ref={closeButtonRef}
+              onClick={onClose}
+              ariaLabel="Close Explorer Progression"
+              className="focus-visible:outline-[var(--heyroq-accent-text)]!"
+            />
+          </header>
 
-        {/* Modal Scroll Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain subtle-glass-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+          {/* Modal Scroll Content */}
+          <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
           {/* Main Progression Card */}
           <div className="liquid-glass-card rounded-3xl p-5 relative overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 relative z-10">
@@ -629,6 +630,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                   ))
               ))}
             </div>
+          </div>
           </div>
         </div>
       </div>

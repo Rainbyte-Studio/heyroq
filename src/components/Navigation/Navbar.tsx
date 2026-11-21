@@ -642,6 +642,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   role="menu"
                   className="liquid-glass-popover absolute right-0 mt-2 w-64 max-w-[calc(100vw-24px)] rounded-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2 text-[var(--heyroq-text-primary)]"
                 >
+                  {/* Account Identity Header */}
                   <div className="px-4 py-3 border-b border-[var(--heyroq-border-subtle)] flex items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <UserAvatar
@@ -651,16 +652,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                         size="sm"
                       />
                       <div className="min-w-0">
-                        <p className="text-xs font-bold tracking-tight text-[var(--heyroq-text-primary)] truncate">
+                        <p className="text-[13px] font-semibold tracking-tight text-[var(--heyroq-text-primary)] truncate">
                           {profile?.displayName || 'Explorer'}
                         </p>
-                        <p className="text-[11px] font-semibold text-[var(--heyroq-accent-text)] truncate">
+                        <p className="text-xs font-medium text-[var(--heyroq-text-secondary)] truncate">
                           @{profile?.username || user.email?.split('@')[0]}
                         </p>
                       </div>
                     </div>
                     {userProgression && (
-                      <span className="shrink-0 px-2 py-0.5 rounded-md bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/30 text-[var(--heyroq-accent-text)] text-[11px] font-semibold tabular-nums tracking-tight">
+                      <span className="shrink-0 px-2 py-0.5 rounded-md bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/28 text-[var(--heyroq-accent-text)] text-[11px] font-semibold tabular-nums tracking-tight">
                         Level {userProgression.level}
                       </span>
                     )}
@@ -669,164 +670,171 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {/* Integrated Light / Dark / System Appearance Selector */}
                   <div className="px-3.5 py-2.5 border-b border-[var(--heyroq-border-subtle)]">
                     <div className="flex items-center justify-between mb-1.5 px-0.5">
-                      <span className="text-[11px] font-semibold text-[var(--heyroq-text-muted)]">
+                      <span className="text-[11px] font-semibold text-[var(--heyroq-text-secondary)]">
                         Appearance
                       </span>
                     </div>
                     <ThemeSelector compact idPrefix="menu-theme" />
                   </div>
 
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onOpenProfile(user.uid);
-                      setUserDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <User className="w-4 h-4 text-[var(--heyroq-text-muted)]" />
-                    <span>My Profile &amp; Spots</span>
-                  </button>
-
-                  {onOpenSettings && (
-                    <button
-                      id="menu-settings-btn"
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        profileMenuButtonRef.current?.focus({ preventScroll: true });
-                        setUserDropdownOpen(false);
-                        onOpenSettings();
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                    >
-                      <Settings className="w-4 h-4 text-[var(--brand-primary)]" aria-hidden="true" />
-                      <span>Settings</span>
-                    </button>
-                  )}
-
-                  {onToggleNotifications && onOpenActivity && (
-                    <button
-                      id="menu-activity-btn"
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        profileMenuButtonRef.current?.focus({ preventScroll: true });
-                        setUserDropdownOpen(false);
-                        onOpenActivity();
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                    >
-                      <Activity className="w-4 h-4 text-[var(--brand-primary)]" aria-hidden="true" />
-                      <span>Activity</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      if (onOpenProgression) {
-                        profileMenuButtonRef.current?.focus({ preventScroll: true });
-                        onOpenProgression();
-                      }
-                      setUserDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <Trophy className="w-4 h-4 text-[var(--brand-primary)]" />
-                    <span>Progression & Badges</span>
-                  </button>
-
-                  {onOpenDiscoverPeople && (
+                  {/* Core Navigation & Explorer Actions */}
+                  <div className="py-1">
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        onOpenDiscoverPeople();
+                        onOpenProfile(user.uid);
                         setUserDropdownOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
+                      className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
                     >
-                      <Users className="w-4 h-4 text-[var(--brand-primary)]" />
-                      <span>Find People</span>
+                      <User className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                      <span>My Profile &amp; Spots</span>
                     </button>
-                  )}
 
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onOpenCreatePin();
-                      setUserDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <MapPin className="w-4 h-4 text-[var(--brand-primary)]" />
-                    <span>Drop New Pin</span>
-                  </button>
+                    {onOpenSettings && (
+                      <button
+                        id="menu-settings-btn"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          profileMenuButtonRef.current?.focus({ preventScroll: true });
+                          setUserDropdownOpen(false);
+                          onOpenSettings();
+                        }}
+                        className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                      >
+                        <Settings className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                        <span>Settings</span>
+                      </button>
+                    )}
 
-                  {isAdmin && (
+                    {onToggleNotifications && onOpenActivity && (
+                      <button
+                        id="menu-activity-btn"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          profileMenuButtonRef.current?.focus({ preventScroll: true });
+                          setUserDropdownOpen(false);
+                          onOpenActivity();
+                        }}
+                        className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                      >
+                        <Activity className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                        <span>Activity</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        onOpenAdmin();
+                        if (onOpenProgression) {
+                          profileMenuButtonRef.current?.focus({ preventScroll: true });
+                          onOpenProgression();
+                        }
                         setUserDropdownOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-bold text-amber-600 dark:text-amber-400 hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
+                      className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
                     >
-                      <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                      <span>Moderation Panel</span>
+                      <Trophy className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                      <span>Progression &amp; Badges</span>
                     </button>
-                  )}
 
-                  {onOpenAbout && (
+                    {onOpenDiscoverPeople && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          onOpenDiscoverPeople();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                      >
+                        <Users className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                        <span>Find People</span>
+                      </button>
+                    )}
+
                     <button
-                      id="menu-about-heyroq-btn"
                       type="button"
                       role="menuitem"
                       onClick={() => {
-                        onOpenAbout();
+                        onOpenCreatePin();
                         setUserDropdownOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center justify-between gap-2.5 transition cursor-pointer"
+                      className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
                     >
-                      <span className="flex items-center gap-2.5">
-                        <Info className="w-4 h-4 text-[var(--heyroq-text-muted)]" />
-                        <span>About Heyroq</span>
-                      </span>
-                      <span className="text-[11px] font-sans font-medium text-[var(--heyroq-text-muted)] tabular-nums">
-                        {APP_VERSION.displayVersion}
-                      </span>
+                      <MapPin className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                      <span>Drop New Pin</span>
                     </button>
-                  )}
 
-                  <AppLink
-                    id="menu-help-support-link"
-                    to="/support"
-                    onBeforeNavigate={() => setUserDropdownOpen(false)}
-                    className="w-full text-left px-4 py-2.5 text-xs font-semibold text-[var(--heyroq-text-secondary)] hover:text-[var(--heyroq-text-primary)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <HelpCircle className="w-4 h-4 text-[var(--heyroq-text-muted)]" />
-                    <span>Help & Support</span>
-                  </AppLink>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          onOpenAdmin();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 active:bg-amber-500/15 dark:hover:bg-amber-400/12 dark:active:bg-amber-400/18 flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                      >
+                        <Shield className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+                        <span>Moderation Panel</span>
+                      </button>
+                    )}
+                  </div>
 
-                  <div className="border-t border-[var(--heyroq-border-subtle)] my-1.5" />
+                  {/* Product & Support Information */}
+                  <div className="border-t border-[var(--heyroq-border-subtle)] py-1">
+                    {onOpenAbout && (
+                      <button
+                        id="menu-about-heyroq-btn"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          onOpenAbout();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center justify-between gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <Info className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                          <span>About Heyroq</span>
+                        </span>
+                        <span className="text-[11px] font-sans font-medium text-[var(--heyroq-text-muted)] tabular-nums">
+                          {APP_VERSION.displayVersion}
+                        </span>
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      signOut();
-                      setUserDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-[var(--heyroq-accent-text)] hover:bg-slate-900/[0.05] dark:hover:bg-white/10 flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>Sign Out</span>
-                  </button>
+                    <AppLink
+                      id="menu-help-support-link"
+                      to="/support"
+                      onBeforeNavigate={() => setUserDropdownOpen(false)}
+                      className="group w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-medium text-[var(--heyroq-text-primary)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                    >
+                      <HelpCircle className="w-4 h-4 shrink-0 text-[var(--heyroq-text-secondary)] group-hover:text-[var(--heyroq-text-primary)] transition-colors" aria-hidden="true" />
+                      <span>Help &amp; Support</span>
+                    </AppLink>
+                  </div>
+
+                  {/* Sign Out */}
+                  <div className="border-t border-[var(--heyroq-border-subtle)] pt-1">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        signOut();
+                        setUserDropdownOpen(false);
+                      }}
+                      className="w-full min-h-[40px] text-left px-4 py-2 text-[13px] font-semibold text-[var(--heyroq-accent-text)] hover:bg-[#202124]/[0.06] active:bg-[#202124]/[0.10] dark:hover:bg-white/[0.08] dark:active:bg-white/[0.12] flex items-center gap-2.5 transition-colors cursor-pointer heyroq-focus-ring focus-visible:outline-offset-[-2px]"
+                    >
+                      <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

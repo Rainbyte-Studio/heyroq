@@ -180,50 +180,56 @@ export const AboutHeyroqModal: React.FC<AboutHeyroqModalProps> = ({
       <div
         id="about-heyroq-dialog"
         onClick={(e) => e.stopPropagation()}
-        className="liquid-glass-modal w-full sm:max-w-[440px] max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto subtle-glass-scrollbar text-[var(--heyroq-text-primary)] rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-6 relative"
+        className="liquid-glass-modal w-full sm:max-w-[440px] max-h-[92dvh] sm:max-h-[88vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] rounded-t-[28px] sm:rounded-[28px] relative"
       >
-        {/* Mobile grab handle */}
-        <div
-          className="w-10 h-1 rounded-full bg-slate-900/15 dark:bg-white/20 mx-auto mb-3 sm:hidden"
-          aria-hidden="true"
-        />
+        <div className="flex-1 min-h-0 overflow-y-auto subtle-glass-scrollbar">
+          {/* Sticky Translucent Window Header */}
+          <header className="heyroq-window-header sticky top-0 z-20 px-5 sm:px-6 pt-3 sm:pt-4 pb-3.5">
+            {/* Mobile grab handle */}
+            <div
+              className="w-10 h-1 rounded-full bg-slate-900/15 dark:bg-white/20 mx-auto mb-3 sm:hidden"
+              aria-hidden="true"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+                <Wordmark id="about-heyroq-wordmark" size="modal" />
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--heyroq-text-muted)]">
+                  <span className="font-sans tabular-nums">{versionConfig.displayVersion}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-semibold text-[var(--heyroq-accent-text)]">
+                    {versionConfig.releaseChannel}
+                  </span>
+                </span>
+              </div>
 
-        {/* Close Button */}
-        <CloseButton
-          ref={closeButtonRef}
-          id="close-about-heyroq-btn"
-          onClick={onClose}
-          ariaLabel="Close About Heyroq"
-          className="absolute top-4 right-4"
-        />
+              <CloseButton
+                ref={closeButtonRef}
+                id="close-about-heyroq-btn"
+                onClick={onClose}
+                ariaLabel="Close About Heyroq"
+                className="shrink-0"
+              />
+            </div>
+          </header>
 
-        {/* 1–4. Brand Wordmark, Version + Beta Pill, Memorable Headline & Concise Description */}
-        <div className="pr-9">
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <Wordmark id="about-heyroq-wordmark" size="modal" />
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--heyroq-text-muted)]">
-              <span className="font-sans tabular-nums">{versionConfig.displayVersion}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-semibold text-[var(--heyroq-accent-text)]">
-                {versionConfig.releaseChannel}
-              </span>
-            </span>
-          </div>
+          {/* Scrollable Editorial Content */}
+          <div className="px-5 sm:px-6 pt-4 sm:pt-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-6">
+            {/* Headline & Concise Description */}
+            <div>
+              <h2
+                id="about-heyroq-title"
+                className={`${TYPOGRAPHY_TOKENS.heading2} text-[var(--heyroq-text-primary)]`}
+              >
+                Places worth remembering, shared by people who stood there.
+              </h2>
 
-          <h2
-            id="about-heyroq-title"
-            className={`${TYPOGRAPHY_TOKENS.heading2} text-[var(--heyroq-text-primary)] mt-3`}
-          >
-            Places worth remembering, shared by people who stood there.
-          </h2>
-
-          <p
-            id="about-heyroq-description"
-            className={`${TYPOGRAPHY_TOKENS.body} text-[var(--heyroq-text-secondary)] mt-1.5`}
-          >
-            {BRAND_IDENTITY.shortDescription}
-          </p>
-        </div>
+              <p
+                id="about-heyroq-description"
+                className={`${TYPOGRAPHY_TOKENS.body} text-[var(--heyroq-text-secondary)] mt-1.5`}
+              >
+                {BRAND_IDENTITY.shortDescription}
+              </p>
+            </div>
 
         {/* 5. Four Clean Navigation Links */}
         <nav
@@ -352,6 +358,8 @@ export const AboutHeyroqModal: React.FC<AboutHeyroqModalProps> = ({
           ) : (
             <span className="font-medium text-xs">{legalConfig.supportContact.proposedEmail}</span>
           )}
+        </div>
+          </div>
         </div>
       </div>
     </div>

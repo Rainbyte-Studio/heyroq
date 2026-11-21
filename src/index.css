@@ -275,7 +275,8 @@
    - Interior cards, inputs, pills & segmented controls remain solid editorial surfaces
    ========================================================================== */
 
-.liquid-glass-nav {
+.liquid-glass-nav,
+.heyroq-window-header {
   background-color: var(--glass-nav-bg);
   backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
@@ -318,6 +319,14 @@
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   border: 1px solid var(--glass-border-strong);
   box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
+}
+
+/* Sibling modal glass backdrop layer — keeps outer dialog free of ancestor backdrop-filter so sticky .liquid-glass-nav headers blur scrolled content natively */
+.liquid-glass-modal-surface {
+  background-color: var(--heyroq-glass-modal-bg);
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  box-shadow: var(--heyroq-glass-highlight);
 }
 
 .liquid-glass-sheet {
@@ -690,11 +699,13 @@ summary:focus-visible {
   }
 
   .liquid-glass-nav,
+  .heyroq-window-header,
   .liquid-glass-subbar,
   .liquid-glass-panel,
   .liquid-glass-floating,
   .liquid-glass-popover,
   .liquid-glass-modal,
+  .liquid-glass-modal-surface,
   .liquid-glass-sheet,
   .liquid-glass-pill,
   .liquid-glass-backdrop {
@@ -716,11 +727,13 @@ summary:focus-visible {
 
 @media (forced-colors: active) {
   .liquid-glass-nav,
+  .heyroq-window-header,
   .liquid-glass-subbar,
   .liquid-glass-panel,
   .liquid-glass-floating,
   .liquid-glass-popover,
   .liquid-glass-modal,
+  .liquid-glass-modal-surface,
   .liquid-glass-sheet,
   .liquid-glass-card,
   .liquid-glass-pill,

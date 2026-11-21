@@ -117,9 +117,16 @@ export const AppWindow: React.FC<AppWindowProps> = ({
         aria-describedby={ariaDescribedBy}
         aria-label={ariaLabel}
         onClick={(e) => e.stopPropagation()}
-        className={`liquid-glass-modal ${sizeClass} w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative focus:outline-none`}
+        className={`${sizeClass} w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col border border-[var(--glass-border-strong)] shadow-[var(--heyroq-shadow-modal)] text-[var(--heyroq-text-primary)] relative focus:outline-none`}
       >
-        {children}
+        {/* Sibling glass surface layer so inner sticky .liquid-glass-nav headers never suffer nested backdrop-filter suppression */}
+        <div
+          aria-hidden="true"
+          className="liquid-glass-modal-surface absolute inset-0 rounded-[inherit] pointer-events-none"
+        />
+        <div className="relative z-[1] flex-1 min-h-0 flex flex-col">
+          {children}
+        </div>
       </div>
     </div>
   );

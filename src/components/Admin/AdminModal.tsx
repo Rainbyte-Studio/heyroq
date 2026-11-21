@@ -166,7 +166,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-3xl lg:max-w-4xl w-full max-h-[92dvh] sm:max-h-[85vh] overflow-hidden flex flex-col text-slate-900 dark:text-white"
       >
         {/* Header */}
-        <div className="p-4 sm:p-6 border-b border-slate-900/8 dark:border-white/10 flex items-center justify-between">
+        <header className="heyroq-window-header shrink-0 z-20 p-4 sm:p-6 flex items-center justify-between">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
             <div className="p-2 sm:p-2.5 bg-[var(--brand-primary)]/12 text-[var(--brand-primary)] rounded-2xl border border-[var(--brand-primary)]/25 shrink-0">
               <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -196,7 +196,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ onClose, onSelectPin }) 
               ariaLabel="Close Moderation Dashboard"
             />
           </div>
-        </div>
+        </header>
 
         {/* Inline Status Notice (replaces window.alert for iframe safety) */}
         {statusNotice && (
