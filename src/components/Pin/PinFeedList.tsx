@@ -79,8 +79,11 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
 
   if (!isOpen) return null;
 
+  const isEmptyNearbyFeed = !searchQuery && pins.length === 0;
   const mobileHeightClass =
-    pins.length === 0 ? 'h-auto max-h-[224px]' : 'h-[38vh] sm:h-[36vh]';
+    pins.length === 0
+      ? isEmptyNearbyFeed ? 'h-auto max-h-[248px]' : 'h-auto max-h-[224px]'
+      : searchQuery ? 'h-[38vh] sm:h-[36vh]' : 'h-[calc(38vh+1.5rem)] sm:h-[calc(36vh+1.5rem)]';
 
   const heading = searchQuery ? 'Matching Spots' : 'Nearby Spots';
   const count = `${pins.length} ${pins.length === 1 ? 'spot' : 'spots'}`;
@@ -135,7 +138,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
       <div
         ref={scrollContainerRef}
         onScroll={(e) => onScroll?.(e.currentTarget.scrollTop)}
-        className="flex-1 overflow-y-auto p-3 sm:p-3.5 space-y-2.5 subtle-glass-scrollbar pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:pb-4"
+        className={`flex-1 overflow-y-auto p-3 sm:p-3.5 space-y-2.5 subtle-glass-scrollbar ${isEmptyNearbyFeed ? 'pb-[calc(2.25rem+env(safe-area-inset-bottom))]' : 'pb-[calc(0.75rem+env(safe-area-inset-bottom))]'} lg:pb-4`}
       >
         {pins.length === 0 ? (
           isError ? (
