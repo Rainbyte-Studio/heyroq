@@ -507,7 +507,8 @@ try {
 
   await editUsername.fill('Second_Handle');
   await ownerProfile.getByRole('button', { name: 'Save Profile' }).click();
-  await ownerProfile.getByText('@second_handle', { exact: true }).waitFor();
+  const profileHeader = ownerProfile.locator('header');
+  await profileHeader.getByText('@second_handle', { exact: true }).waitFor();
   assert.equal((await db.doc('usernames/first_handle').get()).exists, false);
   assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
 
