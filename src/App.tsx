@@ -5,6 +5,10 @@ import { Pin, LatLngBounds, LatLngPoint, PinCategory, DiscoveryFilter } from './
 import { normalizeCategory, matchesCategoryFilter } from './utils/categoryUtils';
 import { createSpotSearchMatcher, hasSpotSearchQuery } from './utils/spotSearch';
 import { Navbar } from './components/Navigation/Navbar';
+import { EngagementPanel } from './components/Navigation/EngagementPanel';
+import { subscribeToNotificationState, type EngagementView } from './services/engagementService';
+import { getPublicUserProfile } from './services/userService';
+import { engagementDestination } from './utils/engagement';
 import { HeyroqMap } from './components/Map/HeyroqMap';
 import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
@@ -27,6 +31,7 @@ import { AppLink, useAppRoute } from './utils/appRoutes';
 import { MapsProvider } from './components/Map/MapsProvider';
 import {
   fetchPinsInViewport,
+  fetchPinById,
   fetchPinsByDiscovery,
   subscribeToDiscoveryPins,
   searchPins,
@@ -163,7 +168,42 @@ function HeyroqMainApp() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [isAccountSecurityOpen, setIsAccountSecurityOpen] = useState(false);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
+  const [focusedAchievement, setFocusedAchievement] = useState<string>();
+  const [engagementView, setEngagementView] = useState<EngagementView | null>(null);
+  const [engagementState, setEngagementState] = useState<{ uid: string; unread: number; revision: number; offline: boolean } | null>(null);
+  const engagementUid = user && !user.isAnonymous && profile && !needsProfile ? user.uid : undefined;
+  const unread = engagementState?.uid === engagementUid ? engagementState?.unread ?? 0 : 0;
+  const closeEngagement = useCallback(() => setEngagementView(null), []);
+  useEffect(() => {
+    setEngagementView(null);
+    setEngagementState(null);
+    if (!engagementUid) return;
+    return subscribeToNotificationState(engagementUid,
+      state => setEngagementState({ uid: engagementUid, ...state }),
+      () => setEngagementState(null));
+  }, [engagementUid]);
+  const openEngagementDestination = useCallback(async (destination: NonNullable<ReturnType<typeof engagementDestination>>) => {
+    if (destination.type === 'pin') {
+      const pin = await fetchPinById(destination.id);
+      if (!pin || pin.isDeleted || pin.isPrivate || pin.isReported ||
+        (pin.visibility && pin.visibility !== 'public') || (pin.status && pin.status !== 'published')) return false;
+      setEngagementView(null);
+      handleOpenDetails(pin);
+      return true;
+    }
+    if (destination.type === 'profile') {
+      if (!await getPublicUserProfile(destination.id)) return false;
+      setEngagementView(null);
+      setProfileUserId(destination.id);
+      return true;
+    }
+    setEngagementView(null);
+    setFocusedAchievement(destination.id);
+    setIsProgressionOpen(true);
+    return true;
+  }, [handleOpenDetails]);
   const mainContentRef = useRef<HTMLElement>(null);
+  const focusMain = useCallback(() => mainContentRef.current?.focus(), []);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isDiscoverPeopleOpen, setIsDiscoverPeopleOpen] = useState(false);
@@ -598,7 +638,7 @@ function HeyroqMainApp() {
   // Keyboard navigation & Escape key dismiss for map selection & pin creation pick
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
         if (isPickingLocationOnMap) {
           setIsPickingLocationOnMap(false);
         } else if (selectedPinId) {
@@ -646,9 +686,13 @@ function HeyroqMainApp() {
             setIsAccountSecurityOpen(true);
           }
         }}
+        onOpenEngagement={engagementUid ? setEngagementView : undefined}
+        notificationUnread={unread}
+        notificationsOpen={engagementView === 'inbox' || engagementView === 'history'}
         onOpenProgression={() => {
           if (user) {
             setProfileUserId(null);
+            setFocusedAchievement(undefined);
             setIsProgressionOpen(true);
           }
         }}
@@ -819,6 +863,15 @@ function HeyroqMainApp() {
 
       {/* MODALS */}
 
+      {engagementUid && engagementView && (
+        <React.Fragment key={engagementUid}>
+          <EngagementPanel uid={engagementUid} view={engagementView}
+            setView={setEngagementView} close={closeEngagement} unread={unread}
+            revision={engagementState?.revision ?? 0} offline={engagementState?.offline ?? false}
+            openDestination={openEngagementDestination} fallbackFocus={focusMain} />
+        </React.Fragment>
+      )}
+
       {/* 1. Full Pin Details Modal */}
       {detailPin && (
         <PinDetailModal
@@ -978,6 +1031,7 @@ function HeyroqMainApp() {
         <AchievementsModal
           userId={user.uid}
           displayName={profile?.displayName}
+          focusAchievementId={focusedAchievement}
           fallbackFocusRef={mainContentRef}
           onClose={() => setIsProgressionOpen(false)}
         />

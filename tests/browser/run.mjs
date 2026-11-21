@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { chromium } from 'playwright';
 import { build, preview } from 'vite';
@@ -489,6 +489,90 @@ try {
   await setup.getByRole('button', { name: 'Save Username' }).click();
   await userMenu.waitFor();
   assert.ok((await db.doc('usernames/resumed_explorer').get()).exists);
+  const engagementUid = (await db.doc('usernames/resumed_explorer').get()).get('uid');
+  const engagementProfile = db.collection('users').doc(engagementUid);
+  const bell = page.getByRole('button', { name: /^Notifications/ });
+  await bell.press('Enter');
+  const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
+  const closeInbox = inbox.getByRole('button', { name: 'Close Notifications' });
+  await inbox.getByText('You’re all caught up.').waitFor();
+  assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Escape');
+  await inbox.waitFor({ state: 'hidden' });
+  assert.ok(await bell.evaluate(button => button === document.activeElement));
+
+  const now = Timestamp.now();
+  const identifier = n => createHash('sha256').update(String(n)).digest('hex');
+  const pinRef = db.doc('pins/activity-browser-fixture');
+  await pinRef.create({ ...fixture, userId: engagementUid, title: 'Activity browser fixture' });
+  const pinCreatedAt = (await pinRef.get()).createTime;
+  const engagementSeed = db.batch();
+  for (let n = 1; n <= 2; n++) {
+    engagementSeed.create(engagementProfile.collection('notifications').doc(identifier(n)), {
+      type: 'announcement', title: 'Product update ' + n, category: 'system', recipientId: engagementUid,
+      at: now, sequence: n, read: false, deleted: false, expiresAt: Timestamp.fromMillis(Date.now() + 86400000),
+    });
+  }
+  for (let n = 1; n <= 26; n++) {
+    const at = Timestamp.fromMillis(Date.now() - n * 60_000);
+    const id = identifier(n);
+    engagementSeed.create(engagementProfile.collection('activityV1').doc(id), {
+      actorId: engagementUid, type: 'pin', source: pinRef.path, pinId: pinRef.id, pinCreatedAt, at,
+      eligible: true, key: String(at.toMillis()).padStart(16, '0') + ':' + id,
+    });
+  }
+  engagementSeed.set(engagementProfile.collection('notificationState').doc('inbox'), { unread: 2, sequence: 2, revision: 1 });
+  await engagementSeed.commit();
+  await page.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  await bell.click();
+  await inbox.getByText('Product update 2').waitFor();
+  assert.equal(await inbox.getByText(/^Unread/).count(), 2);
+  for (const [width, height, dark] of [[1280, 900, false], [768, 1024, true], [320, 720, true]]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+    const bounds = await inbox.boundingBox();
+    assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+    if (width < 768) assert.equal(bounds.width, width);
+    assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
+    if (screenshotDir && width !== 768) {
+      await page.screenshot({ path: join(screenshotDir, 'notifications-' + width + (dark ? '-dark' : '-light') + '.png'), animations: 'disabled' });
+    }
+  }
+  await inbox.getByRole('button', { name: 'Mark all as read' }).click();
+  await inbox.getByText('Product update 2').waitFor();
+  await inbox.getByText(/^Unread/).first().waitFor({ state: 'hidden' });
+  await inbox.getByRole('button', { name: 'View history' }).click();
+  await inbox.getByRole('button', { name: /Delete notification.*Product update 2/ }).click();
+  await inbox.getByText('Product update 2').waitFor({ state: 'hidden' });
+  await closeInbox.click();
+
+  await userMenu.click();
+  await page.getByRole('menuitem', { name: 'Activity', exact: true }).click();
+  const activityPanel = page.getByRole('dialog', { name: 'Activity', exact: true });
+  await activityPanel.getByText('No shared activity here yet.').waitFor();
+  await activityPanel.getByRole('button', { name: 'My Activity' }).click();
+  await activityPanel.getByText(/You published Activity browser fixture/).first().waitFor();
+  assert.equal(await activityPanel.getByRole('listitem').count(), 24);
+  await activityPanel.getByRole('button', { name: 'Load more' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('dialog[open] ol li').length === 26);
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
+  await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
+  await userMenu.click();
+  const settingsLink = page.getByRole('menuitem', { name: 'Notifications & Activity' });
+  await settingsLink.click();
+  const engagementSettings = page.getByRole('dialog', { name: 'Notifications & Activity' });
+  const likes = engagementSettings.getByRole('checkbox', { name: 'Likes on my pins' });
+  await likes.uncheck();
+  await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
+  assert.equal((await engagementProfile.collection('notificationPreferences').doc('settings').get()).get('likes'), false);
+  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  await userMenu.click();
+  await settingsLink.click();
+  await likes.waitFor();
+  assert.equal(await likes.isChecked(), false);
+  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
+  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {

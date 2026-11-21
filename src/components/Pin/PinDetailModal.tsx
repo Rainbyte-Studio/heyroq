@@ -75,6 +75,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoadingComments, setIsLoadingComments] = useState(true);
   const [newComment, setNewComment] = useState('');
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
@@ -303,9 +304,11 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         authUid || user.uid,
         profile?.displayName || user.email?.split('@')[0] || 'Explorer',
         profile?.avatarUrl,
-        text
+        text,
+        replyTo?.parentCommentId ?? replyTo?.id,
       );
       setNewComment('');
+      setReplyTo(null);
       setComments((prev) => {
         if (prev.some((c) => c.id === created.id)) return prev;
         const next = [created, ...prev];
@@ -945,6 +948,13 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
                   />
                 </button>
                 <div className="flex-1 liquid-glass-card rounded-2xl px-3.5 py-2.5">
+                  {c.parentCommentId && (
+                    <p className="mb-1 text-[var(--heyroq-text-secondary)]">
+                      {comments.find(parent => parent.id === c.parentCommentId)?.userName
+                        ? 'Reply to @' + comments.find(parent => parent.id === c.parentCommentId)?.userName
+                        : 'Reply to an earlier comment'}
+                    </p>
+                  )}
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-900 dark:text-white">
                       @{c.userName}
@@ -953,6 +963,18 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
                       <span className="text-[10px] font-medium text-slate-500 dark:text-white/45 tabular-nums">
                         {formatCommentTime(c.createdAt)}
                       </span>
+                      {user && !c.parentCommentId && (
+                        <button type="button" className="min-h-11 px-2 heyroq-focus-ring rounded-full"
+                          aria-label={'Reply to ' + c.userName}
+                          onClick={() => {
+                            setReplyTo(c);
+                            const input = [...document.querySelectorAll<HTMLInputElement>('[data-heyroq-comment-input]')]
+                              .find(element => element.getClientRects().length);
+                            input?.focus();
+                          }}>
+                          Reply
+                        </button>
+                      )}
                       {canDeleteComment(c) && (
                         <button
                           type="button"
@@ -1011,10 +1033,19 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
             {commentError}
           </p>
         )}
+        {user && replyTo && (
+          <div role="status" className="flex justify-between items-center gap-2 text-xs">
+            <span>Replying to @{replyTo.userName}</span>
+            <button type="button" className="min-h-11 px-2 heyroq-focus-ring rounded-full" onClick={() => setReplyTo(null)}>
+              Cancel reply
+            </button>
+          </div>
+        )}
         {user ? (
           <form onSubmit={handleAddComment} className="flex gap-2 items-center">
             <input
               type="text"
+              data-heyroq-comment-input
               value={newComment}
               onFocus={() => {
                 isInputFocusedRef.current = true;

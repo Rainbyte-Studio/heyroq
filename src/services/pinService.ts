@@ -579,6 +579,7 @@ export async function fetchComments(pinId: string): Promise<Comment[]> {
         userName: data.userName || 'Explorer',
         userAvatar: data.userAvatar || '',
         text: data.text || '',
+        parentCommentId: typeof data.parentCommentId === 'string' ? data.parentCommentId : undefined,
         createdAt: formatDocDate(data.createdAt),
       };
     });
@@ -620,6 +621,7 @@ export function subscribeToComments(
             userName: data.userName || 'Explorer',
             userAvatar: data.userAvatar || '',
             text: data.text || '',
+            parentCommentId: typeof data.parentCommentId === 'string' ? data.parentCommentId : undefined,
             createdAt: formatDocDate(data.createdAt),
           };
         });
@@ -752,7 +754,8 @@ export async function addComment(
   userId: string,
   userName: string,
   userAvatar: string | undefined,
-  text: string
+  text: string,
+  parentCommentId?: string,
 ): Promise<Comment> {
   if (!userId) {
     throw new Error('You must be signed in to post a comment.');
@@ -778,6 +781,7 @@ export async function addComment(
     userAvatar: canonicalAvatar,
     text: cleanText,
     createdAt: serverTimestamp(),
+    ...(parentCommentId ? { parentCommentId } : {}),
   };
 
   const commentPath = `${PINS_COLLECTION}/${pinId}/comments`;
@@ -800,6 +804,7 @@ export async function addComment(
       userAvatar: commentPayload.userAvatar,
       text: cleanText,
       createdAt: now,
+      parentCommentId,
     };
   } catch (err: any) {
     const errorCode = err?.code || 'unknown';
