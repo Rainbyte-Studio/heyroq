@@ -332,6 +332,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   }, [isMe, myProfile]);
 
   useEffect(() => {
+    setUserPins([]);
     let isMounted = true;
     let unsubscribeUserSnapshot: (() => void) | null = null;
     let unsubscribeFollowers: (() => void) | null = null;
@@ -408,7 +409,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         // Subscribe to user pins so likeCount and commentCount stay 100% authoritative and live
         unsubscribePins = subscribeToUserPins(userId, (pins) => {
           if (isMounted) setUserPins(pins);
-        });
+        }, isMe);
 
         if (user && !isMe) {
           const following = await checkIfFollowing(user.uid, userId);
@@ -993,7 +994,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             onSelectPin={onSelectPin}
             onOpenCreatePin={onOpenCreatePin}
             onCloseProfileModal={onClose}
-            pins={userPins}
+            pins={userPins.filter(pin => pin.publicAccess === true)}
           />
 
           {/* Pins Section */}
@@ -1030,7 +1031,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     className="liquid-glass-card rounded-2xl overflow-hidden hover:border-[var(--brand-primary)]/55 cursor-pointer transition-all duration-150 group heyroq-focus-ring"
                   >
                     <div className="h-28 bg-slate-200/70 dark:bg-black/50 relative overflow-hidden">
-                      <ProfilePinImage src={pin.imageUrls?.[0]} alt={pin.title} />
+                      <ProfilePinImage src={pin.publicAccess === true ? pin.imageUrls?.[0] : undefined} alt={pin.title} />
                       <div className="absolute top-2 left-2">
                         <CategoryBadge category={pin.category} size="xs" />
                       </div>

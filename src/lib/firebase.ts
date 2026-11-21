@@ -4,7 +4,7 @@ import {
   initializeFirestore,
   connectFirestoreEmulator,
   getFirestore,
-  persistentLocalCache,
+  memoryLocalCache,
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
@@ -32,14 +32,15 @@ if (emulatorMode) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWa
 // We use experimentalAutoDetectLongPolling: true instead of experimentalForceLongPolling: true.
 // Auto-detect tries standard streaming/WebSockets first and seamlessly falls back to long-polling
 // only when needed, which prevents the transient 'Connection failed 1 times. [code=unavailable]' warning.
-// In addition, persistentLocalCache ensures immediate offline resilience and fast subsequent loads.
+// Keep new pin coordinates off disk. Owner-scoped and public pin views require
+// a server snapshot before displaying data under the current authorization.
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(
     app,
     {
       experimentalAutoDetectLongPolling: true,
-      localCache: persistentLocalCache({}),
+      localCache: memoryLocalCache(),
     },
     firebaseConfig.firestoreDatabaseId
   );

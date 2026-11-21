@@ -12,6 +12,7 @@ on:
       - 'functions/tests/**'
       - 'scripts/reset-explorer-progression.mjs'
       - 'docs/progression-deployment-manifest.json'
+      - 'docs/engagement-deployment-manifest.json'
       - 'functions/package.json'
       - 'functions/package-lock.json'
       - '.github/workflows/functions-build.yml'
@@ -50,13 +51,18 @@ jobs:
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore,auth,storage 'node --test functions/tests/progressionEmulator.test.cjs'
       - name: Selective progression reset rehearsal
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/progressionResetEmulator.test.cjs'
+      - name: Notifications and activity integration tests
+        env:
+          FIREBASE_CONFIG: '{"projectId":"demo-heyroq","storageBucket":"demo-heyroq.appspot.com"}'
+          GCLOUD_PROJECT: demo-heyroq
+        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/engagementEmulator.test.cjs'
       - name: Package the verified recovery runtime
         run: |
           mkdir recovery
           commit=$(git rev-parse HEAD)
           git archive --format=tar --output="recovery/heyroq-recovery-${commit}.tar" "$commit" \
             functions firebase.json firestore.rules firestore.indexes.json storage.rules \
-            release/block-firebase-functions.cjs docs/progression-deployment-manifest.json \
+            release/block-firebase-functions.cjs docs/progression-deployment-manifest.json docs/engagement-deployment-manifest.json \
             docs/GEOGRAPHY_XP_RELEASE.md docs/GEOGRAPHY_PROGRESSION_RESET.md \
             scripts/reset-explorer-progression.mjs release/progression-isolation.mjs
           (cd recovery && sha256sum ./*.tar > SHA256SUMS)

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join as joinPath } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { chromium } from 'playwright';
 import { build, preview } from 'vite';
@@ -40,6 +40,13 @@ function objectFor(raw) {
   return bucket.file(decodeURIComponent(url.pathname.slice(imagePrefix.length)));
 }
 
+function managedObject(uid, raw) {
+  const url = new URL(raw);
+  assert.equal(url.pathname, '/publicPinImageV1');
+  return bucket.file(['pin-images-v2', uid, url.searchParams.get('pin'),
+    url.searchParams.get('incarnation'), url.searchParams.get('image')].join('/'));
+}
+
 async function waitForRemoval(file) {
   for (let attempt = 0; attempt < 80; attempt++) {
     if (!(await file.exists())[0]) return;
@@ -48,7 +55,7 @@ async function waitForRemoval(file) {
   assert.fail('Storage cleanup did not remove ' + file.name);
 }
 
-const outDir = await mkdtemp(join(tmpdir(), 'heyroq-browser-'));
+const outDir = await mkdtemp(joinPath(tmpdir(), 'heyroq-browser-'));
 let browser;
 let server;
 try {
@@ -66,14 +73,22 @@ try {
       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
     ],
   });
-  const context = await browser.newContext({ serviceWorkers: 'block' });
-  await context.routeWebSocket(/.*/, async socket => {
+  async function isolatedContext() {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    await context.routeWebSocket(/.*/, async socket => {
     unexpected.add(new URL(socket.url()).origin);
     await socket.close();
-  });
-  await context.route('**/*', async route => {
+    });
+    await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (allowed.has(url.origin)) return route.continue();
+    if (url.origin === 'https://europe-west2-demo-heyroq.cloudfunctions.net' &&
+        url.pathname === '/publicPinImageV1' && route.request().method() === 'GET') {
+      const response = await fetch('http://127.0.0.1:5001/demo-heyroq/europe-west2/publicPinImageV1' + url.search, { redirect: 'error' });
+      return route.fulfill({ status: response.status, body: Buffer.from(await response.arrayBuffer()),
+        contentType: response.headers.get('content-type') || 'application/octet-stream',
+        headers: { 'access-control-allow-origin': origin, 'cache-control': 'private, no-store' } });
+    }
     if (url.origin === imageOrigin && url.pathname.startsWith(imagePrefix) && route.request().method() === 'GET') {
       if (failAvatarDelivery && decodeURIComponent(url.pathname).includes('/profile-images/')) {
         return route.fulfill({ status: 503, body: '' });
@@ -87,9 +102,12 @@ try {
         headers: { 'access-control-allow-origin': origin },
       });
     }
-    unexpected.add(url.origin);
+    unexpected.add(url.origin + url.pathname);
     return route.abort('blockedbyclient');
-  });
+    });
+    return context;
+  }
+  const context = await isolatedContext();
 
   const page = await context.newPage();
   await page.goto(origin + '/tests/browser/index.html');
@@ -202,7 +220,7 @@ try {
     assert.ok(await textContrast(geography) >= 4.5, `selected filter text passes at ${width}px`);
     if (screenshotDir && width !== 768) {
       await page.screenshot({
-        path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
+        path: joinPath(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
         animations: 'disabled',
       });
     }
@@ -230,7 +248,7 @@ try {
   assert.deepEqual((await historical.get()).data(), history);
   assert.deepEqual((await legacyProgress.get()).data(), { progress: 10, isUnlocked: false });
   if (screenshotDir) {
-    await page.screenshot({ path: join(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
+    await page.screenshot({ path: joinPath(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
   }
   await modal.getByRole('button', { name: /^All Badges/ }).click();
   assert.equal(await modal.getByRole('article').count(), 26);
@@ -324,10 +342,10 @@ try {
   assert.equal(urls.length, 1);
   assert.deepEqual(await read(urls[0]), { status: 200, bytes: png });
   const invalid = new URL(urls[0]);
-  invalid.searchParams.delete('token');
-  assert.equal((await read(invalid.href)).status, 403);
-  invalid.searchParams.set('token', randomUUID());
-  assert.equal((await read(invalid.href)).status, 403);
+  invalid.searchParams.delete('image');
+  assert.equal((await read(invalid.href)).status, 404);
+  invalid.searchParams.set('image', randomUUID());
+  assert.equal((await read(invalid.href)).status, 404);
 
   const avatar = () => page.evaluate(args => window.heyroqTest.avatar(...args), [uid, png]);
   const oldAvatar = await avatar();
@@ -348,15 +366,20 @@ try {
   assert.deepEqual(await read(newAvatar), { status: 200, bytes: png });
 
   assert.equal(await page.evaluate(args => window.heyroqTest.removePin(...args), [pinId, uid]), false);
-  await waitForRemoval(objectFor(urls[0]));
+  await waitForRemoval(managedObject(uid, urls[0]));
+  assert.equal((await read(urls[0])).status, 404);
   assert.deepEqual(await page.evaluate(() => window.heyroqTest.deleteAccount()), ['deleting', 'deleting']);
   assert.equal((await db.collection('accountDeletionLocks').doc(uid).get()).get('status'), 'deleting');
   const searchPins = db.collection('pins');
   const batch = db.batch();
   for (let i = 0; i < 150; i++) {
-    batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), { title: 'Unrelated fixture' });
+    batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), {
+      title: 'Unrelated fixture', visibility: 'public', status: 'published', publicAccess: true,
+    });
   }
   const fixture = {
+    visibility: 'public', status: 'published', publicAccess: true,
+    geohash: await page.evaluate(() => window.heyroqTest.fixtureGeohash()),
     userId: 'search-fixture', userName: 'Search fixture', latitude: 37, longitude: 23,
     category: 'Food', imageUrls: [], likeCount: 0, commentCount: 0, createdAt: new Date().toISOString(),
   };
@@ -367,7 +390,7 @@ try {
     ...fixture, title: 'Coffee Stand', description: '', tags: [],
   });
   batch.set(searchPins.doc('zz-search-private'), {
-    ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private',
+    ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private', publicAccess: false,
   });
   batch.set(db.collection('users').doc('surname-fixture'), {
     displayName: 'Μαρία Παπαδοπούλου', username: 'explorer_maria', followersCount: 0,
@@ -379,6 +402,13 @@ try {
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => window.heyroqTest.mountSearchApp());
+  assert.equal(await page.evaluate(() => window.heyroqTest.readablePin('zz-search-private')), false);
+  await page.evaluate(() => {
+    window.pinViewportUnsubscribe = window.heyroqTest.watchPinViewport(ids => { window.pinViewportIds = ids; });
+  });
+  await page.waitForFunction(() => window.pinViewportIds?.includes('zz-search-tag'));
+  assert.equal(await page.evaluate(() => window.pinViewportIds.includes('zz-search-private')), false);
+  await page.evaluate(() => window.pinViewportUnsubscribe());
   const searchBox = page.getByRole('textbox', { name: 'Search Heyroq' });
   const searchResults = page.getByRole('region', { name: 'Search results' });
   const matchingSpots = page.getByRole('complementary', { name: 'Matching Spots' });
@@ -482,13 +512,218 @@ try {
   assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
 
   await page.evaluate(() => window.heyroqTest.signOut());
-  await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), randomUUID() + '@example.test');
+  const engagementEmail = randomUUID() + '@example.test';
+  await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), engagementEmail);
   const setup = page.getByRole('dialog', { name: 'Finish setting up your profile' });
   await setup.getByRole('textbox', { name: 'Display Name' }).fill('Resumed Explorer');
   await setup.getByRole('textbox', { name: 'Username' }).fill('resumed_explorer');
   await setup.getByRole('button', { name: 'Save Username' }).click();
   await userMenu.waitFor();
   assert.ok((await db.doc('usernames/resumed_explorer').get()).exists);
+  const engagementUid = (await db.doc('usernames/resumed_explorer').get()).get('uid');
+  const engagementProfile = db.collection('users').doc(engagementUid);
+  const bell = page.getByRole('button', { name: /^Notifications/ });
+  await bell.press('Enter');
+  const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
+  const closeInbox = inbox.getByRole('button', { name: 'Close Notifications' });
+  await inbox.getByText('You’re all caught up.').waitFor();
+  assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await inbox.evaluate(dialog => dialog.contains(document.activeElement)));
+  await page.keyboard.press('Shift+Tab');
+  assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Escape');
+  await inbox.waitFor({ state: 'hidden' });
+  assert.ok(await bell.evaluate(button => button === document.activeElement));
+
+  const now = Timestamp.now();
+  const identifier = n => createHash('sha256').update(String(n)).digest('hex');
+  const pinRef = db.doc('pins/activity-browser-fixture');
+  // Isolate the exact-count engagement fixtures from delayed XP for this
+  // synthetic pin. The real progression writer is exercised earlier above.
+  await db.doc('progressionMaintenance/writers').update({ mode: 'frozen' });
+  await pinRef.create({ ...fixture, userId: engagementUid, title: 'Activity browser fixture' });
+  const pinCreatedAt = (await pinRef.get()).createTime;
+  const ownRestricted = db.batch();
+  ownRestricted.create(db.doc('pins/own-private-browser'), { ...fixture, userId: engagementUid,
+    visibility: 'private', publicAccess: false, title: 'Private owner spot' });
+  ownRestricted.create(db.doc('pins/own-draft-browser'), { ...fixture, userId: engagementUid,
+    status: 'draft', publicAccess: false, title: 'Draft owner spot' });
+  await ownRestricted.commit();
+  await userMenu.click();
+  await page.getByRole('menuitem', { name: 'My Profile & Spots' }).click();
+  const ownPinProfile = page.getByRole('dialog', { name: "Resumed Explorer's profile" });
+  await ownPinProfile.getByText('Private owner spot', { exact: true }).waitFor();
+  await ownPinProfile.getByText('Draft owner spot', { exact: true }).waitFor();
+  await ownPinProfile.getByRole('button', { name: /Close/ }).first().click();
+  const engagementSeed = db.batch();
+  for (let n = 1; n <= 2; n++) {
+    engagementSeed.create(engagementProfile.collection('notifications').doc(identifier(n)), {
+      type: 'announcement', title: 'Product update ' + n, category: 'system', recipientId: engagementUid,
+      at: now, sequence: n, read: false, deleted: false, expiresAt: Timestamp.fromMillis(Date.now() + 86400000),
+    });
+  }
+  for (let n = 1; n <= 26; n++) {
+    const at = Timestamp.fromMillis(Date.now() - n * 60_000);
+    const id = identifier(n);
+    engagementSeed.create(engagementProfile.collection('activityV1').doc(id), {
+      actorId: engagementUid, type: 'pin', source: pinRef.path, pinId: pinRef.id, pinCreatedAt, at,
+      eligible: true, key: String(at.toMillis()).padStart(16, '0') + ':' + id,
+    });
+  }
+  engagementSeed.set(engagementProfile.collection('notificationState').doc('inbox'), { unread: 2, sequence: 2, revision: 1 });
+  await engagementSeed.commit();
+  await page.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  const secondDevice = await isolatedContext();
+  const secondTab = await context.newPage();
+  const independentPage = await secondDevice.newPage();
+  for (const companion of [secondTab, independentPage]) {
+    await companion.goto(origin + '/tests/browser/index.html');
+    await companion.waitForFunction(() => Boolean(window.heyroqTest));
+    await companion.evaluate(email => window.heyroqTest.signIn(email, 'username-test-password'), engagementEmail);
+    await companion.evaluate(() => window.heyroqTest.mountSearchApp());
+    try {
+      await companion.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor({ timeout: 12_000 });
+    } catch (error) {
+      const bellLabel = await companion.locator('#nav-notifications-btn').getAttribute('aria-label', { timeout: 1000 }).catch(() => null);
+      const unread = (await engagementProfile.collection('notificationState').doc('inbox').get()).get('unread');
+      throw new Error('Unread sync failed in ' + (companion === secondTab ? 'the second tab' : 'the second device') +
+        ' with bell ' + bellLabel + ' and server count ' + unread, { cause: error });
+    }
+  }
+  await page.bringToFront();
+  await bell.click();
+  await inbox.getByText('Product update 2').waitFor();
+  assert.equal(await inbox.getByText(/^Unread/).count(), 2);
+  const viewports = [[1440, 900], [1280, 900], [1024, 900], [768, 1024], [430, 932], [390, 844], [375, 812], [320, 720]];
+  for (const [width, height, dark] of viewports.flatMap(([w, h]) => [[w, h, false], [w, h, true]])) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+    const bounds = await inbox.boundingBox();
+    assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+    if (width < 768) assert.equal(bounds.width, width);
+    assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
+    assert.ok(await inbox.evaluate(dialog => {
+      const rgb = value => value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+      const luminance = channels => channels.map(channel => {
+        const s = channel / 255;
+        return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4;
+      }).reduce((total, channel, index) => total + channel * [.2126, .7152, .0722][index], 0);
+      const background = luminance(rgb(getComputedStyle(dialog).backgroundColor));
+      const foreground = luminance(rgb(getComputedStyle(dialog.querySelector('time')).color));
+      return (Math.max(background, foreground) + .05) / (Math.min(background, foreground) + .05) >= 4.5;
+    }));
+    assert.ok(await bell.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      return bounds.x >= 0 && bounds.right <= innerWidth && bounds.width >= 44 && bounds.height >= 44;
+    }));
+    if (screenshotDir && (width === 1280 || width === 320)) {
+      await page.screenshot({ path: joinPath(screenshotDir, 'notifications-' + width + (dark ? '-dark' : '-light') + '.png'), animations: 'disabled' });
+    }
+  }
+  await inbox.getByRole('button', { name: 'Mark all as read' }).click();
+  for (const companion of [secondTab, independentPage]) {
+    await companion.getByRole('button', { name: 'Notifications', exact: true }).waitFor();
+  }
+  await secondTab.close();
+  await secondDevice.close();
+  await inbox.getByText('Product update 2').waitFor();
+  await inbox.getByText(/^Unread/).first().waitFor({ state: 'hidden' });
+  await inbox.getByRole('button', { name: 'View history' }).click();
+  await inbox.getByRole('button', { name: /Delete notification.*Product update 2/ }).click();
+  await inbox.getByText('Product update 2').waitFor({ state: 'hidden' });
+  await closeInbox.click();
+
+  await userMenu.click();
+  await page.getByRole('menuitem', { name: 'Activity', exact: true }).click();
+  const activityPanel = page.getByRole('dialog', { name: 'Activity', exact: true });
+  await activityPanel.getByText('No shared activity here yet.').waitFor();
+  const activityResponse = page.waitForResponse(response => response.url().endsWith('/engagementV1') &&
+    response.request().method() === 'POST' && response.request().postDataJSON()?.data?.action === 'mine');
+  await activityPanel.getByRole('button', { name: 'My Activity' }).click();
+  const firstActivityPage = (await (await activityResponse).json()).result;
+  await activityPanel.getByText(/You published Activity browser fixture/).first().waitFor();
+  assert.equal(await activityPanel.getByRole('listitem').count(), 24);
+  const moreResponse = page.waitForResponse(response => {
+    const request = response.request();
+    return response.url().endsWith('/engagementV1') && request.method() === 'POST' &&
+      Boolean(request.postDataJSON()?.data?.before);
+  });
+  await activityPanel.getByRole('button', { name: 'Load more' }).click();
+  const payload = await (await moreResponse).json();
+  assert.ok(payload.result?.items?.length > 0, JSON.stringify(payload.error ?? payload.result));
+  const combined = [...firstActivityPage.items, ...payload.result.items];
+  assert.equal(new Set(combined.map(row => row.id)).size, combined.length);
+  assert.equal(combined.filter(row => row.type === 'pin' && row.pinId === pinRef.id).length, 26);
+  await activityPanel.getByRole('listitem').nth(combined.length - 1).waitFor();
+  assert.equal(await activityPanel.getByRole('listitem').count(), combined.length);
+  if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
+  await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
+  await userMenu.click();
+  const settingsLink = page.getByRole('menuitem', { name: 'Notifications & Activity' });
+  await settingsLink.click();
+  const engagementSettings = page.getByRole('dialog', { name: 'Notifications & Activity' });
+  const likes = engagementSettings.getByRole('checkbox', { name: 'Likes on my pins' });
+  await likes.uncheck();
+  await engagementSettings.getByText('Preferences are synced across your devices.').waitFor();
+  assert.equal((await engagementProfile.collection('notificationPreferences').doc('settings').get()).get('likes'), false);
+  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+  await userMenu.click();
+  await settingsLink.click();
+  await likes.waitFor();
+  assert.equal(await likes.isChecked(), false);
+  if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
+  await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+
+  let releaseRequest;
+  const pendingRequest = new Promise(resolve => { releaseRequest = resolve; });
+  await page.route('**/engagementV1', async route => {
+    await pendingRequest;
+    await route.fulfill({
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'Simulated connection error' } }),
+    });
+  });
+  await bell.click();
+  await inbox.getByText('Loading…', { exact: true }).waitFor();
+  releaseRequest();
+  await inbox.getByText('This view could not load.').waitFor();
+  await page.unroute('**/engagementV1');
+  await inbox.getByRole('button', { name: 'Retry' }).click();
+  await inbox.getByText('Product update 1').waitFor();
+  // Exercise the application's connectivity handling without switching
+  // Chromium's network stack, which can try to probe external connectivity.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    window.dispatchEvent(new Event('offline'));
+  });
+  await inbox.getByText('You’re offline. Connect to load notifications.').waitFor();
+  await page.evaluate(() => {
+    Reflect.deleteProperty(navigator, 'onLine');
+    window.dispatchEvent(new Event('online'));
+  });
+  await inbox.getByText('Product update 1').waitFor();
+  await closeInbox.click();
+
+  const groupSeed = db.batch();
+  for (const [index, actorId] of ['surname-fixture', 'hyphen-fixture'].entries()) {
+    groupSeed.create(engagementProfile.collection('notifications').doc(identifier(80 + index)), {
+      type: 'like', category: 'social', actorId, pinId: pinRef.id, pinCreatedAt,
+      recipientId: engagementUid, at: Timestamp.now(), sequence: 80 + index, read: false, deleted: false,
+    });
+  }
+  groupSeed.set(engagementProfile.collection('notificationState').doc('inbox'),
+    { unread: 2, sequence: 81, revision: 100 }, { merge: true });
+  await groupSeed.commit();
+  await page.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  await bell.click();
+  await inbox.getByText(/^2 likes on Activity browser fixture/).click();
+  await inbox.getByText('Μαρία Παπαδοπούλου liked Activity browser fixture.').waitFor();
+  await inbox.getByText('Elena García-López liked Activity browser fixture.').waitFor();
+  await inbox.getByRole('button', { name: 'Mark as read', exact: true }).first().click();
+  await page.locator('#nav-notifications-btn[aria-label="Notifications, 1 unread"]').waitFor({ state: 'attached' });
+  await closeInbox.click();
+  console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {

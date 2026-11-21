@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MAX_GEOGRAPHY_PINS_PER_UTC_DAY = void 0;
+exports.formatGeographicDiscovery = formatGeographicDiscovery;
 exports.configuredGeographicPolicy = configuredGeographicPolicy;
 exports.validateGeographicSelection = validateGeographicSelection;
 exports.geographicReceiptForPin = geographicReceiptForPin;
@@ -11,6 +12,15 @@ exports.MAX_GEOGRAPHY_PINS_PER_UTC_DAY = 5;
 const cities = new Map(catalog.cities.map(city => [city[0], city]));
 const CITY_CENTER_LIMIT_KM = 25;
 const radians = (degrees) => degrees * Math.PI / 180;
+const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+function formatGeographicDiscovery(receipt, city) {
+    if (!receipt)
+        return;
+    const entry = cities.get(receipt.cityId);
+    if (!entry || entry[1] !== receipt.countryCode || !/^[A-Z]{2}$/.test(receipt.countryCode))
+        return;
+    return city ? entry[2] : countryNames.of(receipt.countryCode);
+}
 // Recovery deployments omit the capability. A capable deployment still needs
 // a post-reset cutoff in the server-owned writer control document.
 function configuredGeographicPolicy(cutoff = undefined) {
@@ -44,7 +54,8 @@ function geographicReceiptForPin(pin, userId, policy) {
     if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
         created.toMillis() < policy.startsAtMs || (policy.pilotUsers && !policy.pilotUsers.has(userId)) ||
         data.userId !== userId || !(0, progressionEvidence_1.isPublishedDiscovery)(data) || data.isReported || data.isPrivate ||
-        data.visibility === 'private' || data.publishReceipt !== true ||
+        (data.visibility != null && data.visibility !== 'public') || data.publicAccess === false ||
+        data.publishReceipt !== true ||
         typeof data.imageIncarnation !== 'string' ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(data.imageIncarnation) ||
         !Array.isArray(data.imageUrls) || data.imageUrls.length === 0)

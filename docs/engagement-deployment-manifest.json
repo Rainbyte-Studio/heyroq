@@ -1,0 +1,19 @@
+{
+  "project": "rainbyte-studio",
+  "region": "europe-west2",
+  "platform": "gcfv2",
+  "database": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+  "functions": {
+    "onActivityPinPublished": { "event": "created", "document": "pins/{pinId}", "retry": true },
+    "onNotificationLike": { "event": "created", "document": "pins/{pinId}/likes/{actorId}", "retry": true },
+    "onNotificationComment": { "event": "created", "document": "pins/{pinId}/comments/{commentId}", "retry": true },
+    "onNotificationFollow": { "event": "created", "document": "users/{uid}/followers/{followerId}", "retry": true },
+    "onActivityProgressionV11Xp": { "event": "created", "document": "progressionV11/{uid}/xpEvents/{eventId}", "retry": true },
+    "onActivityProgressionV11Level": { "event": "written", "document": "progressionV11/{uid}/state/summary", "retry": true },
+    "onNotificationCommand": { "event": "created", "document": "users/{uid}/notificationCommands/{id}", "retry": true },
+    "engagementV1": { "callable": true, "maxInstances": 10 },
+    "pinImageAccessV1": { "callable": true, "maxInstances": 4 },
+    "publicPinImageV1": { "publicHttp": true, "timeoutSeconds": 30, "concurrency": 4, "maxInstances": 12 },
+    "pruneEngagementHistory": { "privateHttp": true, "schedule": "*/15 * * * *", "timeoutSeconds": 120, "concurrency": 1, "maxInstances": 1 }
+  }
+}

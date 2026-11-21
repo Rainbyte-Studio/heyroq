@@ -46,6 +46,7 @@ interface AchievementsModalProps {
   displayName?: string;
   onClose: () => void;
   fallbackFocusRef?: React.RefObject<HTMLElement | null>;
+  focusAchievementId?: string;
 }
 
 const CATEGORIES: { id: 'All' | AchievementCategory; label: string }[] = [
@@ -62,6 +63,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   displayName,
   onClose,
   fallbackFocusRef,
+  focusAchievementId,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'All' | AchievementCategory>('All');
   const [summary, setSummary] = useState<UserProgressionSummary | null>(null);
@@ -73,6 +75,13 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const pointerStartedOnBackdrop = useRef(false);
   const dialogId = useId();
+
+  useEffect(() => {
+    if (!focusAchievementId || isLoading) return;
+    const target = document.getElementById(dialogId + '-achievement-' + focusAchievementId);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'nearest' });
+  }, [dialogId, focusAchievementId, isLoading]);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -454,6 +463,8 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
                 return (
                   <article
                     key={ach.id}
+                    id={dialogId + '-achievement-' + ach.id}
+                    tabIndex={focusAchievementId === ach.id ? -1 : undefined}
                     aria-labelledby={badgeTitleId}
                     aria-describedby={isComingSoon || isCompleted || progress === null ? badgeStatusId : undefined}
                     className={`liquid-glass-card rounded-2xl p-4 transition-colors relative overflow-hidden flex flex-col justify-between ${

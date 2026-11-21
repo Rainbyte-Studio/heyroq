@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Timestamp, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import type { Bucket, FileMetadata } from '@google-cloud/storage';
+import { pinImageDeliveryUrl } from './pinImageDeliveryUrl';
 
 export const IMAGE_PROTOCOL = 'server-v1';
 export const IMAGE_PREFIX = 'pin-images-v2';
@@ -157,13 +158,20 @@ export async function handlePinImageUpload(
     return db.runTransaction(async tx => {
       const { pinId, uploadIds, expiresAt } = await openIntent(tx);
       const existing = await tx.get(approval);
-      if (existing.exists) return existing.get('claim');
+      if (existing.exists) {
+        const claim = existing.get('claim');
+        if (claim?.imageUrls?.some((url: string) => !url.includes('/publicPinImageV1?'))) {
+          throw new HttpsError('failed-precondition', 'Restart this legacy image upload.', { uploadExpired: true });
+        }
+        return claim;
+      }
       const receipts = await tx.getAll(...uploadIds.map(uploadId => intent.collection('receipts').doc(uploadId)));
-      if (receipts.some(receipt => !GENERATION.test(receipt.get('generation') ?? '') || !receipt.get('downloadUrl'))) {
+      if (receipts.some(receipt => receipt.get('delivery') !== 'checked-v1' ||
+        !GENERATION.test(receipt.get('generation') ?? '') || !receipt.get('downloadUrl'))) {
         throw new HttpsError('failed-precondition', 'The authorized images have not all been uploaded.');
       }
       const claim = {
-        protocol: IMAGE_PROTOCOL, pinId, userId: uid,
+        protocol: IMAGE_PROTOCOL, pinId, userId: uid, delivery: 'checked-v1',
         images: receipts.map(receipt => ({ uploadId: receipt.id, generation: receipt.get('generation') })),
         imageUrls: receipts.map(receipt => receipt.get('downloadUrl')),
       };
@@ -181,7 +189,7 @@ export async function handlePinImageUpload(
   const receipt = intent.collection('receipts').doc(uploadId);
   const bytes = Buffer.from(content, 'base64');
   const digest = createHash('sha256').update(bytes).digest('hex');
-  const { pinId, spec, nonce, token, completed } = await db.runTransaction(async tx => {
+  const { pinId, spec, nonce, completed } = await db.runTransaction(async tx => {
     const authorization = await openIntent(tx);
     const spec = authorization.specs[authorization.uploadIds.indexOf(uploadId)];
     if (!spec || bytes.length !== spec.size || bytes.toString('base64') !== content ||
@@ -192,19 +200,18 @@ export async function handlePinImageUpload(
     if (existing.exists) {
       const prior = existing.data()!;
       // An old nonce does not prove which bytes reached Storage. Never reuse the slot.
-      if (prior.digest === undefined) {
+      if (prior.digest === undefined || prior.delivery !== 'checked-v1') {
         throw new HttpsError('failed-precondition', 'Restart this legacy image upload.', { uploadExpired: true });
       }
-      if (prior.digest !== digest || typeof prior.token !== 'string') {
+      if (prior.digest !== digest) {
         throw new HttpsError('failed-precondition', 'This upload slot belongs to a different upload.');
       }
       return { pinId: authorization.pinId, spec, nonce: prior.nonce as string,
-        token: prior.token, completed: !!prior.generation && !!prior.downloadUrl };
+        completed: !!prior.generation && !!prior.downloadUrl };
     }
     const nonce = randomUUID();
-    const token = randomUUID();
-    tx.create(receipt, { nonce, token, digest });
-    return { pinId: authorization.pinId, spec, nonce, token, completed: false };
+    tx.create(receipt, { nonce, digest, delivery: 'checked-v1' });
+    return { pinId: authorization.pinId, spec, nonce, completed: false };
   });
   if (completed) return { uploaded: true };
 
@@ -218,8 +225,9 @@ export async function handlePinImageUpload(
       preconditionOpts: { ifGenerationMatch: 0 },
       metadata: {
         contentType: spec.type,
+        cacheControl: 'private, no-store',
         metadata: { protocol: IMAGE_PROTOCOL, uploadedBy: uid, pinId, incarnation, uploadId, nonce, digest,
-          firebaseStorageDownloadTokens: token },
+          delivery: 'checked-v1' },
       },
     });
   } catch (error) {
@@ -237,11 +245,10 @@ export async function handlePinImageUpload(
   if (!GENERATION.test(generation) || Number(metadata.size) !== spec.size || metadata.contentType !== spec.type ||
       custom?.protocol !== IMAGE_PROTOCOL || custom.nonce !== nonce || custom.uploadedBy !== uid ||
       custom.pinId !== pinId || custom.incarnation !== incarnation || custom.uploadId !== uploadId ||
-      custom.digest !== digest || custom.firebaseStorageDownloadTokens !== token) {
+      custom.digest !== digest || custom.delivery !== 'checked-v1' || custom.firebaseStorageDownloadTokens) {
     throw new HttpsError('failed-precondition', 'Stored image does not match the authorization.');
   }
-  const downloadUrl = 'https://firebasestorage.googleapis.com/v0/b/' + bucket.name +
-    '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
+  const downloadUrl = pinImageDeliveryUrl(pinId, incarnation, uploadId);
   await db.runTransaction(async tx => {
     await openIntent(tx);
     const current = await tx.get(receipt);

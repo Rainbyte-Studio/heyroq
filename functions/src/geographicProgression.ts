@@ -10,6 +10,15 @@ const cities = new Map(catalog.cities.map(city => [city[0], city]));
 const CITY_CENTER_LIMIT_KM = 25;
 const radians = (degrees: number) => degrees * Math.PI / 180;
 
+const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+
+export function formatGeographicDiscovery(receipt: GeographicReceipt | undefined, city: boolean) {
+  if (!receipt) return;
+  const entry = cities.get(receipt.cityId);
+  if (!entry || entry[1] !== receipt.countryCode || !/^[A-Z]{2}$/.test(receipt.countryCode)) return;
+  return city ? entry[2] : countryNames.of(receipt.countryCode);
+}
+
 export interface GeographicPolicy {
   readonly startsAtMs: number;
   readonly pilotUsers?: ReadonlySet<string>;
@@ -61,7 +70,8 @@ export function geographicReceiptForPin(
   if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
       created.toMillis() < policy.startsAtMs || (policy.pilotUsers && !policy.pilotUsers.has(userId)) ||
       data.userId !== userId || !isPublishedDiscovery(data) || data.isReported || data.isPrivate ||
-      data.visibility === 'private' || data.publishReceipt !== true ||
+      (data.visibility != null && data.visibility !== 'public') || data.publicAccess === false ||
+      data.publishReceipt !== true ||
       typeof data.imageIncarnation !== 'string' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(data.imageIncarnation) ||
       !Array.isArray(data.imageUrls) || data.imageUrls.length === 0) return;

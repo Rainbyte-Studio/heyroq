@@ -24,10 +24,10 @@ service firebase.storage {
 
     // Preserve existing pin images. New objects use a backend-only prefix.
     match /pins/{userId}/{fileName} {
-      allow get: if true;
+      allow get: if resource.metadata.get('heyroqRestricted', '') != '1';
     }
     match /pin-images/{userId}/{pinId}/{incarnation}/{uploadId} {
-      allow get: if true;
+      allow get: if resource.metadata.get('heyroqRestricted', '') != '1';
     }
 
     // Managed objects are written by Admin and served through per-object bearer URLs.

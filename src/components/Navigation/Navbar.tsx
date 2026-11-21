@@ -6,7 +6,8 @@ import { PinCategory, DiscoveryFilter, Pin, UserProgressionSummary } from '../..
 import { normalizeCategory, isSameCategory } from '../../utils/categoryUtils';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { GlobalSearchDropdown } from './GlobalSearchDropdown';
-import { executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { categorizeSearchResults, executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { subscribeToPublicPinResults } from '../../services/pinService';
 import { hasSpotSearchQuery } from '../../utils/spotSearch';
 import {
   Search,
@@ -27,6 +28,8 @@ import {
   Trophy,
   Info,
   HelpCircle,
+  Bell,
+  Activity,
 } from 'lucide-react';
 import { subscribeToUserProgression } from '../../services/gamificationService';
 import { APP_VERSION } from '../../config/version';
@@ -35,6 +38,7 @@ import { ThemePopoverButton, ThemeSelector } from '../Common/ThemeSelector';
 import { Wordmark } from '../Common/Wordmark';
 import { UserAvatar } from '../Common/UserAvatar';
 import { CloseButton } from '../Common/CloseButton';
+import type { EngagementView } from '../../services/engagementService';
 
 interface NavbarProps {
   discoveryFilter: DiscoveryFilter;
@@ -47,6 +51,9 @@ interface NavbarProps {
   onOpenAuth: (mode?: 'signin' | 'signup') => void;
   onOpenProfile: (userId: string) => void;
   onOpenAccountSecurity?: () => void;
+  onOpenEngagement?: (view: EngagementView) => void;
+  notificationUnread?: number;
+  notificationsOpen?: boolean;
   onOpenProgression?: () => void;
   onOpenAbout?: () => void;
   onOpenAdmin: () => void;
@@ -78,6 +85,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
   onOpenProfile,
   onOpenAccountSecurity,
+  onOpenEngagement,
+  notificationUnread = 0,
+  notificationsOpen = false,
   onOpenProgression,
   onOpenAbout,
   onOpenAdmin,
@@ -126,6 +136,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   useEffect(() => {
     const q = searchQuery.trim();
     const seq = ++globalSearchSeqRef.current;
+    let unsubscribePins: (() => void) | undefined;
+    let disposed = false;
     if (globalSearchDebounceRef.current) {
       clearTimeout(globalSearchDebounceRef.current);
     }
@@ -140,8 +152,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     globalSearchDebounceRef.current = setTimeout(async () => {
       try {
         const results = await executeGlobalSearch(q);
-        if (seq !== globalSearchSeqRef.current) return;
-        setGlobalSearchResults(results);
+        if (disposed || seq !== globalSearchSeqRef.current) return;
+        if (!results.sourcePins?.length) setGlobalSearchResults(results);
+        else {
+          const users = results.people.flatMap(result => result.user ? [result.user] : []);
+          unsubscribePins = subscribeToPublicPinResults(results.sourcePins, pins => {
+            if (!disposed && seq === globalSearchSeqRef.current) setGlobalSearchResults(categorizeSearchResults(q, pins, users));
+          });
+        }
       } catch (err) {
         if (seq === globalSearchSeqRef.current) {
           console.error('[Heyroq Global Search] Error:', err);
@@ -155,6 +173,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     }, 300);
 
     return () => {
+      disposed = true;
+      unsubscribePins?.();
       if (globalSearchDebounceRef.current) {
         clearTimeout(globalSearchDebounceRef.current);
       }
@@ -566,6 +586,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Drop Pin</span>
           </button>
 
+          {onOpenEngagement && (
+            <button type="button" id="nav-notifications-btn" aria-haspopup="dialog" aria-expanded={notificationsOpen}
+              aria-label={notificationUnread ? 'Notifications, ' + notificationUnread + ' unread' : 'Notifications'}
+              className="liquid-glass-pill heyroq-focus-ring relative grid h-11 w-11 shrink-0 place-items-center rounded-full"
+              onClick={() => { setUserDropdownOpen(false); onOpenEngagement('inbox'); }}>
+              <Bell className="h-[18px] w-[18px]" aria-hidden />
+              {notificationUnread > 0 && <span aria-hidden className="heyroq-btn-primary absolute -right-1 -top-1 min-w-5 rounded-full px-1 text-center text-[10px] font-bold leading-5">
+                {notificationUnread > 99 ? '99+' : notificationUnread}
+              </span>}
+            </button>
+          )}
           {/* User Profile or Sign In */}
           {user ? (
             <div className="relative shrink-0" ref={dropdownRef}>
@@ -656,6 +687,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <span>Account &amp; Security</span>
                     </button>
                   )}
+
+                  {onOpenEngagement && ([['following', 'Activity', Activity], ['settings', 'Notifications & Activity', Bell]] as const)
+                    .map(([view, label, Icon]) => (
+                      <button key={view} type="button" role="menuitem"
+                        className="heyroq-focus-ring flex min-h-11 w-full items-center gap-2.5 px-4 text-left text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                        onClick={() => {
+                          profileMenuButtonRef.current?.focus({ preventScroll: true });
+                          setUserDropdownOpen(false);
+                          onOpenEngagement(view);
+                        }}>
+                        <Icon className="h-4 w-4 text-[var(--brand-primary)]" aria-hidden />
+                        {label}
+                      </button>
+                    ))}
 
                   <button
                     type="button"

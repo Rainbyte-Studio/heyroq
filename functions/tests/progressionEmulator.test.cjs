@@ -610,8 +610,28 @@ test('every progression caller keeps geography frozen and replays without adding
 
 test('all compiled endpoints match the deployment manifest, including retry policy', () => {
   const manifest = require('../../docs/progression-deployment-manifest.json');
+  const engagement = require('../../docs/engagement-deployment-manifest.json');
   const names = Object.keys(functions).filter(name => functions[name].__endpoint);
-  assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
+  assert.deepEqual(names.sort(), [...Object.keys(manifest.functions), ...Object.keys(engagement.functions)].sort());
+  for (const [name, expected] of Object.entries(engagement.functions)) {
+    const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
+    assert.deepEqual(endpoint.region, [engagement.region], name);
+    assert.equal(endpoint.platform, engagement.platform, name);
+    if (expected.event) {
+      assert.equal(endpoint.eventTrigger.eventType, 'google.cloud.firestore.document.v1.' + expected.event, name);
+      assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, expected.document, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.database, engagement.database, name);
+      assert.equal(endpoint.eventTrigger.retry, expected.retry, name);
+    } else if (expected.callable) {
+      assert.ok(endpoint.callableTrigger, name);
+      assert.equal(endpoint.maxInstances, expected.maxInstances, name);
+    } else {
+      assert.deepEqual(endpoint.httpsTrigger?.invoker, [expected.publicHttp ? 'public' : 'private'], name);
+      assert.equal(endpoint.timeoutSeconds, expected.timeoutSeconds, name);
+      assert.equal(endpoint.concurrency, expected.concurrency, name);
+      assert.equal(endpoint.maxInstances, expected.maxInstances, name);
+    }
+  }
   for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances, region, releaseGate }] of Object.entries(manifest.functions)) {
     const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
     assert.deepEqual(endpoint.region, [region ?? manifest.region], name);
@@ -691,6 +711,11 @@ test('account deletion and downstream replay preserve the surviving user ledger'
     .set(pin, { userId: survivorId, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR' })
     .set(like, { userId: uid }).set(comment, { userId: uid }).set(follower, { followerId: uid })
     .set(departing.collection('following').doc(survivorId), {}).commit();
+  const engagementPaths = ['notifications/grouped-like-1', 'notifications/grouped-like-2',
+    'notificationPreferences/settings', 'notificationState/inbox', 'activityV1/progression-entry',
+    'notificationCommands/pending'];
+  const engagementRecords = engagementPaths.map(path => departing.collection(path.split('/')[0]).doc(path.split('/')[1]));
+  await Promise.all(engagementRecords.map(ref => ref.set({ recipientId: uid })));
 
   const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
   const ledger = generation(survivor).collection('xpEvents');
@@ -698,6 +723,8 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   assert.deepEqual(await functions.deleteUserAccount.run(request), { success: false, status: 'deleting' });
   assert.equal((await lock.get()).get('phase'), 'likes');
   assert.equal((await departing.get()).exists, true);
+  await assert.rejects(functions.engagementV1.run({ auth: { uid, token: { firebase: { sign_in_provider: 'password' } } },
+    data: { action: 'inbox' } }), { code: 'permission-denied' });
   for (let tick = 0; tick < 6 && (await lock.get()).get('phase') !== 'verifyAvatars'; tick++) {
     await postToScheduledWorker(functions.reconcileAccountDeletion);
   }
@@ -712,6 +739,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   const completed = await lock.get();
   assert.equal(completed.get('status'), 'deleted');
   assert.ok(completed.get('completedAt') instanceof Timestamp);
+  assert.ok((await db.getAll(...engagementRecords)).every(record => !record.exists));
 
   let previousEvents;
   for (let delivery = 0; delivery < 2; delivery++) {
@@ -1211,7 +1239,8 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
   assert.deepEqual(claim.images, [{ uploadId, generation: String(metadata.generation) }]);
   assert.equal(claim.userId, uid);
   assert.deepEqual((await file.download())[0], png);
-  assert.equal(new URL(claim.imageUrls[0]).searchParams.get('token'), metadata.metadata.firebaseStorageDownloadTokens);
+  assert.equal(new URL(claim.imageUrls[0]).searchParams.has('token'), false);
+  assert.equal(metadata.metadata.firebaseStorageDownloadTokens, undefined);
   assert.equal((await db.collection('pinImageApprovals').doc(incarnation).get()).get('claim.pinId'), pinId);
   await intent.update({ expiresAt: Timestamp.fromMillis(Date.now() - 1) });
   await assert.rejects(call(upload), { code: 'deadline-exceeded' });
@@ -1278,16 +1307,22 @@ test('the named database applies the pin-image rules to an authenticated client'
   const download = new URL(claim.imageUrls[0]);
   const storageHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST;
   assert.match(storageHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
-  const publicDownload = await fetch('http://' + storageHost + download.pathname + download.search);
-  assert.equal(publicDownload.status, 200);
-  assert.deepEqual(Buffer.from(await publicDownload.arrayBuffer()), png);
-  const withoutToken = await fetch('http://' + storageHost + download.pathname + '?alt=media');
-  assert.equal(withoutToken.status, 403);
+  const { pinImagePath } = require('../lib/pinImageUpload.js');
+  const { readPublicPinImage } = require('../lib/pinImageAccess.js');
+  const bucket = require('firebase-admin/storage').getStorage().bucket();
+  const path = pinImagePath(uid, pinId, begin.incarnation, begin.uploadIds[0]);
+  const storageUrl = 'http://' + storageHost + '/v0/b/' + bucket.name + '/o/' + encodeURIComponent(path) + '?alt=media';
+  const key = Object.fromEntries(download.searchParams);
+  const publicRead = () => readPublicPinImage(db, bucket, key);
+  const ownerRead = (identity, data = { pinId, index: 0 }) => functions.pinImageAccessV1.run({ auth: identity, data });
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  assert.equal((await fetch(storageUrl)).status, 403);
 
   const database = 'projects/demo-heyroq/databases/' + FIRESTORE_DATABASE_ID;
   const url = 'http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents:commit';
   const encode = value => {
     if (typeof value === 'string') return { stringValue: value };
+    if (typeof value === 'boolean') return { booleanValue: value };
     if (typeof value === 'number') return { doubleValue: value };
     if (Array.isArray(value)) return { arrayValue: { values: value.map(encode) } };
     return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)])) } };
@@ -1298,24 +1333,102 @@ test('the named database applies the pin-image rules to an authenticated client'
     body: JSON.stringify({ writes }),
   });
   const pin = { userId: uid, title: 'Local spot', latitude: 37, longitude: 23, category: 'Other',
+    publicAccess: false, visibility: 'private', status: 'draft', publishReceipt: true,
     createdAt: new Date().toISOString(), imageUrls: claim.imageUrls };
   const pinWrite = write('pins/' + pinId, { ...pin, imageIncarnation: begin.incarnation });
   const claimWrite = write('pinImageClaims/' + begin.incarnation, claim);
+  const receipt = { update: { name: database + '/documents/users/' + uid + '/pinPublishReceipts/' + pinId },
+    updateTransforms: [{ fieldPath: 'publishedAt', setToServerValue: 'REQUEST_TIME' }] };
   assert.equal((await commit([claimWrite])).status, 403);
   assert.equal((await commit([write('pins/' + pinId, pin)])).status, 403);
-  const published = await commit([pinWrite, claimWrite]);
+  const published = await commit([pinWrite, claimWrite, receipt]);
   assert.equal(published.status, 200, await published.text());
   assert.deepEqual((await pins.doc(pinId).get()).get('imageUrls'), claim.imageUrls);
   assert.equal((await commit([write('pins/' + pins.doc().id, pin)])).status, 403);
 
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  await assert.rejects(ownerRead(undefined), { code: 'unauthenticated' });
+  await assert.rejects(ownerRead({ ...auth, uid: 'different-owner' }), { code: 'not-found' });
+  await assert.rejects(ownerRead(auth, { pinId: '../other', index: 0 }), { code: 'invalid-argument' });
+  assert.equal((await ownerRead(auth)).content, png.toString('base64'));
+  const publishFields = { publicAccess: true, visibility: 'public', status: 'published' };
+  const publicWrite = write('pins/' + pinId, publishFields);
+  publicWrite.updateMask = { fieldPaths: Object.keys(publishFields) };
+  const promoted = await commit([publicWrite]);
+  assert.equal(promoted.status, 200, await promoted.text());
+  assert.deepEqual((await publicRead()).bytes, png);
+  const privateFields = { publicAccess: false, visibility: 'private' };
+  const privateWrite = write('pins/' + pinId, privateFields);
+  privateWrite.updateMask = { fieldPaths: Object.keys(privateFields) };
+  const restricted = await commit([privateWrite]);
+  assert.equal(restricted.status, 200, await restricted.text());
+  const hiddenPin = await fetch('http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents/pins/' + pinId);
+  assert.equal(hiddenPin.status, 403);
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  assert.equal((await ownerRead(auth)).content, png.toString('base64'));
+
   const snapshot = await pins.doc(pinId).get();
   await pins.doc(pinId).delete();
   await require('../lib/index.js').onPinDeleted.run({ id: randomUUID(), params: { pinId }, data: snapshot });
-  const bucket = require('firebase-admin/storage').getStorage().bucket();
-  const path = decodeURIComponent(download.pathname.split('/o/')[1]);
   assert.equal((await bucket.file(path).exists())[0], false);
-  const gone = await fetch('http://' + storageHost + download.pathname + download.search);
+  await assert.rejects(ownerRead(auth), { code: 'not-found' });
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  const gone = await fetch(storageUrl);
   assert.equal(gone.ok, false);
+});
+
+test('restricted legacy media invalidates issued URLs and remains available to its owner', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const uid = 'legacy-image-owner';
+  const pinId = 'legacy-image-fixture';
+  const file = bucket.file('pins/' + uid + '/legacy.png');
+  const token = randomUUID();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+  const storagePath = '/v0/b/' + bucket.name + '/o/' + encodeURIComponent(file.name) + '?alt=media';
+  const base = 'http://' + process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+  const pin = pins.doc(pinId);
+  const owner = db.doc('users/' + uid);
+  const caller = (userId, input = { pinId, index: 0 }) => functions.pinImageAccessV1.run({
+    auth: { uid: userId, token: { firebase: { sign_in_provider: 'password' } } }, data: input,
+  });
+  await owner.set({ displayName: 'Legacy image fixture' });
+  await file.save(png, { resumable: false, metadata: { contentType: 'image/png',
+    metadata: { firebaseStorageDownloadTokens: token } } });
+  await pin.create({ userId: uid, visibility: 'private', status: 'draft', publicAccess: false,
+    imageUrls: ['https://firebasestorage.googleapis.com' + storagePath + '&token=' + token] });
+  try {
+    assert.equal((await fetch(base + storagePath + '&token=' + token)).status, 200);
+    const [metadata] = await file.getMetadata();
+    await file.setMetadata({ cacheControl: 'private, no-store', metadata: {
+      firebaseStorageDownloadTokens: null, heyroqRestricted: '1', heyroqRestrictedOwner: uid, heyroqRestrictedPin: pinId,
+    } }, { ifGenerationMatch: metadata.generation, ifMetagenerationMatch: metadata.metageneration });
+    // The emulator keeps its Firebase token list separately from GCS custom
+    // metadata, so use its explicit token-removal endpoint for this fixture.
+    const removal = await fetch(base + storagePath.split('?')[0] + '?delete_token=' + encodeURIComponent(token),
+      { method: 'POST', headers: { Authorization: 'Bearer owner' } });
+    assert.equal(removal.status, 200);
+    assert.ok([401, 403, 404].includes((await fetch(base + storagePath + '&token=' + token)).status));
+    assert.ok([401, 403, 404].includes((await fetch(base + storagePath)).status));
+    // The emulator automatically mints a replacement token when its last
+    // token is removed. Use a separate tokenless fixture to verify owner access.
+    const privateFile = bucket.file('pins/' + uid + '/tokenless.png');
+    await privateFile.save(png, { resumable: false, metadata: { contentType: 'image/png',
+      metadata: { heyroqRestricted: '1', heyroqRestrictedOwner: uid, heyroqRestrictedPin: pinId } } });
+    await pin.update({ imageUrls: ['https://firebasestorage.googleapis.com/v0/b/' + bucket.name + '/o/' +
+      encodeURIComponent(privateFile.name) + '?alt=media'] });
+    assert.equal((await caller(uid)).content, png.toString('base64'));
+    await assert.rejects(caller('other-user'), { code: 'not-found' });
+    await assert.rejects(caller(uid, { pinId, index: 0, path: file.name }), { code: 'invalid-argument' });
+    await pin.delete();
+    await assert.rejects(caller(uid), { code: 'not-found' });
+  } finally {
+    await pin.delete();
+    await owner.delete();
+    await file.delete({ ignoreNotFound: true });
+    await bucket.file('pins/' + uid + '/tokenless.png').delete({ ignoreNotFound: true });
+  }
 });
 
 test('v1.1 discovery awards use published evidence and remain permanent across retries and deletion', async () => {
