@@ -11,7 +11,6 @@ const node_crypto_1 = require("node:crypto");
 const firestore_1 = require("firebase-admin/firestore");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
 const geographicProgression_1 = require("./geographicProgression");
 const DAY = 86_400_000;
 const HISTORY_DAYS = 90;
@@ -458,7 +457,7 @@ function buildEngagement(db, database, region) {
         xp: (0, firestore_2.onDocumentCreated)(trigger('progressionV11/{uid}/xpEvents/{eventId}'), e => e.data && xpEvent(e.data, e.params.uid)),
         level: (0, firestore_2.onDocumentWritten)(trigger('progressionV11/{uid}/state/summary'), e => e.data?.after.exists && levelEvent(e.data.before, e.data.after, e.params.uid)),
         system: (0, firestore_2.onDocumentCreated)(trigger('users/{uid}/notificationCommands/{id}'), e => e.data && systemEvent(e.data, e.params.uid)),
-        cleanup: (0, scheduler_1.onSchedule)({ schedule: 'every 15 minutes', region, timeoutSeconds: 120 }, prune),
+        prune,
         api: (0, https_1.onCall)({ region, maxInstances: 10 }, async (request) => {
             const uid = request.auth?.uid;
             if (!uid || request.auth?.token.firebase.sign_in_provider === 'anonymous' || request.auth?.token.firebase.tenant) {

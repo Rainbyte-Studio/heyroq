@@ -40,6 +40,16 @@ async function createPin(uid) {
   return pin;
 }
 
+async function runPrune() {
+  let status;
+  await pruneEngagementHistory({ method: 'POST' }, {
+    status(code) { status = code; return this; },
+    end() {},
+    sendStatus(code) { status = code; },
+  });
+  assert.equal(status, 204);
+}
+
 after(async () => {
   for (const uid of actors) {
     await db.recursiveDelete(db.doc('users/' + uid));
@@ -96,7 +106,7 @@ test('social and system delivery, replay, preferences, exact unread count and de
   assert.equal(accountNotice.title, 'What’s new');
   await db.doc('users/' + owner + '/notifications/' + accountNotice.id)
     .update({ expiresAt: Timestamp.fromMillis(Date.now() - 100) });
-  await pruneEngagementHistory.run({});
+  await runPrune();
   assert.equal((await noticeState(owner)).get('unread'), 0);
 
   await pin.update({ visibility: 'private' });

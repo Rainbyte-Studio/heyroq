@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { Timestamp, type DocumentSnapshot, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { formatGeographicDiscovery } from './geographicProgression';
 
 const DAY = 86_400_000;
@@ -436,7 +435,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     level: onDocumentWritten(trigger('progressionV11/{uid}/state/summary'), e =>
       e.data?.after.exists && levelEvent(e.data.before, e.data.after, e.params.uid)),
     system: onDocumentCreated(trigger('users/{uid}/notificationCommands/{id}'), e => e.data && systemEvent(e.data, e.params.uid)),
-    cleanup: onSchedule({ schedule: 'every 15 minutes', region, timeoutSeconds: 120 }, prune),
+    prune,
     api: onCall({ region, maxInstances: 10 }, async request => {
       const uid = request.auth?.uid;
       if (!uid || request.auth?.token.firebase.sign_in_provider === 'anonymous' || request.auth?.token.firebase.tenant) {

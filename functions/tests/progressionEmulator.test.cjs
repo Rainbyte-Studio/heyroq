@@ -610,8 +610,28 @@ test('every progression caller keeps geography frozen and replays without adding
 
 test('all compiled endpoints match the deployment manifest, including retry policy', () => {
   const manifest = require('../../docs/progression-deployment-manifest.json');
+  const engagement = require('../../docs/engagement-deployment-manifest.json');
   const names = Object.keys(functions).filter(name => functions[name].__endpoint);
-  assert.deepEqual(names.sort(), Object.keys(manifest.functions).sort());
+  assert.deepEqual(names.sort(), [...Object.keys(manifest.functions), ...Object.keys(engagement.functions)].sort());
+  for (const [name, expected] of Object.entries(engagement.functions)) {
+    const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
+    assert.deepEqual(endpoint.region, [engagement.region], name);
+    assert.equal(endpoint.platform, engagement.platform, name);
+    if (expected.event) {
+      assert.equal(endpoint.eventTrigger.eventType, 'google.cloud.firestore.document.v1.' + expected.event, name);
+      assert.equal(endpoint.eventTrigger.eventFilterPathPatterns.document, expected.document, name);
+      assert.equal(endpoint.eventTrigger.eventFilters.database, engagement.database, name);
+      assert.equal(endpoint.eventTrigger.retry, expected.retry, name);
+    } else if (expected.callable) {
+      assert.ok(endpoint.callableTrigger, name);
+      assert.equal(endpoint.maxInstances, expected.maxInstances, name);
+    } else {
+      assert.deepEqual(endpoint.httpsTrigger?.invoker, ['private'], name);
+      assert.equal(endpoint.timeoutSeconds, expected.timeoutSeconds, name);
+      assert.equal(endpoint.concurrency, expected.concurrency, name);
+      assert.equal(endpoint.maxInstances, expected.maxInstances, name);
+    }
+  }
   for (const [name, { trigger, desiredTimeoutSeconds, memoryMiB, concurrency, maxInstances, region, releaseGate }] of Object.entries(manifest.functions)) {
     const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
     assert.deepEqual(endpoint.region, [region ?? manifest.region], name);

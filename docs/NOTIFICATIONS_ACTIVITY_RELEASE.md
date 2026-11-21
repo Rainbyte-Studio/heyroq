@@ -28,7 +28,7 @@ Progression consumers use only the server ledger and summary in progressionV11. 
 
 1. Use an explicitly authorized release with a reviewed immutable commit and the named Firestore database. Review the index build and security rule diff. Keep the existing progression config and identities intact.
 2. Deploy the five engagement indexes and wait for readiness. Apply the reviewed Firestore rules to the named database. Verify that existing pin, Storage and progression access still passes.
-3. Release only the new engagement endpoints and scheduler using the repository's isolated Functions release procedure. Review trigger bindings, retries and runtime identities. Verify with disposable accounts and compare the progression control and ledger before and after.
+3. Release only the endpoints in the [engagement manifest](engagement-deployment-manifest.json) using the repository's isolated Functions release procedure. Bind the retention scheduler to the private POST worker using a dedicated OIDC invoker. Verify trigger bindings and retries with disposable accounts. Compare the progression control and ledger before and after.
 4. Publish the matching frontend only after the backend checks pass. Verify live inbox counts, Following privacy, keyboard flows and both viewport layouts. Keep the previous frontend revision available for rollback.
 5. If rollback is needed, restore the previous frontend and pause only the engagement projections and scheduler after checking in-flight delivery. Keep engagement data available for investigation. Rehearse before dropping new rules or indexes.
 

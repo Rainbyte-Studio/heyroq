@@ -58,7 +58,7 @@ export const onNotificationFollow = engagement.follow;
 export const onActivityProgressionV11Xp = engagement.xp;
 export const onActivityProgressionV11Level = engagement.level;
 export const onNotificationCommand = engagement.system;
-export const pruneEngagementHistory = engagement.cleanup;
+export const pruneEngagementHistory = scheduledWorker(120, engagement.prune);
 export const engagementV1 = engagement.api;
 
 const avatarBucketName = 'rainbyte-studio.firebasestorage.app';
