@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      production_profile:
+        description: 'Build the Maps-configured frontend for the isolated Geography generation'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,8 +46,13 @@ jobs:
         shell: bash
         env:
           VITE_GOOGLE_MAPS_API_KEY: ${{ github.event_name != 'pull_request' && vars.HEYROQ_GOOGLE_MAPS_BROWSER_KEY || '' }}
+          VITE_GEOGRAPHY_V11_AVAILABLE: ${{ inputs.production_profile == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          if [[ "$VITE_GEOGRAPHY_V11_AVAILABLE" == true && -z "$VITE_GOOGLE_MAPS_API_KEY" ]]; then
+            echo "The production profile requires the restricted Heyroq Maps browser key." >&2
+            exit 1
+          fi
           commit="$(git rev-parse HEAD)"
           export GITHUB_SHA="$commit" SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           npm run build -- --mode production
@@ -56,7 +66,11 @@ jobs:
           docker image inspect --format '{{.Id}}' "$image" > artifact/IMAGE_ID
           printf '%s\n' "$commit" > artifact/COMMIT
           if [[ -n "$VITE_GOOGLE_MAPS_API_KEY" ]]; then
-            printf '%s\n' maps-configured > artifact/BUILD_PROFILE
+            if [[ "$VITE_GEOGRAPHY_V11_AVAILABLE" == true ]]; then
+              printf '%s\n' geography-v11-maps-configured > artifact/BUILD_PROFILE
+            else
+              printf '%s\n' maps-configured > artifact/BUILD_PROFILE
+            fi
           else
             printf '%s\n' smoke-only-no-maps-key > artifact/BUILD_PROFILE
           fi

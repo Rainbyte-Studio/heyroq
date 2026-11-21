@@ -81,7 +81,7 @@ export async function countTrustedLikes(
   const checked = new Set<string>();
   let count = 0;
   for (const pin of pins) {
-    if (!isPublishedDiscovery(pin.data()) || !(Number(pin.get('likeCount')) > 0)) continue;
+    if (!isPublishedDiscovery(pin.data())) continue;
     const likes = pin.ref.collection('likes').orderBy('__name__').limit(50);
     let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
     do {

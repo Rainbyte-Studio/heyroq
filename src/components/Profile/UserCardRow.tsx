@@ -108,14 +108,6 @@ export const UserCardRow: React.FC<UserCardRowProps> = ({
                 </strong>{' '}
                 followers
               </span>
-              {typeof user.citiesCount === 'number' && user.citiesCount > 0 && (
-                <>
-                  <span aria-hidden="true" className="hidden sm:inline">
-                    ·
-                  </span>
-                  <span className="hidden sm:inline">{user.citiesCount} cities</span>
-                </>
-              )}
             </div>
           )}
         </div>

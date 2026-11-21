@@ -2,7 +2,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
-import { deleteDoc, doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 import { makePinImageTransitionRules, makePinImageTransitionStorageRules } from '../scripts/pin-image-transition-rules.mjs';
 
@@ -45,6 +45,39 @@ const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
   await setDoc(doc(context.firestore(), 'users/alice'), profile());
 });
 
+it('only server SDKs can write progression and receipts, including for admin clients', async () => {
+  await seedAlice();
+  const admin = env.authenticatedContext('staff', { admin: true }).firestore();
+  const receiptPath = 'users/alice/xpEvents/geo_v1:country:GR';
+  const activeReceipt = 'progressionV11/alice/xpEvents/geo_v1:country:GR';
+  const paths = [receiptPath, 'users/alice/progression/summary', 'users/alice/achievements/local_explorer',
+    activeReceipt, 'progressionV11/alice/state/summary', 'progressionV11/alice/achievements/local_explorer'];
+  const evidence = { geographicReceipt: { schemaVersion: 2, cityId: '264371' }, xpEarned: 150 };
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), receiptPath), evidence);
+    await setDoc(doc(context.firestore(), activeReceipt), evidence);
+  });
+  for (const client of [alice(), bob(), admin]) {
+    for (const path of paths) {
+      await assertFails(setDoc(doc(client, path), evidence));
+    }
+    await assertFails(deleteDoc(doc(client, receiptPath)));
+    await assertFails(deleteDoc(doc(client, activeReceipt)));
+  }
+  await assertSucceeds(getDoc(doc(alice(), receiptPath)));
+  await assertSucceeds(getDoc(doc(admin, receiptPath)));
+  await assertFails(getDoc(doc(bob(), receiptPath)));
+  await assertSucceeds(getDoc(doc(alice(), activeReceipt)));
+  await assertSucceeds(getDoc(doc(admin, activeReceipt)));
+  await assertFails(getDoc(doc(bob(), activeReceipt)));
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'progressionMaintenance/geography-v11-reset'), { generation: 'progressionV11' });
+  });
+  await assertFails(getDoc(doc(alice(), receiptPath)));
+  await assertFails(getDoc(doc(admin, receiptPath)));
+  await assertSucceeds(getDoc(doc(alice(), activeReceipt)));
+});
+
 it('follow and unfollow preserve both records in the same batch', async () => {
   await seedAlice();
   await env.withSecurityRulesDisabled(async context => {
@@ -63,6 +96,21 @@ it('follow and unfollow preserve both records in the same batch', async () => {
   await assertFails(deleteDoc(follower));
   await assertFails(deleteDoc(following));
   await assertSucceeds(writeBatch(client).delete(follower).delete(following).commit());
+});
+
+it('maintenance blocks client pin actions while keeping profiles readable', async () => {
+  await seedAlice();
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'pins/frozen-pin'), pin());
+    await setDoc(doc(db, 'progressionMaintenance/writers'), { mode: 'frozen' });
+  });
+  const client = alice();
+  const existing = doc(client, 'pins/frozen-pin');
+  await assertSucceeds(getDoc(doc(client, 'users/alice')));
+  await assertFails(deleteDoc(existing));
+  await assertFails(updateDoc(existing, { title: 'Paused edit' }));
+  await assertFails(setDoc(doc(client, 'pins/frozen-pin/likes/alice'), { userId: 'alice' }));
 });
 
 describe('Firestore create-time server counter protection', () => {
@@ -342,6 +390,32 @@ const publish = (client, id = pinId, data = {}, submittedClaim = claim) => write
   .set(doc(client, 'pins', id), pin({ imageIncarnation: incarnation, imageUrls: [imageUrl], ...data }))
   .set(doc(client, ...claimPath), submittedClaim)
   .commit();
+
+it('accepts a bounded catalog declaration only at original photo publication', async () => {
+  await seedAlice();
+  await seedApproval();
+  const client = alice();
+  const selected = { countryCode: 'GR', cityId: '264371' };
+  const target = doc(client, 'pins', pinId);
+  const submit = geographySelection => writeBatch(client)
+    .set(target, pin({ imageIncarnation: incarnation, imageUrls: [imageUrl], publishReceipt: true, geographySelection }))
+    .set(doc(client, ...claimPath), claim)
+    .set(doc(client, 'users/alice/pinPublishReceipts', pinId), { publishedAt: serverTimestamp() })
+    .commit();
+
+  await assertFails(setDoc(target, pin({ geographySelection: selected })));
+  await assertFails(publish(client, pinId, { geographySelection: selected }));
+  for (const value of [
+    { ...selected, cityId: 'Athens' }, { ...selected, countryCode: 'GRC' },
+    { ...selected, cityId: 264371 }, { ...selected, verified: true },
+  ]) await assertFails(submit(value));
+  await assertSucceeds(submit(selected));
+  await assertFails(updateDoc(target, { geographySelection: { ...selected, cityId: '734077' } }));
+  const admin = env.authenticatedContext('staff', { admin: true }).firestore();
+  await assertFails(updateDoc(doc(admin, 'pins', pinId), { geographySelection: null }));
+  await assertSucceeds(updateDoc(target, { title: 'Same place, better title' }));
+});
+
 
 it('consumes a server-verified claim once, only for the approved pin and exact URL list', async () => {
   await seedAlice();

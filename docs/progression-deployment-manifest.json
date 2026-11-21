@@ -1,5 +1,234 @@
 {
   "project": "rainbyte-studio",
+  "productionObservation": {
+    "observedDate": "2026-11-21",
+    "recoveryVerified": false,
+    "frontend": {
+      "region": "us-west1",
+      "revision": "heyroq-00029-pnc",
+      "trafficPercent": 100,
+      "sourceObject": "gs://run-sources-rainbyte-studio-us-west1/services/heyroq/1795197505.157-be9a748d.tar.gz",
+      "sourceGeneration": "1795197505290532",
+      "archiveSha256": "bb7a651a7d7f67eedbbe731d86766e73ead2edba99d7c6b0ca4cd9c2b8077086"
+    },
+    "functions": {
+      "recalculateProgression": {
+        "revision": "recalculateprogression-00002-dij",
+        "sourceGeneration": "1795114040874538",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onUserFollowerDeleted": {
+        "revision": "onuserfollowerdeleted-00003-qup",
+        "sourceGeneration": "1795114038838137",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserfollowerdeleted-637552",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinCommentDeleted": {
+        "revision": "onpincommentdeleted-00003-juw",
+        "sourceGeneration": "1795114036470581",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincommentdeleted-629181",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinDeleted": {
+        "revision": "onpindeleted-00003-pen",
+        "sourceGeneration": "1795113818453108",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpindeleted-199021",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "hq-evt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com"
+        }
+      },
+      "onUserProfileUpdatedProgression": {
+        "revision": "onuserprofileupdatedprogression-00002-seb",
+        "sourceGeneration": "1795114040033887",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserprofileupdatedprogression-614944",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinLikeDeleted": {
+        "revision": "onpinlikedeleted-00003-kem",
+        "sourceGeneration": "1795114033749855",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpinlikedeleted-398095",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onUserFollowerCreated": {
+        "revision": "onuserfollowercreated-00003-jaq",
+        "sourceGeneration": "1795114037703014",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserfollowercreated-459541",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "reconcileAccountDeletion": {
+        "revision": "reconcileaccountdeletion-00002-voq",
+        "sourceGeneration": "1795115967420824",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 120,
+        "concurrency": 1,
+        "maxInstances": 1,
+        "runtimeServiceAccount": "hq-rt-account-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onPinCreatedProgression": {
+        "revision": "onpincreatedprogression-00002-maw",
+        "sourceGeneration": "1795114031122615",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincreatedprogression-137532",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "deleteUserAccount": {
+        "revision": "deleteuseraccount-00003-zud",
+        "sourceGeneration": "1795115415918577",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-account-delete@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "pinImageUpload": {
+        "revision": "pinimageupload-00001-duc",
+        "sourceGeneration": "1795114144720897",
+        "cpu": 1,
+        "memoryMiB": 512,
+        "timeoutSeconds": 60,
+        "concurrency": 2,
+        "maxInstances": 8,
+        "runtimeServiceAccount": "hq-rt-pin-upload@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onUserProfileUpdated": {
+        "revision": "onuserprofileupdated-00002-kul",
+        "sourceGeneration": "1795113068114179",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-profile-updated@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserprofileupdated-740975",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "hq-evt-profile-updated@rainbyte-studio.iam.gserviceaccount.com"
+        }
+      },
+      "reconcilePinImageCleanup": {
+        "revision": "reconcilepinimagecleanup-00001-xol",
+        "sourceGeneration": "1795113714463366",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 1,
+        "maxInstances": 1,
+        "runtimeServiceAccount": "hq-rt-pin-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onPinCommentCreated": {
+        "revision": "onpincommentcreated-00003-pup",
+        "sourceGeneration": "1795114035194460",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincommentcreated-837229",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinLikeCreated": {
+        "revision": "onpinlikecreated-00003-rov",
+        "sourceGeneration": "1795114032476283",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpinlikecreated-237095",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      }
+    }
+  },
   "approvedBase": "08e5cae04ee8da46eb5726777ed76ea64fc8ab4c",
   "codebase": "default",
   "source": "functions",
@@ -324,5 +553,644 @@
       "reconcileAccountDeletion"
     ],
     "releaseGate": "Reconfirm API and service-agent state with read-only checks. Require separate production approval for IAM and job creation or changes. See IDENTITY_RELEASE.md for private HTTP targets, OIDC, and verification."
+  },
+  "writerFreezePreflight": {
+    "observedAt": "2026-11-21T06:00:06.231Z",
+    "namedDatabase": "projects/rainbyte-studio/databases/ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3",
+    "firestoreRuleset": "2f7e3d6d-2698-4383-b2d2-21577391bd90",
+    "frontend": [
+      {
+        "revision": "heyroq-00029-pnc",
+        "percent": 100
+      }
+    ],
+    "gen1": {
+      "name": "onAuthUserDeleted",
+      "version": "2",
+      "role": "Records an Auth deletion receipt only"
+    },
+    "functions": {
+      "recalculateProgression": {
+        "revision": "recalculateprogression-00002-dij",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "recalculateProgression/function-source.zip",
+          "generation": "1795114040874538"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "recalculateprogression-00002-dij",
+            "percent": 100
+          }
+        ]
+      },
+      "onUserFollowerDeleted": {
+        "revision": "onuserfollowerdeleted-00003-qup",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onUserFollowerDeleted/function-source.zip",
+          "generation": "1795114038838137"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onuserfollowerdeleted-637552",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.deleted"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "users/{targetUserId}/followers/{followerId}",
+              "operator": "match-path-pattern"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onuserfollowerdeleted-637552-sub-817",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onuserfollowerdeleted-00003-qup",
+            "percent": 100
+          }
+        ]
+      },
+      "uploadProfileAvatar": {
+        "revision": "uploadprofileavatar-00002-fic",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "uploadProfileAvatar/function-source.zip",
+          "generation": "1795115973066491"
+        },
+        "runtimeIdentity": "hq-rt-avatar-upload@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "512Mi",
+        "cpu": "1",
+        "maxInstances": 8,
+        "maxConcurrency": 2,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "uploadprofileavatar-00002-fic",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinCommentDeleted": {
+        "revision": "onpincommentdeleted-00003-juw",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinCommentDeleted/function-source.zip",
+          "generation": "1795114036470581"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpincommentdeleted-629181",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.deleted"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}/comments/{commentId}",
+              "operator": "match-path-pattern"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpincommentdeleted-629181-sub-272",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpincommentdeleted-00003-juw",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinDeleted": {
+        "revision": "onpindeleted-00003-pen",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinDeleted/function-source.zip",
+          "generation": "1795113818453108"
+        },
+        "runtimeIdentity": "hq-rt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpindeleted-199021",
+          "serviceAccount": "hq-evt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}",
+              "operator": "match-path-pattern"
+            },
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.deleted"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpindeleted-199021-sub-529",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpindeleted-00003-pen",
+            "percent": 100
+          }
+        ]
+      },
+      "onUserProfileUpdatedProgression": {
+        "revision": "onuserprofileupdatedprogression-00002-seb",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onUserProfileUpdatedProgression/function-source.zip",
+          "generation": "1795114040033887"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onuserprofileupdatedprogression-614944",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "document",
+              "value": "users/{userId}",
+              "operator": "match-path-pattern"
+            },
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.updated"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onuserprofileupdatedprogression-614944-sub-824",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onuserprofileupdatedprogression-00002-seb",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinLikeDeleted": {
+        "revision": "onpinlikedeleted-00003-kem",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinLikeDeleted/function-source.zip",
+          "generation": "1795114033749855"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpinlikedeleted-398095",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}/likes/{userId}",
+              "operator": "match-path-pattern"
+            },
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.deleted"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpinlikedeleted-398095-sub-607",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpinlikedeleted-00003-kem",
+            "percent": 100
+          }
+        ]
+      },
+      "onUserFollowerCreated": {
+        "revision": "onuserfollowercreated-00003-jaq",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onUserFollowerCreated/function-source.zip",
+          "generation": "1795114037703014"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onuserfollowercreated-459541",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.created"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "users/{targetUserId}/followers/{followerId}",
+              "operator": "match-path-pattern"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onuserfollowercreated-459541-sub-189",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onuserfollowercreated-00003-jaq",
+            "percent": 100
+          }
+        ]
+      },
+      "reconcileAccountDeletion": {
+        "revision": "reconcileaccountdeletion-00002-voq",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "reconcileAccountDeletion/function-source.zip",
+          "generation": "1795115967420824"
+        },
+        "runtimeIdentity": "hq-rt-account-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 120,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxInstances": 1,
+        "maxConcurrency": 1,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "reconcileaccountdeletion-00002-voq",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinCreatedProgression": {
+        "revision": "onpincreatedprogression-00002-maw",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinCreatedProgression/function-source.zip",
+          "generation": "1795114031122615"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpincreatedprogression-137532",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.created"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}",
+              "operator": "match-path-pattern"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpincreatedprogression-137532-sub-156",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpincreatedprogression-00002-maw",
+            "percent": 100
+          }
+        ]
+      },
+      "deleteUserAccount": {
+        "revision": "deleteuseraccount-00003-zud",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "deleteUserAccount/function-source.zip",
+          "generation": "1795115415918577"
+        },
+        "runtimeIdentity": "hq-rt-account-delete@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "deleteuseraccount-00003-zud",
+            "percent": 100
+          }
+        ]
+      },
+      "pinImageUpload": {
+        "revision": "pinimageupload-00001-duc",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "pinImageUpload/function-source.zip",
+          "generation": "1795114144720897"
+        },
+        "runtimeIdentity": "hq-rt-pin-upload@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "512Mi",
+        "cpu": "1",
+        "maxInstances": 8,
+        "maxConcurrency": 2,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "pinimageupload-00001-duc",
+            "percent": 100
+          }
+        ]
+      },
+      "onUserProfileUpdated": {
+        "revision": "onuserprofileupdated-00002-kul",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onUserProfileUpdated/function-source.zip",
+          "generation": "1795113068114179"
+        },
+        "runtimeIdentity": "hq-rt-profile-updated@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onuserprofileupdated-740975",
+          "serviceAccount": "hq-evt-profile-updated@rainbyte-studio.iam.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "users/{userId}",
+              "operator": "match-path-pattern"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.updated"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onuserprofileupdated-740975-sub-475",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onuserprofileupdated-00002-kul",
+            "percent": 100
+          }
+        ]
+      },
+      "reconcilePinImageCleanup": {
+        "revision": "reconcilepinimagecleanup-00001-xol",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "reconcilePinImageCleanup/function-source.zip",
+          "generation": "1795113714463366"
+        },
+        "runtimeIdentity": "hq-rt-pin-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxInstances": 1,
+        "maxConcurrency": 1,
+        "ingress": "ALLOW_ALL",
+        "traffic": [
+          {
+            "revision": "reconcilepinimagecleanup-00001-xol",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinCommentCreated": {
+        "revision": "onpincommentcreated-00003-pup",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinCommentCreated/function-source.zip",
+          "generation": "1795114035194460"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpincommentcreated-837229",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}/comments/{commentId}",
+              "operator": "match-path-pattern"
+            },
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.created"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpincommentcreated-837229-sub-052",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpincommentcreated-00003-pup",
+            "percent": 100
+          }
+        ]
+      },
+      "onPinLikeCreated": {
+        "revision": "onpinlikecreated-00003-rov",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-europe-west2",
+          "object": "onPinLikeCreated/function-source.zip",
+          "generation": "1795114032476283"
+        },
+        "runtimeIdentity": "856895300361-compute@developer.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256Mi",
+        "cpu": "1",
+        "maxConcurrency": 80,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onpinlikecreated-237095",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.firestore.document.v1.created"
+            },
+            {
+              "attribute": "database",
+              "value": "ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3"
+            },
+            {
+              "attribute": "namespace",
+              "value": "(default)"
+            },
+            {
+              "attribute": "document",
+              "value": "pins/{pinId}/likes/{userId}",
+              "operator": "match-path-pattern"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onpinlikecreated-237095-sub-857",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+        },
+        "traffic": [
+          {
+            "revision": "onpinlikecreated-00003-rov",
+            "percent": 100
+          }
+        ]
+      },
+      "onAccountAvatarFinalized": {
+        "revision": "onaccountavatarfinalized-00003-ceq",
+        "source": {
+          "bucket": "gcf-v2-sources-856895300361-us-west1",
+          "object": "onAccountAvatarFinalized/function-source.zip",
+          "generation": "1795115971680941"
+        },
+        "runtimeIdentity": "hq-rt-avatar-finalized@rainbyte-studio.iam.gserviceaccount.com",
+        "runtime": "nodejs22",
+        "timeoutSeconds": 60,
+        "memory": "256M",
+        "cpu": "0.1666",
+        "maxConcurrency": 1,
+        "ingress": "ALLOW_ALL",
+        "trigger": {
+          "name": "projects/rainbyte-studio/locations/us-west1/triggers/onaccountavatarfinalized-524132",
+          "serviceAccount": "hq-evt-avatar-finalized@rainbyte-studio.iam.gserviceaccount.com",
+          "filters": [
+            {
+              "attribute": "type",
+              "value": "google.cloud.storage.object.v1.finalized"
+            },
+            {
+              "attribute": "bucket",
+              "value": "rainbyte-studio.firebasestorage.app"
+            }
+          ],
+          "subscription": "projects/rainbyte-studio/subscriptions/eventarc-us-west1-onaccountavatarfinalized-524132-sub-169",
+          "retryPolicy": "RETRY_POLICY_RETRY"
+        }
+      }
+    }
   }
 }

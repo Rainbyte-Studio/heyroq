@@ -371,7 +371,9 @@ export function newPinPublishAttempt() {
 
 // 5. Create Pin directly in Firestore
 export async function createPin(
-  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt' | 'imageUrls'>,
+  pinData: Omit<Pin, 'id' | 'geohash' | 'likeCount' | 'commentCount' | 'createdAt' | 'imageUrls'> & {
+    geographySelection?: { countryCode: string; cityId: string };
+  },
   files: File[] = [],
   attempt = newPinPublishAttempt(),
 ): Promise<string> {
@@ -428,6 +430,7 @@ export async function createPin(
     publishReceipt: true,
     imageUrls: upload?.claim.imageUrls ?? [],
     ...(upload ? { imageIncarnation: upload.incarnation } : {}),
+    ...(upload && pinData.geographySelection ? { geographySelection: pinData.geographySelection } : {}),
     likeCount: 0,
     commentCount: 0,
     createdAt: now,

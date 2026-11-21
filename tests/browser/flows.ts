@@ -7,6 +7,8 @@ import { AchievementsModal } from '../../src/components/Profile/AchievementsModa
 import { auth, db, storage } from '../../src/lib/firebase';
 import '../../src/index.css';
 import App from '../../src/App';
+import { AuthProvider } from '../../src/context/AuthContext';
+import { CreatePinModal } from '../../src/components/Pin/CreatePinModal';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
 import { createPin, deletePin, newPinPublishAttempt } from '../../src/services/pinService';
 import { uploadProfileImage } from '../../src/services/storageService';
@@ -14,6 +16,19 @@ import { uploadProfileImage } from '../../src/services/storageService';
 Object.assign(window, {
   heyroqTest: {
     signOut: () => signOut(auth),
+    mountCreatePin() {
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      root.render(createElement(AuthProvider, {
+        children: createElement(CreatePinModal, {
+          onClose: () => { root.unmount(); host.remove(); },
+          selectedLocation: null,
+          onActivateMapPick: () => {},
+          onPinCreated: () => {},
+        }),
+      }));
+    },
     mountSearchApp() {
       window.history.replaceState(null, '', '/');
       const host = document.createElement('div');
@@ -52,7 +67,7 @@ Object.assign(window, {
     },
     async tryWriteVerifiedProgress(uid: string) {
       try {
-        await updateDoc(doc(db, 'users', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
+        await updateDoc(doc(db, 'progressionV11', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
         return 'unexpected success';
       } catch (error) {
         return (error as { code: string }).code;
@@ -66,7 +81,8 @@ Object.assign(window, {
       const attempt = newPinPublishAttempt();
       const draft = {
         userId: uid, userName: '', userAvatar: '', title: 'Browser smoke test', description: '',
-        latitude: 37, longitude: 23, category: 'Other' as const, tags: [],
+        latitude: 37.98376, longitude: 23.72784, category: 'Other' as const, tags: [],
+        geographySelection: { countryCode: 'GR', cityId: '264371' },
       };
       const files = [new File([new Uint8Array(bytes)], 'pin.png', { type: 'image/png' })];
       const pinId = await createPin(draft, files, attempt);

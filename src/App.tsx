@@ -25,7 +25,6 @@ import { APP_VERSION } from './config/version';
 import { OPERATOR_IDENTITY } from './config/brandConfig';
 import { AppLink, useAppRoute } from './utils/appRoutes';
 import { MapsProvider } from './components/Map/MapsProvider';
-import { reverseGeocodeCoordinates } from './services/placesService';
 import {
   fetchPinsInViewport,
   fetchPinsByDiscovery,
@@ -161,7 +160,6 @@ function HeyroqMainApp() {
   const [isPickingLocationOnMap, setIsPickingLocationOnMap] = useState(false);
   const [createPinDraft, setCreatePinDraft] = useState<CreatePinDraft | null>(null);
   const [newPinLocation, setNewPinLocation] = useState<LatLngPoint | null>(null);
-  const [pickedLocationName, setPickedLocationName] = useState<string>('');
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [isAccountSecurityOpen, setIsAccountSecurityOpen] = useState(false);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
@@ -575,26 +573,15 @@ function HeyroqMainApp() {
   }, [user, pendingAuthAction]);
 
   // Map pin picked during creation flow
-  const handleSelectCreateLocation = useCallback(async (loc: LatLngPoint) => {
+  const handleSelectCreateLocation = useCallback((loc: LatLngPoint) => {
     setNewPinLocation(loc);
     setMapCenter(loc);
-    let resolvedName = '';
-    try {
-      const geo = await reverseGeocodeCoordinates(loc.lat, loc.lng);
-      if (geo?.locationName) {
-        resolvedName = geo.locationName;
-        setPickedLocationName(geo.locationName);
-      }
-    } catch (err) {
-      console.warn('[Heyroq] Reverse geocode error:', err);
-    }
     setCreatePinDraft((prev) =>
       prev
         ? {
             ...prev,
             customLat: loc.lat,
             customLng: loc.lng,
-            locationName: resolvedName || prev.locationName,
           }
         : null
     );
@@ -876,29 +863,23 @@ function HeyroqMainApp() {
             setIsCreateOpen(false);
             setCreatePinDraft(null);
             setNewPinLocation(null);
-            setPickedLocationName('');
           }}
           selectedLocation={newPinLocation}
-          initialLocationName={pickedLocationName}
           onActivateMapPick={(draft) => {
             if (draft) {
               setCreatePinDraft(draft);
             }
             setIsPickingLocationOnMap(true);
           }}
-          onLocationSelect={(loc, locationName) => {
+          onLocationSelect={(loc) => {
             setNewPinLocation(loc);
             setMapCenter(loc);
-            if (locationName) {
-              setPickedLocationName(locationName);
-            }
           }}
           onPinCreated={async () => {
             setIsPickingLocationOnMap(false);
             setIsCreateOpen(false);
             setCreatePinDraft(null);
             setNewPinLocation(null);
-            setPickedLocationName('');
             if (isSearchActive) {
               setDiscoveryRetryCount(count => count + 1);
               return;

@@ -7,8 +7,10 @@ on:
       - 'storage.rules'
       - 'firestore.indexes.json'
       - 'functions/src/**'
+      - 'functions/geographyCatalog.json'
       - 'functions/lib/**'
       - 'functions/tests/**'
+      - 'scripts/reset-explorer-progression.mjs'
       - 'docs/progression-deployment-manifest.json'
       - 'functions/package.json'
       - 'functions/package-lock.json'
@@ -34,7 +36,7 @@ jobs:
       - name: Verify checked-in Functions runtime
         run: test -z "$(git status --porcelain -- functions/lib)"
       - name: Progression unit tests
-        run: node --test functions/tests/progressionLocation.test.cjs
+        run: node --test functions/tests/progressionLocation.test.cjs functions/tests/geographicProgression.test.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -46,3 +48,20 @@ jobs:
           GOOGLE_CLOUD_PROJECT: demo-heyroq
           FIRESTORE_DATABASE_ID: ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore,auth,storage 'node --test functions/tests/progressionEmulator.test.cjs'
+      - name: Selective progression reset rehearsal
+        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/progressionResetEmulator.test.cjs'
+      - name: Package the verified recovery runtime
+        run: |
+          mkdir recovery
+          commit=$(git rev-parse HEAD)
+          git archive --format=tar --output="recovery/heyroq-recovery-${commit}.tar" "$commit" \
+            functions firebase.json firestore.rules firestore.indexes.json storage.rules \
+            release/block-firebase-functions.cjs docs/progression-deployment-manifest.json \
+            docs/GEOGRAPHY_XP_RELEASE.md docs/GEOGRAPHY_PROGRESSION_RESET.md \
+            scripts/reset-explorer-progression.mjs release/progression-isolation.mjs
+          (cd recovery && sha256sum ./*.tar > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geography-recovery-runtime
+          path: recovery/
+          if-no-files-found: error

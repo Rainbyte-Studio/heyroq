@@ -68,7 +68,7 @@ async function countTrustedLikes(db, authorId, pins, target) {
     const checked = new Set();
     let count = 0;
     for (const pin of pins) {
-        if (!isPublishedDiscovery(pin.data()) || !(Number(pin.get('likeCount')) > 0))
+        if (!isPublishedDiscovery(pin.data()))
             continue;
         const likes = pin.ref.collection('likes').orderBy('__name__').limit(50);
         let cursor;

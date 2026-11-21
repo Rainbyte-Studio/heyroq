@@ -183,6 +183,15 @@ service cloud.firestore {
       );
     }
 
+    function progressionActivityOpen() {
+      let control = /databases/$(database)/documents/progressionMaintenance/writers;
+      return !exists(control) || get(control).data.mode == 'running';
+    }
+
+    function legacyProgressionReadable() {
+      return !exists(/databases/$(database)/documents/progressionMaintenance/geography-v11-reset);
+    }
+
     // Server-owned tombstones prevent recreation during and after deletion.
     match /accountDeletionLocks/{userId} {
       allow read, write: if false;
@@ -214,51 +223,72 @@ service cloud.firestore {
       match /followers/{followerId} {
         allow read: if true;
         // Follower UID must match request.auth.uid, anonymous rejected, prevent self-follow
-        allow create, update: if isNonAnonymous() && isActiveUser(followerId) && isActiveUser(userId) &&
+        allow create, update: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(followerId) && isActiveUser(userId) &&
                                  request.auth.uid == followerId &&
                                  request.auth.uid != userId &&
                                  request.resource.data.followerId == request.auth.uid &&
                                  existsAfter(/databases/$(database)/documents/users/$(followerId)/following/$(userId)) &&
-                                 (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp);
+                                 (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp));
         // Only follower or admin can unfollow (delete)
-        allow delete: if isAdmin() || (isOwner(followerId) &&
-          !existsAfter(/databases/$(database)/documents/users/$(followerId)/following/$(userId)));
+        allow delete: if progressionActivityOpen() && (isAdmin() || (isOwner(followerId) &&
+          !existsAfter(/databases/$(database)/documents/users/$(followerId)/following/$(userId))));
       }
 
       // Following Subcollection: users/{userId}/following/{targetUserId}
       match /following/{targetUserId} {
         allow read: if true;
         // Only user can add to their own following list, anonymous rejected, cannot follow self
-        allow create, update: if isOwner(userId) && isActiveUser(userId) && isActiveUser(targetUserId) &&
+        allow create, update: if progressionActivityOpen() && (isOwner(userId) && isActiveUser(userId) && isActiveUser(targetUserId) &&
                                  isNonAnonymous() &&
                                  request.auth.uid != targetUserId &&
                                  request.resource.data.targetUserId == targetUserId &&
                                   existsAfter(/databases/$(database)/documents/users/$(targetUserId)/followers/$(userId)) &&
-                                 (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp);
+                                 (request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp));
         // Only user or admin can remove from following list
-        allow delete: if isAdmin() || (isOwner(userId) &&
-          !existsAfter(/databases/$(database)/documents/users/$(targetUserId)/followers/$(userId)));
+        allow delete: if progressionActivityOpen() && (isAdmin() || (isOwner(userId) &&
+          !existsAfter(/databases/$(database)/documents/users/$(targetUserId)/followers/$(userId))));
       }
 
       // Explorer Progression Summary: users/{userId}/progression/{docId}
       // SERVER-AUTHORITATIVE: Client reads permitted; all client writes strictly denied.
       match /progression/{docId} {
-        allow read: if true;
-        allow write: if isAdmin();
+        allow read: if legacyProgressionReadable();
+        allow write: if false;
       }
 
       // Explorer Achievements: users/{userId}/achievements/{achievementId}
       // SERVER-AUTHORITATIVE: Client reads permitted; all client writes strictly denied.
       match /achievements/{achievementId} {
-        allow read: if true;
-        allow write: if isAdmin();
+        allow read: if legacyProgressionReadable();
+        allow write: if false;
       }
 
       // Explorer XP Event Ledger: users/{userId}/xpEvents/{eventId}
       // SERVER-AUTHORITATIVE: Owner reads permitted; all client writes strictly denied.
       match /xpEvents/{eventId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow write: if isAdmin();
+        allow read: if legacyProgressionReadable() && (isOwner(userId) || isAdmin());
+        allow write: if false;
+      }
+    }
+
+    // Active generation. Legacy account deletion can recursively remove
+    // users/{userId}; the active ledger has a separate root.
+    match /progressionV11/{userId} {
+      function hasProfile() {
+        return exists(/databases/$(database)/documents/users/$(userId)) &&
+          !exists(/databases/$(database)/documents/accountDeletionLocks/$(userId));
+      }
+      match /state/summary {
+        allow read: if hasProfile();
+        allow write: if false;
+      }
+      match /achievements/{achievementId} {
+        allow read: if hasProfile();
+        allow write: if false;
+      }
+      match /xpEvents/{eventId} {
+        allow read: if hasProfile() && (isOwner(userId) || isAdmin());
+        allow write: if false;
       }
     }
 
@@ -316,6 +346,17 @@ service cloud.firestore {
              (data.publishReceipt == true && !exists(receipt) && existsAfter(receipt));
     }
 
+    // A selection is a user declaration. The server validates membership and pin proximity.
+    function validGeographySelection(data) {
+      let selection = data.get('geographySelection', null);
+      return !('geographySelection' in data) ||
+        (data.get('publishReceipt', false) == true && 'imageIncarnation' in data &&
+         data.get('imageUrls', []) is list && data.get('imageUrls', []).size() > 0 &&
+         selection is map && selection.keys().hasOnly(['countryCode', 'cityId']) &&
+         selection.countryCode is string && selection.countryCode.matches('[A-Z]{2}') &&
+         selection.cityId is string && selection.cityId.matches('[0-9]{1,12}'));
+    }
+
     function canEngageWithPin(pinId) {
       let pin = getAfter(/databases/$(database)/documents/pins/$(pinId)).data;
       return pin.userId is string &&
@@ -327,22 +368,23 @@ service cloud.firestore {
       allow read: if true;
 
       // Only authenticated users may create pins; owner UID must equal request.auth.uid
-      allow create: if isSignedIn() && isActiveUser(request.auth.uid) &&
+      allow create: if progressionActivityOpen() && (isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
                        hasValidPublishReceipt(pinId, request.resource.data) &&
+                       validGeographySelection(request.resource.data) &&
                        (("imageIncarnation" in request.resource.data)
                          ? hasNewPinImageClaim(pinId, request.resource.data)
                          : canPublishWithoutClaim(request.resource.data)) &&
                        (!('likeCount' in request.resource.data) || request.resource.data.likeCount == 0) &&
-                       (!('commentCount' in request.resource.data) || request.resource.data.commentCount == 0);
+                       (!('commentCount' in request.resource.data) || request.resource.data.commentCount == 0));
 
       // Only the pin owner (or admin) may edit their pin
       // Owner UID, createdAt, counters and location fields cannot be modified by the client.
       // Author name/avatar may only change to the author's current canonical profile values.
-      allow update: if isSignedIn() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls", "publishReceipt"]) && (
+      allow update: if progressionActivityOpen() && (isSignedIn() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls", "publishReceipt", "geographySelection"]) && (
         (
           isOwner(resource.data.userId) && isActiveUser(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&
@@ -353,12 +395,12 @@ service cloud.firestore {
           isValidPin(request.resource.data)
         ) ||
         isAdmin()
-      );
+      ));
 
       // Only the pin owner (or admin) may delete their pin
-      allow delete: if isSignedIn() && (
+      allow delete: if progressionActivityOpen() && (isSignedIn() && (
         (isOwner(resource.data.userId) && isActiveUser(resource.data.userId)) || isAdmin()
-      );
+      ));
 
       // ---------------------------------------------------------
       // 3. Likes Subcollection: pins/{pinId}/likes/{userId}
@@ -366,11 +408,11 @@ service cloud.firestore {
       match /likes/{userId} {
         allow read: if true;
         // Only authenticated non-anonymous users may like; document ID must equal request.auth.uid
-        allow create, update: if isNonAnonymous() && isActiveUser(userId) && canEngageWithPin(pinId) &&
+        allow create, update: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(userId) && canEngageWithPin(pinId) &&
                                  request.auth.uid == userId &&
-                                 (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid);
+                                 (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid));
         // Only the user who liked can unlike (delete)
-        allow delete: if isNonAnonymous() && (request.auth.uid == userId || isAdmin());
+        allow delete: if progressionActivityOpen() && (isNonAnonymous() && (request.auth.uid == userId || isAdmin()));
       }
 
       // ---------------------------------------------------------
@@ -379,24 +421,24 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         // Authenticated non-anonymous users can create comments; author UID must equal request.auth.uid
-        allow create: if isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
+        allow create: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
                          request.resource.data.userId == request.auth.uid &&
                          (!('pinId' in request.resource.data) || request.resource.data.pinId == pinId) &&
                          isValidComment(request.resource.data) &&
-                         hasCanonicalCommentIdentity(request.resource.data);
+                         hasCanonicalCommentIdentity(request.resource.data));
 
         // Only comment author can edit comment; author UID and createdAt cannot be changed
-        allow update: if isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
+        allow update: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
                          isOwner(resource.data.userId) &&
                          request.resource.data.userId == resource.data.userId &&
                          request.resource.data.createdAt == resource.data.createdAt &&
                          isValidComment(request.resource.data) &&
-                         hasCanonicalCommentIdentity(request.resource.data);
+                         hasCanonicalCommentIdentity(request.resource.data));
 
         // Only comment author or admin can delete. Users cannot delete comments belonging to other users
-        allow delete: if isNonAnonymous() &&
+        allow delete: if progressionActivityOpen() && (isNonAnonymous() &&
                          resource != null &&
-                         (request.auth.uid == resource.data.userId || isAdmin());
+                         (request.auth.uid == resource.data.userId || isAdmin()));
       }
     }
 

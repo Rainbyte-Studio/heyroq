@@ -59,8 +59,6 @@ export function toPublicUserProfile(data: Record<string, any>, id: string): Publ
     followersCount: typeof data.followersCount === 'number' ? data.followersCount : 0,
     followingCount: typeof data.followingCount === 'number' ? data.followingCount : 0,
     pinsCount: typeof data.pinsCount === 'number' ? data.pinsCount : 0,
-    countriesCount: typeof data.countriesCount === 'number' ? data.countriesCount : undefined,
-    citiesCount: typeof data.citiesCount === 'number' ? data.citiesCount : undefined,
   };
 }
 

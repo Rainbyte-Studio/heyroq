@@ -1,5 +1,53 @@
 # Geographic XP rollout and recovery
 
+## Production observation on 2026-11-21
+
+The manifest's `productionObservation` records the revisions, source generations,
+runtime identities and Eventarc bindings read from production. Earlier preflight
+entries below and elsewhere in the manifest describe historical observations.
+The production observation is not an approved deployment or recovery manifest.
+
+Cloud Run served 100% of frontend traffic on `heyroq-00029-pnc`. The public HTML
+and its main JavaScript and CSS matched the corresponding files in source
+generation `1795197505290532`. The archive contains built assets. A Git source
+match and compatibility with the v1.1 Rules and callable functions remain open.
+
+The active pin-create source archive, generation `1795114031122615`, has SHA-256
+`c0d260599de451047e660d97316760988d77f002889c766d16b1ebd495df7f0d`.
+Its compiled entry differs from `main` and has legacy geography handling without
+recognition of the v1.1 `geo_v1:*` ledger IDs. Keep this archive as evidence of
+what is running. Recovery after activation requires a new, locked artifact that
+can suspend new awards while preserving those IDs, lifetime XP, both geography
+counts and unlocked badges across every progression writer.
+
+## v1.1 recovery runtime
+
+The recovery package uses the v1.1 reader and a compiled policy that always
+returns `undefined`. The internal award helper accepts a policy in emulator
+tests. None of the deployed triggers or callables accept one from their input.
+Recalculation keeps the ledger, lifetime counters and unlocked badges. New
+publication, likes, comments and follows continue through ordinary progression.
+
+The Functions workflow installs locked dependencies, rebuilds on Node 22,
+checks that the compiled runtime matches Git and runs the recovery regression
+against one persistent emulator database. It records v1.1 awards, then replays
+the compiled public entry points with awards disabled and checks the complete
+geographic ledger, all seven badges, lifetime counts and ordinary progression.
+After the suite passes, it publishes a commit-addressed tar and `SHA256SUMS`.
+Verify the checksum and recover from that archive rather than an older revision.
+
+Runtime recovery validation and deployment verification are separate. Before
+changing traffic, capture the effective named Rules release, verify frontend
+compatibility with recovery, and prepare a per-function release plan. For each
+existing writer, compare the current Functions API, Cloud Run and Eventarc
+settings against the production observation. Update the existing function in
+place while preserving its runtime identity, trigger identity and filters,
+retry policy, timeout, resources, concurrency and instance limits. Confirm the
+settings and routed revision after each update. The new pin-update writer has
+no prior production binding. Verify its destination and identity before any
+activation. The local regression checks the compiled trigger contracts. It
+does not establish that a production update will preserve live bindings.
+
 The Functions runtime has no writer for new `UNIQUE_CITY` or `UNIQUE_COUNTRY`
 ledger events and no geography provider or receipt creation path. Historical XP
 and ledger documents are preserved by progression. Geography counts retain the
