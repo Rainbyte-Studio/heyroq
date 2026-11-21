@@ -502,6 +502,10 @@ try {
   const closeInbox = inbox.getByRole('button', { name: 'Close Notifications' });
   await inbox.getByText('You’re all caught up.').waitFor();
   assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
+  await page.keyboard.press('Tab');
+  assert.ok(await inbox.evaluate(dialog => dialog.contains(document.activeElement)));
+  await page.keyboard.press('Shift+Tab');
+  assert.ok(await closeInbox.evaluate(button => button === document.activeElement));
   await page.keyboard.press('Escape');
   await inbox.waitFor({ state: 'hidden' });
   assert.ok(await bell.evaluate(button => button === document.activeElement));
@@ -553,6 +557,16 @@ try {
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
     if (width < 768) assert.equal(bounds.width, width);
     assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
+    assert.ok(await inbox.evaluate(dialog => {
+      const rgb = value => value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+      const luminance = channels => channels.map(channel => {
+        const s = channel / 255;
+        return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4;
+      }).reduce((total, channel, index) => total + channel * [.2126, .7152, .0722][index], 0);
+      const background = luminance(rgb(getComputedStyle(dialog).backgroundColor));
+      const foreground = luminance(rgb(getComputedStyle(dialog.querySelector('time')).color));
+      return (Math.max(background, foreground) + .05) / (Math.min(background, foreground) + .05) >= 4.5;
+    }));
     assert.ok(await bell.evaluate(button => {
       const bounds = button.getBoundingClientRect();
       return bounds.x >= 0 && bounds.right <= innerWidth && bounds.width >= 44 && bounds.height >= 44;
@@ -643,6 +657,25 @@ try {
     window.dispatchEvent(new Event('online'));
   });
   await inbox.getByText('Product update 1').waitFor();
+  await closeInbox.click();
+
+  const groupSeed = db.batch();
+  for (const [index, actorId] of ['surname-fixture', 'hyphen-fixture'].entries()) {
+    groupSeed.create(engagementProfile.collection('notifications').doc(identifier(80 + index)), {
+      type: 'like', category: 'social', actorId, pinId: pinRef.id, pinCreatedAt,
+      recipientId: engagementUid, at: Timestamp.now(), sequence: 80 + index, read: false, deleted: false,
+    });
+  }
+  groupSeed.set(engagementProfile.collection('notificationState').doc('inbox'),
+    { unread: 2, sequence: 81, revision: 100 }, { merge: true });
+  await groupSeed.commit();
+  await page.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  await bell.click();
+  await inbox.getByText(/^2 likes on Activity browser fixture/).click();
+  await inbox.getByText('Μαρία Παπαδοπούλου liked Activity browser fixture.').waitFor();
+  await inbox.getByText('Elena García-López liked Activity browser fixture.').waitFor();
+  await inbox.getByRole('button', { name: 'Mark as read', exact: true }).first().click();
+  await page.locator('#nav-notifications-btn[aria-label="Notifications, 1 unread"]').waitFor({ state: 'attached' });
   await closeInbox.click();
   console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
