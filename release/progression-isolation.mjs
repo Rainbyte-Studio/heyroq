@@ -31,15 +31,12 @@ function complete(response, collection) {
   return response[collection] ?? [];
 }
 
-const [functions, services, jobs, triggers, subscriptions, policy, databases] = await Promise.all([
+const [functions, services, jobs, triggers, subscriptions, databases] = await Promise.all([
   get(`https://cloudfunctions.googleapis.com/v2/${project}/locations/-/functions`).then(x => complete(x, 'functions')),
   get(`https://run.googleapis.com/v2/${project}/locations/-/services`).then(x => complete(x, 'services')),
   get(`https://cloudscheduler.googleapis.com/v1/${region}/jobs`).then(x => complete(x, 'jobs')),
   get(`https://eventarc.googleapis.com/v1/${project}/locations/us-west1/triggers`).then(x => complete(x, 'triggers')),
   get(`https://pubsub.googleapis.com/v1/${project}/subscriptions`).then(x => complete(x, 'subscriptions')),
-  get(`https://cloudresourcemanager.googleapis.com/v1/${project}:testIamPermissions`, {
-    permissions: ['iam.denypolicies.create', 'iam.denypolicies.update', 'iam.denypolicies.delete'],
-  }),
   get(`https://firestore.googleapis.com/v1/${project}/databases`).then(x => complete(x, 'databases')),
 ]);
 const job = jobs.find(item => item.name.endsWith('/heyroq-reconcile-account-deletion'));
@@ -81,7 +78,6 @@ console.log(JSON.stringify({
   databases: databases.map(item => item.name),
   writers,
   identityUses: uses,
-  denyPermissionsGranted: policy.permissions ?? [],
   additionalFunctions: functions.map(item => item.name.split('/').at(-1))
     .filter(name => !Object.hasOwn(preflight.functions, name) && name !== preflight.gen1.name),
 }, null, 2));

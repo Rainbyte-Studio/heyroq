@@ -39,9 +39,12 @@ const db = getFirestore(FIRESTORE_DATABASE_ID);
 const storage = getStorage();
 const progressionControl = db.doc('progressionMaintenance/writers');
 const progressionReset = db.doc('progressionMaintenance/geography-v11-reset');
+const progressionGeneration = db.collection('progressionV11');
 
 function progressionWritesEnabled(control: FirebaseFirestore.DocumentSnapshot): boolean {
-  return control.get('schemaVersion') === 1 && control.get('mode') === 'running';
+  const cutoff = control.get('progressionStartsAtMs');
+  return control.get('schemaVersion') === 1 && control.get('mode') === 'running' &&
+    control.get('generation') === progressionGeneration.id && Number.isSafeInteger(cutoff) && cutoff > 0;
 }
 
 export const FUNCTION_REGION = 'europe-west2';
@@ -278,7 +281,11 @@ async function syncUserProgression(
   if (!progressionWritesEnabled(control) ||
       (originalControlVersion && !control.updateTime?.isEqual(originalControlVersion))) return null;
 
-  const policy = publication?.policy ?? configuredGeographicPolicy(control.get('geographyStartsAtMs'));
+  const startsAt: number = control.get('progressionStartsAtMs');
+
+  const configuredPolicy = configuredGeographicPolicy(control.get('geographyStartsAtMs'));
+  const policy = publication?.policy ??
+    (configuredPolicy && configuredPolicy.startsAtMs >= startsAt ? configuredPolicy : undefined);
   const pin = publication?.pin;
   const receipt = pin && policy && pin.updateTime && pin.createTime?.isEqual(pin.updateTime)
     ? geographicReceiptForPin(pin, userId, policy)
@@ -298,16 +305,20 @@ async function syncUserProgression(
   if (!(await db.collection('users').doc(userId).get()).exists) return null;
 
   // Establish the version before reading the metrics it protects.
-  const summaryRef = db.collection('users').doc(userId).collection('progression').doc('summary');
+  const generation = progressionGeneration.doc(userId);
+  const summaryRef = generation.collection('state').doc('summary');
   const summarySnap = await summaryRef.get();
   const existingSummary = summarySnap.exists ? summarySnap.data() : null;
 
   // 1. Fetch user's active pins (excluding deleted or reported)
   const pinsSnap = await db.collection('pins').where('userId', '==', userId).get();
   const validPins: any[] = [];
+  let profilePinsCount = 0;
   pinsSnap.forEach((doc) => {
     const data = doc.data();
     if (isActivePin(data)) {
+      profilePinsCount++;
+      if (doc.createTime.toMillis() < startsAt) return;
       const tags = Array.isArray(data.tags)
         ? data.tags.filter((tag: unknown): tag is string => typeof tag === 'string' && tag.trim().length > 0)
         : [];
@@ -315,7 +326,7 @@ async function syncUserProgression(
     }
   });
 
-  const activeSpotsCount = validPins.length; // DYNAMIC: Current non-deleted pins
+  const activeSpotsCount = validPins.length;
 
   // 2. Fetch user profile for followers & completeness
   const userDoc = await db.collection('users').doc(userId).get();
@@ -342,7 +353,7 @@ async function syncUserProgression(
   if (userData?.avatarUrl || userData?.photoURL) profileCompletePoints++;
   if (typeof userData?.bio === 'string' && userData.bio.trim().length >= 10) profileCompletePoints++;
 
-  const xpEventsCol = db.collection('users').doc(userId).collection('xpEvents');
+  const xpEventsCol = generation.collection('xpEvents');
   const existingEventsSnap = await xpEventsCol.get();
   const existingEventIds = new Set<string>();
   const richLocations = new Set<string>();
@@ -554,7 +565,7 @@ async function syncUserProgression(
   });
 
   // 5. Read Existing Achievements to PRESERVE permanent unlocked state!
-  const achievementsCol = db.collection('users').doc(userId).collection('achievements');
+  const achievementsCol = generation.collection('achievements');
   const existingAchSnap = await achievementsCol.get();
   const existingMap = new Map<string, any>();
   existingAchSnap.forEach((d) => existingMap.set(d.id, d.data()));
@@ -733,7 +744,7 @@ async function syncUserProgression(
 
       transaction.set(summaryRef, summary, { merge: true });
       transaction.update(userProfileRef, {
-        pinsCount: activeSpotsCount,
+        pinsCount: profilePinsCount,
         updatedAt: FieldValue.serverTimestamp(),
       });
       for (const achievement of pendingAchievements) {
@@ -1158,6 +1169,7 @@ async function deleteAccountPage(userId: string, phase: DeletionPhase, cursor?: 
     }
     case 'profile':
       // The tombstone remains present even if recursiveDelete only partly succeeds.
+      await db.recursiveDelete(progressionGeneration.doc(userId));
       await db.recursiveDelete(user);
       return null;
     case 'auth':

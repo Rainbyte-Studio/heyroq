@@ -134,7 +134,7 @@ try {
       if (hash(await readFile(path)) !== checksum) throw new Error('Backup verification failed');
     }
     if (!readOnly) {
-      const fields = { resetVersion: { integerValue: '1' } };
+      const fields = { resetVersion: { integerValue: '1' }, generation: { stringValue: 'progressionV11' } };
       if (checksum) fields.backupSha256 = { stringValue: checksum };
       await request(`${root}:commit`, {
         transaction,

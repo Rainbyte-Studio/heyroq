@@ -52,7 +52,7 @@ const outDir = await mkdtemp(join(tmpdir(), 'heyroq-browser-'));
 let browser;
 let server;
 try {
-  await db.doc('progressionMaintenance/writers').set({ schemaVersion: 1, mode: 'running' });
+  await db.doc('progressionMaintenance/writers').set({ schemaVersion: 1, mode: 'running', generation: 'progressionV11', progressionStartsAtMs: 1 });
   await build({ mode: 'browser-emulator', build: { outDir, rollupOptions: { input: 'tests/browser/index.html' } } });
   server = await preview({ mode: 'browser-emulator', build: { outDir }, preview: {
     host: '127.0.0.1', port: 4173, strictPort: true,
@@ -207,13 +207,13 @@ try {
       });
     }
   }
-  const historical = profile.collection('achievements').doc('city_scout');
+  const historical = db.collection('progressionV11').doc(profile.id).collection('achievements').doc('city_scout');
   const history = {
     id: 'city_scout', title: 'Urban Scout', category: 'Geography', iconName: 'Building',
     tier: 'gold', xpReward: 90, isUnlocked: true, progress: 2, target: 2,
     unlockedAt: '2025-01-06T00:00:00Z',
   };
-  const legacyProgress = profile.collection('achievements').doc('city_pathfinder');
+  const legacyProgress = db.collection('progressionV11').doc(profile.id).collection('achievements').doc('city_pathfinder');
   await db.batch().set(historical, history).set(legacyProgress, { progress: 10, isUnlocked: false }).commit();
   const earned = modal.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Urban Scout' }) });
   await earned.getByText('Completed', { exact: true }).waitFor();
@@ -312,14 +312,14 @@ try {
   assert.equal(retry, pinId);
   assert.deepEqual((await db.doc('pins/' + pinId).get()).get('geographySelection'),
     { countryCode: 'GR', cityId: '264371' });
-  const xpEvents = profile.collection('xpEvents');
+  const xpEvents = db.collection('progressionV11').doc(profile.id).collection('xpEvents');
   for (let attempt = 0; attempt < 80 && !(await xpEvents.doc(`pin_created:${pinId}`).get()).exists; attempt++) {
     await delay(250);
   }
   assert.equal((await xpEvents.doc(`pin_created:${pinId}`).get()).get('action'), 'PIN_CREATED');
   assert.deepEqual((await xpEvents.get()).docs.filter(doc =>
     /^(?:UNIQUE_CITY|UNIQUE_COUNTRY)$/.test(doc.get('action')) || doc.id.startsWith('geo_v1:')), []);
-  const geographicAwards = await profile.collection('achievements').where('category', '==', 'Geography').get();
+  const geographicAwards = await db.collection('progressionV11').doc(profile.id).collection('achievements').where('category', '==', 'Geography').get();
   assert.deepEqual(geographicAwards.docs.filter(doc => doc.get('isUnlocked')).map(doc => doc.id), ['city_scout']);
   assert.equal(urls.length, 1);
   assert.deepEqual(await read(urls[0]), { status: 200, bytes: png });

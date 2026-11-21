@@ -67,7 +67,7 @@ Object.assign(window, {
     },
     async tryWriteVerifiedProgress(uid: string) {
       try {
-        await updateDoc(doc(db, 'users', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
+        await updateDoc(doc(db, 'progressionV11', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
         return 'unexpected success';
       } catch (error) {
         return (error as { code: string }).code;

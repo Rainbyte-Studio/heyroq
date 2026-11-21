@@ -99,69 +99,57 @@ which can recursively delete an outgoing profile and its progression.
 This snapshot establishes the baseline for per-function updates. It does not
 prove that the revisions have drained or that production is frozen.
 
-### Legacy write isolation
+### Generation and maintenance cutover
 
-Cloud Run routing changes do not interrupt in-flight requests. Treat an
-empty instance-metric response as missing evidence. For a data-plane fence,
-use a temporary IAM deny policy for Firestore document creation, update and
-deletion, limited to the audited legacy writer principals. Check all
-services sharing those identities before applying the policy, because it
-also affects their unrelated Firestore writes. Verify effective denial for
-each principal and verify the release operator can still perform the
-transaction. Keep the deny policy in place through replacement, verification
-of every route and binding, and the reset. Remove it only after compatible
-runtimes are exclusively reachable and old executions have drained.
+The active summary, achievements and ledger live at
+`progressionV11/{uid}/state/summary`, `progressionV11/{uid}/achievements`
+and `progressionV11/{uid}/xpEvents`. Neither legacy progression writes
+under `users/{uid}` nor a legacy recursive delete of that profile reaches
+the active ledger. Updated readers have no fallback to the legacy summary.
+Only the compatible account-deletion worker explicitly removes the active
+ledger for a legitimate account deletion.
 
-Run `node release/progression-isolation.mjs` with the authorized session's
-read token in `HEYROQ_RELEASE_READ_TOKEN`. The check prints the functions,
-routes, delivery identities and dependencies and exits 2 because those
-observations alone do not establish isolation. It does not persist data or
-change production.
+1. Run `node release/progression-isolation.mjs` with the Google session's
+   read credential in `HEYROQ_RELEASE_READ_TOKEN`. Exit 2 with the scoped
+   routes means the inventory ran and cannot certify retirement. Any
+   unexpected endpoint, route or identity blocks production mutations.
+2. Pin all replacement artifacts and the awards-disabled recovery package
+   from the **same generation**. Older recovery archives use legacy paths
+   and are ineligible after the switch.
+3. Set the server-only writer document to schema version 1 and frozen.
+   Publish compatible Rules, then verify that authorized writes for
+   pins, likes, comments and follows are rejected while profile reads
+   still work. Record the current image and account-deletion Scheduler
+   destinations. Pause the account-deletion job with
+   `gcloud scheduler jobs pause heyroq-reconcile-account-deletion --project rainbyte-studio --location europe-west2`.
+   Expect state PAUSED on describe. An already dispatched invocation can
+   still run. Verify no protected profile has a pending deletion job and
+   prove old worker execution retirement independently.
+4. Replace existing Functions in place with awarding disabled. Compare
+   the source generation, revision, routing, settings, identities,
+   Eventarc destination, filters and subscription after each update.
+   Keep the Eventarc-managed push subscriptions and stable destinations.
+   An incomplete roll keeps the control frozen and account deletion paused.
+   Recover forward from the pinned compatible artifact and repeat the
+   comparison. During maintenance a new entry point can accept a delayed
+   event without awarding it because the active generation is frozen.
+5. Before a physical purge of old paths, require positive retirement
+   evidence for old execution, existing leases and legacy routes. A
+   namespace can make stale writes irrelevant to the new generation, but
+   it cannot stop a legacy process from rewriting its old documents or
+   modifying preserved records through its other permissions.
+   Do not use temporary account-deletion tombstones as a fence. The legacy
+   avatar finalize handler treats the presence of a deletion lock as
+   authority to delete a newly uploaded avatar.
+6. After a verified reset, set `generation: "progressionV11"` and
+   `progressionStartsAtMs` to a server-controlled cutoff at or after
+   the reset. Verify that legacy inputs are absent before reopening.
+   The running control requires both fields. Continue to use the
+   separate, post-reset geographic cutoff. With verified compatible
+   routing, resume the Scheduler job using the same command with
+   `resume` in place of `pause` and expect state ENABLED.
 
-All twelve scoped Gen2 endpoints on the current baseline use their original
-source. The indirect paths include both comment counters and account deletion
-intake. The Gen1 Auth trigger records deletion receipts only. Note these
-limitations before choosing a cutover:
-
-* Scheduler pause prevents new dispatches. It does not fence a worker that
-  already holds a lease. Maintain the same job name, URI and OIDC identity,
-  and verify outstanding dispatches and leases. Leave the image cleanup job
-  running if its path is independent.
-* Keep the Eventarc-managed push configuration and subscription. Do not
-  implement pause by editing the managed push target. A zero backlog is a
-  point-in-time observation. Verify the stable service target, no legacy
-  traffic routes or tags, and positive old-execution retirement evidence.
-* A service-account disable rejects already issued tokens, but the compute
-  identity also serves the frontend and eight Eventarc triggers. Disabling it
-  would revoke delivery as well as Firestore and could interrupt unrelated
-  operations. It is unsuitable for this cutover.
-
-If positive retirement evidence is unavailable, the project IAM administrator
-should own a single temporary deny policy attached to project `856895300361`.
-Scope it to `datastore.googleapis.com/entities.create`, `entities.update`
-and `entities.delete` (each with the same service prefix) and only the four
-audited runtime principals:
-
-* `856895300361-compute@developer.gserviceaccount.com`
-* `hq-rt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com`
-* `hq-rt-account-delete@rainbyte-studio.iam.gserviceaccount.com`
-* `hq-rt-account-reconcile@rainbyte-studio.iam.gserviceaccount.com`
-
-Use a database tag condition for database-level scope when needed and verify
-that the tag applies to Firestore entity writes. The named database is
-currently the only Firestore database in the project. The policy would still
-fence all Firestore writes made under those identities on that database,
-including pin-deletion cleanup and account-deletion work. Confirm the effects
-of deferring that work before installation. Do not deny invocation, Storage,
-or Auth permissions. A dedicated compatible runtime outside the deny set
-can use a least-privilege database-specific role. Keep the existing Eventarc
-and Scheduler identities. Keep separate runtimes for image cleanup and
-account deletion where their roles differ.
-
-Before installing the policy, the administrator must be able to verify
-effective denial for each listed identity and the release operator's ability
-to commit on the named database. Apply and remove it through the IAM v2 API
-using project-scoped deny administration. Keep the old identities fenced
-until legacy execution and route checks pass. The current session lacks
-`iam.denypolicies.create`, `iam.denypolicies.update`, `iam.denypolicies.delete`,
-and `iam.serviceAccounts.getAccessToken` for the affected identities.
+Current production still routes the twelve scoped services to their
+original source. The local reset rehearsal performs the selective delete;
+the production inventory command is read-only. Maintenance and routing have
+not been established in production.

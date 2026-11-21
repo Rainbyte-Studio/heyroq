@@ -58,7 +58,7 @@ jobs:
             functions firebase.json firestore.rules firestore.indexes.json storage.rules \
             release/block-firebase-functions.cjs docs/progression-deployment-manifest.json \
             docs/GEOGRAPHY_XP_RELEASE.md docs/GEOGRAPHY_PROGRESSION_RESET.md \
-            scripts/reset-explorer-progression.mjs
+            scripts/reset-explorer-progression.mjs release/progression-isolation.mjs
           (cd recovery && sha256sum ./*.tar > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:

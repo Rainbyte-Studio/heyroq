@@ -46,22 +46,30 @@ const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
 });
 
 it('only server SDKs can write progression and receipts, including for admin clients', async () => {
+  await seedAlice();
   const admin = env.authenticatedContext('staff', { admin: true }).firestore();
   const receiptPath = 'users/alice/xpEvents/geo_v1:country:GR';
-  const paths = [receiptPath, 'users/alice/progression/summary', 'users/alice/achievements/local_explorer'];
+  const activeReceipt = 'progressionV11/alice/xpEvents/geo_v1:country:GR';
+  const paths = [receiptPath, 'users/alice/progression/summary', 'users/alice/achievements/local_explorer',
+    activeReceipt, 'progressionV11/alice/state/summary', 'progressionV11/alice/achievements/local_explorer'];
   const evidence = { geographicReceipt: { schemaVersion: 2, cityId: '264371' }, xpEarned: 150 };
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), receiptPath), evidence);
+    await setDoc(doc(context.firestore(), activeReceipt), evidence);
   });
   for (const client of [alice(), bob(), admin]) {
     for (const path of paths) {
       await assertFails(setDoc(doc(client, path), evidence));
     }
     await assertFails(deleteDoc(doc(client, receiptPath)));
+    await assertFails(deleteDoc(doc(client, activeReceipt)));
   }
   await assertSucceeds(getDoc(doc(alice(), receiptPath)));
   await assertSucceeds(getDoc(doc(admin, receiptPath)));
   await assertFails(getDoc(doc(bob(), receiptPath)));
+  await assertSucceeds(getDoc(doc(alice(), activeReceipt)));
+  await assertSucceeds(getDoc(doc(admin, activeReceipt)));
+  await assertFails(getDoc(doc(bob(), activeReceipt)));
 });
 
 it('follow and unfollow preserve both records in the same batch', async () => {
@@ -82,6 +90,21 @@ it('follow and unfollow preserve both records in the same batch', async () => {
   await assertFails(deleteDoc(follower));
   await assertFails(deleteDoc(following));
   await assertSucceeds(writeBatch(client).delete(follower).delete(following).commit());
+});
+
+it('maintenance blocks client pin actions while keeping profiles readable', async () => {
+  await seedAlice();
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'pins/frozen-pin'), pin());
+    await setDoc(doc(db, 'progressionMaintenance/writers'), { mode: 'frozen' });
+  });
+  const client = alice();
+  const existing = doc(client, 'pins/frozen-pin');
+  await assertSucceeds(getDoc(doc(client, 'users/alice')));
+  await assertFails(deleteDoc(existing));
+  await assertFails(updateDoc(existing, { title: 'Paused edit' }));
+  await assertFails(setDoc(doc(client, 'pins/frozen-pin/likes/alice'), { userId: 'alice' }));
 });
 
 describe('Firestore create-time server counter protection', () => {

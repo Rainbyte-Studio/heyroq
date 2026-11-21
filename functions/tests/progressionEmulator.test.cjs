@@ -15,18 +15,19 @@ if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST |
 }
 
 const db = getFirestore(FIRESTORE_DATABASE_ID);
+const generation = profile => db.collection('progressionV11').doc(profile.id);
 const writerControl = db.doc('progressionMaintenance/writers');
-before(() => writerControl.set({ schemaVersion: 1, mode: 'running' }));
+before(() => writerControl.set({ schemaVersion: 1, mode: 'running', generation: 'progressionV11', progressionStartsAtMs: 1 }));
 const userId = 'integration-progression-user';
 const profile = db.collection('users').doc(userId);
-const events = profile.collection('xpEvents');
-const summary = profile.collection('progression').doc('summary');
+const events = generation(profile).collection('xpEvents');
+const summary = generation(profile).collection('state').doc('summary');
 const pins = db.collection('pins');
 
 const catalog = require('../geographyCatalog.json');
 const geographicPolicy = userId => ({ startsAtMs: 1, pilotUsers: new Set([userId]) });
 const geoEvents = async user =>
-  (await user.collection('xpEvents').get()).docs.filter(doc => doc.id.startsWith('geo_v1:'));
+  (await generation(user).collection('xpEvents').get()).docs.filter(doc => doc.id.startsWith('geo_v1:'));
 
 async function createGeographicPin(id, userId, cityId = '264371', fields = {}, publish = true) {
   const pin = pins.doc(id);
@@ -53,9 +54,9 @@ test('missing, invalid and frozen writer settings block recomputation and delaye
   const user = db.doc(`users/${uid}`);
   await user.set({ displayName: 'Writer freeze fixture' });
   const pin = await createGeographicPin('writer-freeze-fixture', uid);
-  const state = { schemaVersion: 1, mode: 'running' };
-  const ledger = user.collection('xpEvents');
-  const playerSummary = user.collection('progression').doc('summary');
+  const state = { schemaVersion: 1, mode: 'running', generation: 'progressionV11', progressionStartsAtMs: 1 };
+  const ledger = generation(user).collection('xpEvents');
+  const playerSummary = generation(user).collection('state').doc('summary');
   try {
     await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
     assert.deepEqual((await geoEvents(user)).map(doc => doc.get('xpEarned')).sort((a, b) => a - b), [25, 150]);
@@ -65,7 +66,7 @@ test('missing, invalid and frozen writer settings block recomputation and delaye
     assert.equal(await updateUserProgressionServer(uid), null);
     await writerControl.set({ schemaVersion: 1, mode: 'frozen' });
     const old = await Promise.all([
-      ledger.get(), user.collection('achievements').get(), playerSummary.get(),
+      ledger.get(), generation(user).collection('achievements').get(), playerSummary.get(),
     ]);
     const batch = db.batch();
     for (const item of [old[2], ...old[0].docs, ...old[1].docs]) batch.delete(item.ref);
@@ -77,7 +78,7 @@ test('missing, invalid and frozen writer settings block recomputation and delaye
     ]);
     assert.equal((await playerSummary.get()).exists, false);
     assert.equal((await ledger.get()).size, 0);
-    assert.equal((await user.collection('achievements').get()).size, 0);
+    assert.equal((await generation(user).collection('achievements').get()).size, 0);
     // Production's selective reset requires old source evidence to be absent.
     await pin.ref.delete();
     await writerControl.set(state);
@@ -90,11 +91,50 @@ test('missing, invalid and frozen writer settings block recomputation and delaye
   }
 });
 
+test('legacy ledger writes and delayed publications cannot seed the new generation', async () => {
+  const uid = 'generation-barrier-fixture';
+  const user = db.doc(`users/${uid}`);
+  const current = generation(user);
+  await user.set({ displayName: 'Generation barrier fixture' });
+  const historical = await createGeographicPin('generation-old-pin', uid);
+  const control = {
+    schemaVersion: 1, mode: 'running', generation: 'progressionV11',
+    progressionStartsAtMs: Math.ceil(historical.createTime.toMillis()) + 1,
+  };
+  try {
+    await writerControl.set({ ...control, mode: 'frozen' });
+    await onPinCreatedProgression.run({ data: historical });
+    assert.equal((await current.collection('state').doc('summary').get()).exists, false);
+    // Legacy handlers only know these paths, even when an old request is
+    // already executing and cannot see the maintenance control.
+    await db.batch()
+      .set(user.collection('progression').doc('summary'), { xp: 6000, citiesCount: 5 })
+      .set(user.collection('xpEvents').doc('city_first:athens'), { xpEarned: 25 })
+      .set(user.collection('achievements').doc('local_explorer'), { isUnlocked: true })
+      .commit();
+    await writerControl.set(control);
+    await Promise.all([onPinCreatedProgression.run({ data: historical }), updateUserProgressionServer(uid)]);
+    const summary = current.collection('state').doc('summary');
+    assert.equal((await summary.get()).get('xp'), 0);
+    assert.equal((await summary.get()).get('level'), 1);
+    assert.equal((await current.collection('xpEvents').get()).empty, true);
+    assert.equal((await current.collection('achievements').where('isUnlocked', '==', true).get()).empty, true);
+    assert.equal((await historical.ref.get()).exists, true);
+    assert.equal((await user.get()).get('pinsCount'), 1);
+
+    const fresh = await createGeographicPin('generation-new-pin', uid, '3169070');
+    await Promise.all([onPinCreatedProgression.run({ data: fresh }), onPinCreatedProgression.run({ data: fresh })]);
+    assert.equal((await summary.get()).get('xp'), 175);
+  } finally {
+    await writerControl.set({ ...control, progressionStartsAtMs: 1 });
+  }
+});
+
 test('deployed pin entry point requires reset proof and a post-reset cutoff', async () => {
   const uid = 'writer-activation-fixture';
   const user = db.doc(`users/${uid}`);
   const marker = db.doc('progressionMaintenance/geography-v11-reset');
-  const state = { schemaVersion: 1, mode: 'running' };
+  const state = { schemaVersion: 1, mode: 'running', generation: 'progressionV11', progressionStartsAtMs: 1 };
   const deliver = pin => onPinCreatedProgression.run({ data: pin, params: { pinId: pin.id } });
   await user.set({ displayName: 'Activation fixture' });
   process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE = 'true';
@@ -148,12 +188,12 @@ test('distinct catalog cities and countries reward once under concurrent replay 
     assert.ok(inputs.some(pin => pin.id === event.get('geographicReceipt.pinId')));
   }
   for (const id of ['local_explorer', 'city_scout', 'border_crosser']) {
-    assert.equal((await user.collection('xpEvents').doc('achievement:' + id).get()).exists, true);
-    assert.equal((await user.collection('achievements').doc(id).get()).get('isUnlocked'), true);
+    assert.equal((await generation(user).collection('xpEvents').doc('achievement:' + id).get()).exists, true);
+    assert.equal((await generation(user).collection('achievements').doc(id).get()).get('isUnlocked'), true);
   }
-  const progress = user.collection('progression').doc('summary');
+  const progress = generation(user).collection('state').doc('summary');
   const before = (await progress.get()).data();
-  const ledger = await user.collection('xpEvents').get();
+  const ledger = await generation(user).collection('xpEvents').get();
   assert.equal(before.xp, ledger.docs.reduce((sum, doc) => sum + doc.get('xpEarned'), 0));
   assert.equal(before.citiesCount, 3);
   assert.equal(before.countriesCount, 2);
@@ -173,24 +213,24 @@ test('recovery preserves v1.1 awards and all seven badges while ordinary progres
   for (const id of ids) {
     const country = catalog.cities.find(city => city[0] === id)[1];
     countries.add(country);
-    batch.create(user.collection('xpEvents').doc(`geo_v1:city:${country}:${id}`), { xpEarned: 25 });
+    batch.create(generation(user).collection('xpEvents').doc(`geo_v1:city:${country}:${id}`), { xpEarned: 25 });
   }
   for (const country of countries) {
-    batch.create(user.collection('xpEvents').doc(`geo_v1:country:${country}`), { xpEarned: 150 });
+    batch.create(generation(user).collection('xpEvents').doc(`geo_v1:country:${country}`), { xpEarned: 150 });
   }
   await batch.commit();
   const pin = await createGeographicPin('geo-tenth-city', uid, '2618425');
   await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
   await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
-  const awarded = await user.collection('achievements').where('category', '==', 'Geography').get();
+  const awarded = await generation(user).collection('achievements').where('category', '==', 'Geography').get();
   assert.equal(awarded.size, 7);
   for (const doc of awarded.docs) {
     assert.equal(doc.get('isUnlocked'), true, doc.id);
-    assert.equal((await user.collection('xpEvents').doc('achievement:' + doc.id).get()).exists, true, doc.id);
+    assert.equal((await generation(user).collection('xpEvents').doc('achievement:' + doc.id).get()).exists, true, doc.id);
   }
 
-  const ledger = user.collection('xpEvents');
-  const summaryRef = user.collection('progression').doc('summary');
+  const ledger = generation(user).collection('xpEvents');
+  const summaryRef = generation(user).collection('state').doc('summary');
   const geographyBadgeIds = new Set(awarded.docs.map(doc => 'achievement:' + doc.id));
   const readGeographyLedger = async () => (await ledger.get()).docs
     .filter(doc => /^(geo_v1:|city_first:|country_first:)/.test(doc.id) || geographyBadgeIds.has(doc.id))
@@ -253,7 +293,7 @@ test('recovery preserves v1.1 awards and all seven badges while ordinary progres
   assert.equal(after.countriesCount, originalSummary.countriesCount);
   assert.equal(after.followersCount, 0);
   assert.deepEqual(await readGeographyLedger(), awardedLedger);
-  const restoredBadges = await user.collection('achievements').where('category', '==', 'Geography').get();
+  const restoredBadges = await generation(user).collection('achievements').where('category', '==', 'Geography').get();
   assert.ok(restoredBadges.docs.every(doc => doc.get('isUnlocked')));
   assert.deepEqual(restoredBadges.docs.map(doc => [doc.id, doc.get('unlockedAt'), doc.get('progress')]), originalBadges);
 });
@@ -262,18 +302,18 @@ test('legacy city history preserves its counts and XP and allows the unaffected 
   const uid = 'geo-legacy-user';
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Geo fixture' });
-  await user.collection('progression').doc('summary').set({ xp: 400, citiesCount: 5 });
-  await user.collection('xpEvents').doc('city_first:athens').set({
+  await generation(user).collection('state').doc('summary').set({ xp: 400, citiesCount: 5 });
+  await generation(user).collection('xpEvents').doc('city_first:athens').set({
     action: 'UNIQUE_CITY', referenceId: { legacyName: 'athens' }, xpEarned: 25,
   });
   const pin = await createGeographicPin('geo-legacy', uid);
   await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
-  const progress = (await user.collection('progression').doc('summary').get()).data();
+  const progress = (await generation(user).collection('state').doc('summary').get()).data();
   assert.equal(progress.citiesCount, 5);
   assert.equal(progress.countriesCount, 1);
   assert.ok(progress.xp >= 550);
   assert.deepEqual((await geoEvents(user)).map(doc => doc.id), ['geo_v1:country:GR']);
-  assert.equal((await user.collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
+  assert.equal((await generation(user).collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
 });
 
 test('invalid, altered, pre-cutoff and unapproved posts cannot establish geography', async () => {
@@ -304,7 +344,7 @@ test('invalid, altered, pre-cutoff and unapproved posts cannot establish geograp
   await db.collection('accountDeletionLocks').doc(uid).create({ status: 'deleting' });
   await updateProgressionForCreatedPin(pin, config);
   assert.equal((await geoEvents(user)).length, 0);
-  assert.equal((await user.collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
+  assert.equal((await generation(user).collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
 });
 
 test('at most five distinct rewarded photos count per account per UTC publication day', async () => {
@@ -316,7 +356,7 @@ test('at most five distinct rewarded photos count per account per UTC publicatio
     await updateProgressionForCreatedPin(await createGeographicPin('geo-cap-' + id, uid, id), config);
   }
   assert.equal((await geoEvents(user)).length, 10);
-  assert.equal((await user.collection('progression').doc('summary').get()).get('countriesCount'), 5);
+  assert.equal((await generation(user).collection('state').doc('summary').get()).get('countriesCount'), 5);
 });
 
 
@@ -465,8 +505,8 @@ test('concurrent progression updates produce a consistent, idempotent XP ledger'
 test('geography XP and lifetime counts come from earned history', async () => {
   const legacyUserId = 'integration-legacy-geography-user';
   const legacyProfile = db.collection('users').doc(legacyUserId);
-  const legacyEvents = legacyProfile.collection('xpEvents');
-  const legacySummary = legacyProfile.collection('progression').doc('summary');
+  const legacyEvents = generation(legacyProfile).collection('xpEvents');
+  const legacySummary = generation(legacyProfile).collection('state').doc('summary');
   const earnedCity = {
     action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25,
   };
@@ -526,9 +566,9 @@ test('every progression caller keeps geography frozen and replays without adding
   for (const [name, makeEvent] of Object.entries(cases)) {
     const id = 'matrix-' + name;
     const user = db.collection('users').doc(id);
-    const ledger = user.collection('xpEvents');
-    const metrics = user.collection('progression').doc('summary');
-    const badges = user.collection('achievements');
+    const ledger = generation(user).collection('xpEvents');
+    const metrics = generation(user).collection('state').doc('summary');
+    const badges = generation(user).collection('achievements');
     const pinRef = pins.doc(id);
     const historicalCity = { action: 'UNIQUE_CITY', referenceId: 'athens', xpEarned: 25 };
     const historicalCountry = { action: 'UNIQUE_COUNTRY', referenceId: 'GR', xpEarned: 150 };
@@ -653,7 +693,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
     .set(departing.collection('following').doc(survivorId), {}).commit();
 
   const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
-  const ledger = survivor.collection('xpEvents');
+  const ledger = generation(survivor).collection('xpEvents');
   const lock = db.collection('accountDeletionLocks').doc(uid);
   assert.deepEqual(await functions.deleteUserAccount.run(request), { success: false, status: 'deleting' });
   assert.equal((await lock.get()).get('phase'), 'likes');
@@ -724,7 +764,7 @@ test('social counters converge on current documents after concurrent and replaye
   const pinEvent = { params: { pinId: pin.id } };
   await Promise.all([like.set({}), comment.set({})]);
   await Promise.all([onPinCommentCreated.run(pinEvent), onPinCommentDeleted.run(pinEvent)]);
-  assert.equal((await target.collection('progression').doc('summary').get()).get('likesReceivedCount'), 0);
+  assert.equal((await generation(target).collection('state').doc('summary').get()).get('likesReceivedCount'), 0);
   await Promise.all([onPinLikeDeleted.run(pinEvent), onPinLikeCreated.run(pinEvent),
     onPinCommentDeleted.run(pinEvent), onPinCommentCreated.run(pinEvent)]);
   const added = await pin.get();
@@ -746,7 +786,7 @@ test('social counters converge on current documents after concurrent and replaye
 test('a slower recomputation cannot publish metrics read before a newer summary commit', { timeout: 20000 }, async t => {
   const uid = 'progression-stale-metrics';
   const user = db.collection('users').doc(uid);
-  const metrics = user.collection('progression').doc('summary');
+  const metrics = generation(user).collection('state').doc('summary');
   const pin = pins.doc(uid);
   await user.set({ followersCount: 0 });
   await pin.set({ userId: uid, likeCount: 1, latitude: 38, longitude: 23 });
@@ -794,7 +834,7 @@ test('legacy and mixed tags cannot crash progression or manufacture rich-discove
     await pins.doc(uid + '-' + suffix).set({ userId: uid, description, tags, title: suffix, category: 'Travel', latitude: latitude++, longitude: 10 });
   }
   await updateUserProgressionServer(uid);
-  const rich = await user.collection('xpEvents').where('action', '==', 'RICH_DISCOVERY').get();
+  const rich = await generation(user).collection('xpEvents').where('action', '==', 'RICH_DISCOVERY').get();
   assert.deepEqual(rich.docs.map(doc => doc.get('referenceId')), [uid + '-valid']);
 });
 
@@ -1277,8 +1317,8 @@ test('the named database applies the pin-image rules to an authenticated client'
 test('v1.1 discovery awards use published evidence and remain permanent across retries and deletion', async () => {
   const uid = 'achievement-v11-discovery';
   const user = db.collection('users').doc(uid);
-  const badges = user.collection('achievements');
-  const ledger = user.collection('xpEvents');
+  const badges = generation(user).collection('achievements');
+  const ledger = generation(user).collection('xpEvents');
   const makePin = (index) => ({
     userId: uid, title: 'Discovery ' + index,
     latitude: 37 + index / 100, longitude: 23, status: 'published',
@@ -1344,8 +1384,8 @@ test('v1.1 discovery awards use published evidence and remain permanent across r
 test('Trusted Voice counts distinct eligible accounts from canonical likes and survives removal', async () => {
   const uid = 'achievement-v11-likes';
   const user = db.collection('users').doc(uid);
-  const badge = user.collection('achievements').doc('trusted_voice');
-  const ledger = user.collection('xpEvents').doc('achievement:trusted_voice');
+  const badge = generation(user).collection('achievements').doc('trusted_voice');
+  const ledger = generation(user).collection('xpEvents').doc('achievement:trusted_voice');
   const firstPin = pins.doc(uid + '-one');
   const secondPin = pins.doc(uid + '-two');
   await user.set({ displayName: uid });
@@ -1394,9 +1434,9 @@ test('Trusted Voice counts distinct eligible accounts from canonical likes and s
 test('historical rarity, original XP and unlocked photo badges survive v1.1 while Legend uses earned XP', async () => {
   const uid = 'achievement-v11-historical';
   const user = db.collection('users').doc(uid);
-  const badges = user.collection('achievements');
-  const ledger = user.collection('xpEvents');
-  const metrics = user.collection('progression').doc('summary');
+  const badges = generation(user).collection('achievements');
+  const ledger = generation(user).collection('xpEvents');
+  const metrics = generation(user).collection('state').doc('summary');
   const earnedAt = '2025-04-01T12:00:00Z';
   await db.batch()
     .set(user, { displayName: uid })
@@ -1424,9 +1464,9 @@ test('historical rarity, original XP and unlocked photo badges survive v1.1 whil
   assert.equal((await metrics.get()).get('xp'), 35500);
 
   const future = db.collection('users').doc('achievement-v11-future-pioneer');
-  const futureSummary = future.collection('progression').doc('summary');
+  const futureSummary = generation(future).collection('state').doc('summary');
   await db.batch().set(future, { displayName: 'Future Pioneer' }).set(futureSummary, { xp: 3000 }).commit();
   await updateUserProgressionServer(future.id);
-  assert.equal((await future.collection('achievements').doc('pioneer_voyager').get()).get('tier'), 'gold');
+  assert.equal((await generation(future).collection('achievements').doc('pioneer_voyager').get()).get('tier'), 'gold');
   assert.equal((await futureSummary.get()).get('xp'), 3250);
 });

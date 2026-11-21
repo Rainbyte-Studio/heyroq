@@ -338,7 +338,7 @@ export function subscribeToUserProgression(
     return () => {};
   }
 
-  const summaryRef = doc(db, 'users', userId, 'progression', 'summary');
+  const summaryRef = doc(db, 'progressionV11', userId, 'state', 'summary');
 
   return onSnapshot(
     summaryRef,
@@ -373,7 +373,7 @@ export function subscribeToUserAchievements(
     return () => {};
   }
 
-  const achCol = collection(db, 'users', userId, 'achievements');
+  const achCol = collection(db, 'progressionV11', userId, 'achievements');
 
   return onSnapshot(
     achCol,
@@ -421,7 +421,7 @@ export async function fetchUserXpEvents(userId: string, count = 10): Promise<XpE
   if (!userId) return [];
   try {
     const q = query(
-      collection(db, 'users', userId, 'xpEvents'),
+      collection(db, 'progressionV11', userId, 'xpEvents'),
       orderBy('createdAt', 'desc'),
       limit(count)
     );

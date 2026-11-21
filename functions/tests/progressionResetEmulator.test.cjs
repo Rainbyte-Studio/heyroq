@@ -47,13 +47,15 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
     assert.equal(Object.hasOwn(report, 'backupSha256'), false);
     assert.deepEqual((await db.doc('progressionMaintenance/geography-v11-reset').get()).data(), {
       resetVersion: 1,
+      generation: 'progressionV11',
     });
     assert.deepEqual((await profile.get()).data(), originalProfile);
     for (const doc of [summary, cityBadge, ledger]) assert.equal((await doc.get()).exists, false);
 
-    await ledger.set({ xpEarned: 150 });
+    const newLedger = db.doc('progressionV11/reset-fixture/xpEvents/new-award');
+    await newLedger.set({ xpEarned: 150 });
     assert.match((await run()).stdout, /already exists/);
-    assert.equal((await ledger.get()).get('xpEarned'), 150);
+    assert.equal((await newLedger.get()).get('xpEarned'), 150);
 
   } finally {
     await deleteApp(app);
