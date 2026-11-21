@@ -1,4 +1,5 @@
 import { after, before, beforeEach, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
