@@ -416,7 +416,8 @@ try {
   assert.equal(await searchBox.inputValue(), '');
   assert.ok(await searchBox.evaluate(input => input === document.activeElement));
   await clearSearch.waitFor({ state: 'hidden' });
-  assert.equal((await closeSearch.innerText()).trim(), 'Close');
+  assert.equal((await closeSearch.innerText()).trim(), '');
+  await closeSearch.locator('svg.lucide-x').waitFor();
   const inputBounds = await searchBox.boundingBox();
   const closeBounds = await closeSearch.boundingBox();
   assert.ok(inputBounds && closeBounds && inputBounds.x + inputBounds.width < closeBounds.x);
