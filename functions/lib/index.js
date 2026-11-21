@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.reconcileAccountDeletion = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.pinImageUpload = exports.onAccountAvatarFinalized = exports.uploadProfileAvatar = exports.onUserProfileUpdated = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
+exports.deleteUserAccount = exports.reconcileAccountDeletion = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.pinImageUpload = exports.onAccountAvatarFinalized = exports.uploadProfileAvatar = exports.onUserProfileUpdated = exports.engagementV1 = exports.pruneEngagementHistory = exports.onNotificationCommand = exports.onActivityProgressionV11Level = exports.onActivityProgressionV11Xp = exports.onNotificationFollow = exports.onNotificationComment = exports.onNotificationLike = exports.onActivityPinPublished = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
 exports.updateUserProgressionServer = updateUserProgressionServer;
 exports.updateProgressionForCreatedPin = updateProgressionForCreatedPin;
 exports.cleanAccountReports = cleanAccountReports;
@@ -15,6 +15,7 @@ const https_1 = require("firebase-functions/v2/https");
 const storage_2 = require("firebase-functions/v2/storage");
 const pinImageCleanup_1 = require("./pinImageCleanup");
 const pinImageUpload_1 = require("./pinImageUpload");
+const engagement_1 = require("./engagement");
 const progressionLocation_1 = require("./progressionLocation");
 const geographicProgression_1 = require("./geographicProgression");
 const progressionConfig_1 = require("./progressionConfig");
@@ -32,6 +33,16 @@ function progressionWritesEnabled(control) {
         control.get('generation') === progressionGeneration.id && Number.isSafeInteger(cutoff) && cutoff > 0;
 }
 exports.FUNCTION_REGION = 'europe-west2';
+const engagement = (0, engagement_1.buildEngagement)(db, exports.FIRESTORE_DATABASE_ID, exports.FUNCTION_REGION);
+exports.onActivityPinPublished = engagement.pin;
+exports.onNotificationLike = engagement.like;
+exports.onNotificationComment = engagement.comment;
+exports.onNotificationFollow = engagement.follow;
+exports.onActivityProgressionV11Xp = engagement.xp;
+exports.onActivityProgressionV11Level = engagement.level;
+exports.onNotificationCommand = engagement.system;
+exports.pruneEngagementHistory = engagement.cleanup;
+exports.engagementV1 = engagement.api;
 const avatarBucketName = 'rainbyte-studio.firebasestorage.app';
 const avatarContentTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/avif']);
 const maxAvatarBytes = 10 * 1024 * 1024;

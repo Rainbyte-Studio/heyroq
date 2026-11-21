@@ -50,6 +50,11 @@ jobs:
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore,auth,storage 'node --test functions/tests/progressionEmulator.test.cjs'
       - name: Selective progression reset rehearsal
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/progressionResetEmulator.test.cjs'
+      - name: Notifications and activity integration tests
+        env:
+          FIREBASE_CONFIG: '{"projectId":"demo-heyroq","storageBucket":"demo-heyroq.appspot.com"}'
+          GCLOUD_PROJECT: demo-heyroq
+        run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore 'node --test functions/tests/engagementEmulator.test.cjs'
       - name: Package the verified recovery runtime
         run: |
           mkdir recovery

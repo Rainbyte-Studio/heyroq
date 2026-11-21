@@ -9,6 +9,7 @@ import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
 import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
 import { handlePinImageUpload, matchesImageSignature } from './pinImageUpload';
+import { buildEngagement } from './engagement';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
   configuredGeographicPolicy, geographicReceiptForPin, MAX_GEOGRAPHY_PINS_PER_UTC_DAY,
@@ -48,6 +49,17 @@ function progressionWritesEnabled(control: FirebaseFirestore.DocumentSnapshot): 
 }
 
 export const FUNCTION_REGION = 'europe-west2';
+
+const engagement = buildEngagement(db, FIRESTORE_DATABASE_ID, FUNCTION_REGION);
+export const onActivityPinPublished = engagement.pin;
+export const onNotificationLike = engagement.like;
+export const onNotificationComment = engagement.comment;
+export const onNotificationFollow = engagement.follow;
+export const onActivityProgressionV11Xp = engagement.xp;
+export const onActivityProgressionV11Level = engagement.level;
+export const onNotificationCommand = engagement.system;
+export const pruneEngagementHistory = engagement.cleanup;
+export const engagementV1 = engagement.api;
 
 const avatarBucketName = 'rainbyte-studio.firebasestorage.app';
 const avatarContentTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/avif']);

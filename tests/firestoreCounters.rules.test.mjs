@@ -45,6 +45,58 @@ const seedAlice = async () => env.withSecurityRulesDisabled(async (context) => {
   await setDoc(doc(context.firestore(), 'users/alice'), profile());
 });
 
+it('isolates engagement settings, counters and raw projections', async () => {
+  await seedAlice();
+  const paths = ['notifications/example', 'activityV1/example', 'notificationCommands/example'];
+  const counter = 'users/alice/notificationState/inbox';
+  const settings = 'users/alice/notificationPreferences/settings';
+  await env.withSecurityRulesDisabled(async context => {
+    const admin = context.firestore();
+    await Promise.all(paths.map(path => setDoc(doc(admin, 'users/alice/' + path), { actorId: 'alice' })));
+    await setDoc(doc(admin, counter), { unread: 2 });
+  });
+  const admin = env.authenticatedContext('staff', { admin: true }).firestore();
+  for (const client of [alice(), bob(), admin]) {
+    for (const path of paths) {
+      const ref = doc(client, 'users/alice/' + path);
+      await assertFails(getDoc(ref));
+      await assertFails(setDoc(ref, { title: 'forged' }));
+      await assertFails(deleteDoc(ref));
+    }
+    await assertFails(updateDoc(doc(client, counter), { unread: 0 }));
+  }
+  await assertSucceeds(getDoc(doc(alice(), counter)));
+  await assertFails(getDoc(doc(bob(), counter)));
+  await assertSucceeds(setDoc(doc(alice(), settings), { shareActivity: true, likes: false }));
+  await assertSucceeds(getDoc(doc(alice(), settings)));
+  await assertFails(getDoc(doc(bob(), settings)));
+  await assertFails(setDoc(doc(bob(), settings), { likes: true }));
+  await assertFails(updateDoc(doc(alice(), settings), { likes: 'false' }));
+  await assertFails(updateDoc(doc(alice(), settings), { channels: { push: true } }));
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), 'accountDeletionLocks/alice'), { status: 'deleting' }));
+  await assertFails(getDoc(doc(alice(), counter)));
+  await assertFails(getDoc(doc(alice(), settings)));
+});
+
+it('accepts replies to existing top-level comments on the same pin and keeps their parent immutable', async () => {
+  await seedAlice();
+  await env.withSecurityRulesDisabled(async context => {
+    const admin = context.firestore();
+    await setDoc(doc(admin, 'users/bob'), profile({ uid: 'bob', username: 'bob', displayName: 'Bob' }));
+    await setDoc(doc(admin, 'pins/replies'), pin());
+    await setDoc(doc(admin, 'pins/replies/comments/parent'), { userId: 'alice', text: 'Parent comment' });
+    await setDoc(doc(admin, 'pins/other/comments/other'), { userId: 'alice', text: 'Different pin' });
+  });
+  const client = bob();
+  const comment = { userId: 'bob', userName: 'Bob', userAvatar: '', text: 'Reply', createdAt: serverTimestamp() };
+  const ref = id => doc(client, 'pins/replies/comments/' + id);
+  await assertSucceeds(setDoc(ref('reply'), { ...comment, parentCommentId: 'parent' }));
+  await assertFails(setDoc(ref('nested'), { ...comment, parentCommentId: 'reply' }));
+  await assertFails(setDoc(ref('missing'), { ...comment, parentCommentId: 'other' }));
+  await assertFails(updateDoc(ref('reply'), { parentCommentId: 'other' }));
+});
+
 it('only server SDKs can write progression and receipts, including for admin clients', async () => {
   await seedAlice();
   const admin = env.authenticatedContext('staff', { admin: true }).firestore();

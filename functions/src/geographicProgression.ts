@@ -10,6 +10,15 @@ const cities = new Map(catalog.cities.map(city => [city[0], city]));
 const CITY_CENTER_LIMIT_KM = 25;
 const radians = (degrees: number) => degrees * Math.PI / 180;
 
+const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+
+export function formatGeographicDiscovery(receipt: GeographicReceipt | undefined, city: boolean) {
+  if (!receipt) return;
+  const entry = cities.get(receipt.cityId);
+  if (!entry || entry[1] !== receipt.countryCode || !/^[A-Z]{2}$/.test(receipt.countryCode)) return;
+  return city ? entry[2] : countryNames.of(receipt.countryCode);
+}
+
 export interface GeographicPolicy {
   readonly startsAtMs: number;
   readonly pilotUsers?: ReadonlySet<string>;

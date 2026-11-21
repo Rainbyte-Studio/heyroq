@@ -156,6 +156,13 @@ service cloud.firestore {
              data.userAvatar == author.get('avatarUrl', author.get('photoURL', ''));
     }
 
+    function validReply(pinId, data) {
+      let parentId = data.get('parentCommentId', '');
+      return !('parentCommentId' in data) ||
+        (parentId is string && parentId.matches('[a-zA-Z0-9_:-]{1,160}') &&
+         get(/databases/$(database)/documents/pins/$(pinId)/comments/$(parentId)).data.get('parentCommentId', '') == '');
+    }
+
     // Pin display identity (when present) must match the author's own profile, so
     // users cannot publish spots under another person's name or avatar.
     function hasCanonicalPinIdentity(data) {
@@ -273,6 +280,37 @@ service cloud.firestore {
 
     // Active generation. Legacy account deletion can recursively remove
     // users/{userId}; the active ledger has a separate root.
+    match /users/{userId}/notificationPreferences/settings {
+      function validSettings() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['likes', 'comments', 'replies', 'follows', 'achievements', 'levels',
+          'geography', 'announcements', 'shareActivity', 'shareAchievements', 'shareGeography']) &&
+          data.get('likes', true) is bool && data.get('comments', true) is bool &&
+          data.get('replies', true) is bool && data.get('follows', true) is bool &&
+          data.get('achievements', true) is bool && data.get('levels', true) is bool &&
+          data.get('geography', true) is bool && data.get('announcements', true) is bool &&
+          data.get('shareActivity', false) is bool && data.get('shareAchievements', false) is bool &&
+          data.get('shareGeography', false) is bool;
+      }
+      allow get: if isNonAnonymous() && isOwner(userId) && isActiveUser(userId);
+      allow create, update: if isNonAnonymous() && isOwner(userId) && isActiveUser(userId) && validSettings();
+    }
+
+    match /users/{userId}/notificationState/inbox {
+      allow get: if isNonAnonymous() && isOwner(userId) && isActiveUser(userId);
+    }
+
+    // The callable checks current follows, preferences and source visibility before returning rows.
+    match /users/{userId}/notifications/{eventId} {
+      allow read, write: if false;
+    }
+    match /users/{userId}/activityV1/{eventId} {
+      allow read, write: if false;
+    }
+    match /users/{userId}/notificationCommands/{eventId} {
+      allow read, write: if false;
+    }
+
     match /progressionV11/{userId} {
       function hasProfile() {
         return exists(/databases/$(database)/documents/users/$(userId)) &&
@@ -425,6 +463,7 @@ service cloud.firestore {
                          request.resource.data.userId == request.auth.uid &&
                          (!('pinId' in request.resource.data) || request.resource.data.pinId == pinId) &&
                          isValidComment(request.resource.data) &&
+                         validReply(pinId, request.resource.data) &&
                          hasCanonicalCommentIdentity(request.resource.data));
 
         // Only comment author can edit comment; author UID and createdAt cannot be changed
@@ -432,6 +471,7 @@ service cloud.firestore {
                          isOwner(resource.data.userId) &&
                          request.resource.data.userId == resource.data.userId &&
                          request.resource.data.createdAt == resource.data.createdAt &&
+                         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['parentCommentId']) &&
                          isValidComment(request.resource.data) &&
                          hasCanonicalCommentIdentity(request.resource.data));
 
