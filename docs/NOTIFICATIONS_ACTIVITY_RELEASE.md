@@ -89,3 +89,35 @@ Production release and any push or email delivery are separate work.
 - GitHub main was at the PR #46 merge, `2378d5d04bf30e4b4c36d92a5364e299ebba5205`. The public production URL served `index-DWBImVHb.js` at both 1280px and 390px. That bundle contained progressionV11 and lacked engagementV1 and Notifications & Activity. These browser sessions were signed out.
 - A read-only callable POST with the production Origin and no credentials returned Google's generic HTML 404 from `https://europe-west2-rainbyte-studio.cloudfunctions.net/engagementV1`. The image-access callable also returned the generic 404. In the same project and region, `recalculateProgression` returned HTTP 401, Firebase JSON UNAUTHENTICATED and the expected CORS header. This verifies public engagement routing was unavailable at the time of the check. A browser running an engagement-enabled build against that route can surface a generic Functions error. The build shown in the reported screenshots could not be identified.
 - This probe cannot verify deployed Rules, index readiness, authenticated client behavior or backend logs. In the release window, distinguish a route 404 from a callable JSON UNAUTHENTICATED response, a browser permission-denied on the named Firestore listener, or a server FAILED_PRECONDITION in the callable logs. Check the deployed resources in the project before approving the frontend cutover.
+
+### Follow-up inventory
+
+The serving Cloud Run service in `us-west1` routed 100% of traffic to
+`heyroq-nearby-646d0c3`. Its `index-DWBImVHb.js` bundle reported the
+`646d0c3` build and contained progressionV11, with no engagement callable
+reference. GitHub main was `6490765` and included PRs #46 and #47.
+The engagement-enabled build in the report remains unidentified.
+
+| Production check | Result | Required cutover |
+| --- | --- | --- |
+| Callable route and Functions inventory | `engagementV1` and `pinImageAccessV1` returned HTTP 404 HTML. `recalculateProgression` in the same region returned HTTP 401 Firebase JSON. All eleven exports in the engagement deployment manifest were absent from the inventory. | Stage the three browser-facing endpoints, seven named-database handlers, and private cleanup worker using the reviewed Gen 2 release path. |
+| Firestore Rules release | Named database used ruleset `93f94075-517c-488f-8ab1-a5989e978957`, which lacks owner access for `notificationPreferences/settings` and `notificationState/inbox`, and the public pin access contract. | Release the repository Rules to the named database with the matching frontend and pin write freeze described above. |
+| Firestore indexes | The Enterprise Native database is in `us-west1`. The inventory had no indexes for `notifications` or `activityV1`. | Build all five engagement indexes in `firestore.indexes.json` and the missing public visibility indexes. Confirm READY before testing the release candidate. |
+| Storage Rules release | Bucket `rainbyte-studio.firebasestorage.app` used ruleset `047f6b15-c2af-4756-8ce4-058b21376c51`. It references managed images and differs from the reviewed Rules. | Diff the complete deployed Rules, verify the checked upload revision and both image delivery endpoints, then follow the image cutover above. |
+| Cleanup schedule | The `europe-west2` inventory contained only the existing pin-image and account jobs. The `us-west1` inventory was empty. | Configure one UTC job in `europe-west2` for the private worker, every 15 minutes. Verify POST and OIDC audience against its canonical Run URI, service-scoped Invoker and one successful cleanup run. Preserve the existing jobs. |
+
+The route gap prevents inbox, history, both Activity feeds and mark-as-read from
+reaching the server. The Rules gap independently blocks preference reads and writes
+and the unread listener. A first-time user legitimately has no preferences or
+counter document. The checked-in Rules allow an owner to read those paths, and
+the client derives defaults from the missing snapshots. Indexes are a separate
+requirement once the callable is routed and authenticated.
+
+For Eventarc, verify the trigger location is `us-west1` for the named database
+and check the database and document path filters on all seven deployed triggers.
+The Functions serving region in the manifest is `europe-west2`. Preserve the
+existing progression writers and verify one new eligible event through delivery.
+Use the existing Functions deploy guard and the reviewed, explicit Gen 2 release
+path. First test an approved candidate and disposable accounts, including a first
+preference save and a reopened Settings window. If any component fails these
+checks, keep the frontend cutover on hold.
