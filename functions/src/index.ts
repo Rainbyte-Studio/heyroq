@@ -11,7 +11,7 @@ import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
 import { handlePinImageUpload, matchesImageSignature } from './pinImageUpload';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
-  configuredGeographicPolicy, isGeographicDiscovery, matchesGeographicReceipt, resolveGeographicReceipt,
+  configuredGeographicPolicy, geographicReceiptForPin, MAX_GEOGRAPHY_PINS_PER_UTC_DAY,
   type GeographicPolicy, type GeographicReceipt,
 } from './geographicProgression';
 import {
@@ -254,25 +254,15 @@ export async function updateProgressionForCreatedPin(
 ) {
   const userId = pin.get('userId');
   if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_')) return null;
-  if (policy && policy.pilotUsers.has(userId) && pin.updateTime && pin.createTime?.isEqual(pin.updateTime) &&
-      pin.createTime.toMillis() >= policy.startsAtMs) {
-    const ref = db.collection('pins').doc(pin.id);
-    const [current, lock] = await db.getAll(ref, db.collection('accountDeletionLocks').doc(userId));
-    const currentData = current.data();
-    if (!lock.exists && current.createTime?.isEqual(pin.createTime) &&
-        isGeographicDiscovery(currentData) && currentData.userId === userId &&
-        currentData.latitude === pin.get('latitude') && currentData.longitude === pin.get('longitude')) {
-      const receipt = await resolveGeographicReceipt(pin, userId, FIRESTORE_DATABASE_ID, policy);
-      if (receipt && matchesGeographicReceipt(receipt, current, userId, FIRESTORE_DATABASE_ID, policy)) {
-        return syncUserProgression(userId, { ref, receipt, policy });
-      }
-    }
+  if (policy && pin.updateTime && pin.createTime?.isEqual(pin.updateTime)) {
+    const receipt = geographicReceiptForPin(pin, userId, policy);
+    if (receipt) return syncUserProgression(userId, { pin, receipt, policy });
   }
   return syncUserProgression(userId);
 }
 
 interface GeographicCandidate {
-  ref: FirebaseFirestore.DocumentReference;
+  pin: FirebaseFirestore.DocumentSnapshot;
   receipt: GeographicReceipt;
   policy: GeographicPolicy;
 }
@@ -345,7 +335,7 @@ async function syncUserProgression(
   const historicalCountriesSet = new Set<string>();
   const verifiedCities = new Set<string>();
   const verifiedCountries = new Set<string>();
-  const awardedGeographicPins = new Set<string>();
+  const awardedGeographicPinsToday = new Set<string>();
 
   existingEventsSnap.forEach((doc) => {
     existingEventIds.add(doc.id);
@@ -365,8 +355,10 @@ async function syncUserProgression(
     } else if (doc.id.startsWith('geo_v1:city:') || doc.id.startsWith('geo_v1:country:')) {
       const verified = doc.id.startsWith('geo_v1:city:') ? verifiedCities : verifiedCountries;
       verified.add(doc.id);
-      if (typeof data.geographicReceipt?.pinDigest === 'string') {
-        awardedGeographicPins.add(data.geographicReceipt.pinDigest);
+      const receipt = data.geographicReceipt;
+      if (geographic && receipt?.schemaVersion === 2 && receipt.publishedDay === geographic.receipt.publishedDay &&
+          typeof receipt.pinId === 'string') {
+        awardedGeographicPinsToday.add(receipt.pinId);
       }
     } else if (doc.id.startsWith('city_first:')) {
       const cityRef = (typeof data.referenceId === 'string' && data.referenceId.trim() ||
@@ -392,7 +384,9 @@ async function syncUserProgression(
   // places. Keep that dimension frozen for affected accounts.
   const qualifyCities = !historicalCitiesSet.size && prevCities <= verifiedCities.size;
   const qualifyCountries = !historicalCountriesSet.size && prevCountries <= verifiedCountries.size;
-  if (geographic && !awardedGeographicPins.has(geographic.receipt.pinDigest)) {
+  const canRewardPin = geographic && !awardedGeographicPinsToday.has(geographic.receipt.pinId) &&
+    awardedGeographicPinsToday.size < MAX_GEOGRAPHY_PINS_PER_UTC_DAY;
+  if (geographic && canRewardPin) {
     const { receipt } = geographic;
     const addGeographicReward = (id: string, referenceId: string, city: boolean, earned: Set<string>) => {
       if (existingEventIds.has(id)) return;
@@ -403,7 +397,7 @@ async function syncUserProgression(
           id, userId, referenceId,
           action: city ? 'UNIQUE_CITY' : 'UNIQUE_COUNTRY',
           xpEarned: city ? PROGRESSION_CONSTANTS.UNIQUE_CITY_BONUS_XP : PROGRESSION_CONSTANTS.UNIQUE_COUNTRY_BONUS_XP,
-          description: city ? 'First verified city' : 'First verified country',
+          description: city ? 'First catalog city' : 'First catalog country',
           createdAt: new Date().toISOString(),
           geographicReceipt: receipt,
         },
@@ -576,7 +570,7 @@ async function syncUserProgression(
     const earnedEvent = earnedAchievementEvents.get(achEventId);
     const alreadyUnlocked = Boolean(existing?.isUnlocked || earnedEvent);
     const isGeography = item.category === 'Geography';
-    const canAwardGeography = Boolean(geographic && (
+    const canAwardGeography = Boolean(canRewardPin && (
       item.geographicDimension === 'city' ? qualifyCities :
         item.geographicDimension === 'country' && qualifyCountries
     ));
@@ -690,9 +684,22 @@ async function syncUserProgression(
       if (expectedVersion ? !currentVersion?.isEqual(expectedVersion) : currentVersion) {
         throw new Error('PROGRESSION_STALE_SNAPSHOT');
       }
-      if (geographic) {
-        const currentPin = await transaction.get(geographic.ref);
-        if (!matchesGeographicReceipt(geographic.receipt, currentPin, userId, FIRESTORE_DATABASE_ID, geographic.policy)) {
+      if (geographic && canRewardPin) {
+        const { pin, policy, receipt } = geographic;
+        const incarnation = pin.get('imageIncarnation');
+        const [currentPin, publishReceipt, imageClaim] = await transaction.getAll(
+          pin.ref,
+          userProfileRef.collection('pinPublishReceipts').doc(pin.id),
+          db.collection('pinImageClaims').doc(incarnation),
+        );
+        const currentReceipt = geographicReceiptForPin(currentPin, userId, policy);
+        if (!currentPin.createTime?.isEqual(pin.createTime!) ||
+            !publishReceipt.createTime?.isEqual(pin.createTime!) ||
+            currentReceipt?.cityId !== receipt.cityId || currentReceipt.countryCode !== receipt.countryCode ||
+            currentPin.get('imageIncarnation') !== incarnation ||
+            imageClaim.get('protocol') !== 'server-v1' || imageClaim.get('pinId') !== pin.id ||
+            imageClaim.get('userId') !== userId ||
+            JSON.stringify(imageClaim.get('imageUrls')) !== JSON.stringify(currentPin.get('imageUrls'))) {
           throw new Error('PROGRESSION_GEOGRAPHIC_PIN_CHANGED');
         }
       }

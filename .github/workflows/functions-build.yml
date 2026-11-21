@@ -7,6 +7,7 @@ on:
       - 'storage.rules'
       - 'firestore.indexes.json'
       - 'functions/src/**'
+      - 'functions/geographyCatalog.json'
       - 'functions/lib/**'
       - 'functions/tests/**'
       - 'docs/progression-deployment-manifest.json'

@@ -289,12 +289,28 @@ try {
   assert.ok(await achievementsTrigger.evaluate(button => button === document.activeElement));
   console.log('Achievements browser passed: all geography states, historical date and tier, keyboard, themes and responsive grid.');
 
+  await page.evaluate(() => window.heyroqTest.mountCreatePin());
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'no-exif.png', mimeType: 'image/png', buffer: Buffer.from(png),
+  });
+  await page.getByLabel('Country', { exact: true }).selectOption('GR');
+  await page.getByLabel('Filter cities').fill('Athens');
+  await page.getByLabel('City', { exact: true }).selectOption('264371');
+  await page.getByRole('button', { name: 'Move pin to city center' }).click();
+  assert.deepEqual(await page.locator('#create-pin-form input[type=number]').evaluateAll(
+    inputs => inputs.map(input => input.valueAsNumber),
+  ), [37.98376, 23.72784]);
+  assert.ok(await page.getByText('Geography rewards are paused.', { exact: false }).isVisible());
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
   const legacyPath = 'pins/' + uid + '/legacy.png';
   await bucket.file(legacyPath).save(Buffer.from(png), { resumable: false, contentType: 'image/png' });
   assert.deepEqual(await page.evaluate(path => window.heyroqTest.legacy(path), legacyPath), png);
 
   const { pinId, retry, urls } = await page.evaluate(args => window.heyroqTest.publish(...args), [uid, png]);
   assert.equal(retry, pinId);
+  assert.deepEqual((await db.doc('pins/' + pinId).get()).get('geographySelection'),
+    { countryCode: 'GR', cityId: '264371' });
   const xpEvents = profile.collection('xpEvents');
   for (let attempt = 0; attempt < 80 && !(await xpEvents.doc(`pin_created:${pinId}`).get()).exists; attempt++) {
     await delay(250);

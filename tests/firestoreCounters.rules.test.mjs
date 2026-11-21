@@ -2,7 +2,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
-import { deleteDoc, doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 import { makePinImageTransitionRules, makePinImageTransitionStorageRules } from '../scripts/pin-image-transition-rules.mjs';
 
@@ -49,7 +49,7 @@ it('only server SDKs can write progression and receipts, including for admin cli
   const admin = env.authenticatedContext('staff', { admin: true }).firestore();
   const receiptPath = 'users/alice/xpEvents/geo_v1:country:GR';
   const paths = [receiptPath, 'users/alice/progression/summary', 'users/alice/achievements/local_explorer'];
-  const evidence = { geographicReceipt: { schemaVersion: 1, signature: 'fixture' }, xpEarned: 150 };
+  const evidence = { geographicReceipt: { schemaVersion: 2, cityId: '264371' }, xpEarned: 150 };
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), receiptPath), evidence);
   });
@@ -361,6 +361,32 @@ const publish = (client, id = pinId, data = {}, submittedClaim = claim) => write
   .set(doc(client, 'pins', id), pin({ imageIncarnation: incarnation, imageUrls: [imageUrl], ...data }))
   .set(doc(client, ...claimPath), submittedClaim)
   .commit();
+
+it('accepts a bounded catalog declaration only at original photo publication', async () => {
+  await seedAlice();
+  await seedApproval();
+  const client = alice();
+  const selected = { countryCode: 'GR', cityId: '264371' };
+  const target = doc(client, 'pins', pinId);
+  const submit = geographySelection => writeBatch(client)
+    .set(target, pin({ imageIncarnation: incarnation, imageUrls: [imageUrl], publishReceipt: true, geographySelection }))
+    .set(doc(client, ...claimPath), claim)
+    .set(doc(client, 'users/alice/pinPublishReceipts', pinId), { publishedAt: serverTimestamp() })
+    .commit();
+
+  await assertFails(setDoc(target, pin({ geographySelection: selected })));
+  await assertFails(publish(client, pinId, { geographySelection: selected }));
+  for (const value of [
+    { ...selected, cityId: 'Athens' }, { ...selected, countryCode: 'GRC' },
+    { ...selected, cityId: 264371 }, { ...selected, verified: true },
+  ]) await assertFails(submit(value));
+  await assertSucceeds(submit(selected));
+  await assertFails(updateDoc(target, { geographySelection: { ...selected, cityId: '734077' } }));
+  const admin = env.authenticatedContext('staff', { admin: true }).firestore();
+  await assertFails(updateDoc(doc(admin, 'pins', pinId), { geographySelection: null }));
+  await assertSucceeds(updateDoc(target, { title: 'Same place, better title' }));
+});
+
 
 it('consumes a server-verified claim once, only for the approved pin and exact URL list', async () => {
   await seedAlice();

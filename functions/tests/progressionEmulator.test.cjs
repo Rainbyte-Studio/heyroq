@@ -2,12 +2,11 @@
 // Never connect this suite to production or use real service-account credentials.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateKeyPairSync } = require('node:crypto');
+const { randomUUID } = require('node:crypto');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const {
   onPinCreatedProgression, updateProgressionForCreatedPin, updateUserProgressionServer, FIRESTORE_DATABASE_ID,
 } = require('../lib/index.js');
-const { matchesGeographicReceipt } = require('../lib/geographicProgression.js');
 const { countTrustedLikes } = require('../lib/progressionEvidence.js');
 
 if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST || '') ||
@@ -22,65 +21,97 @@ const events = profile.collection('xpEvents');
 const summary = profile.collection('progression').doc('summary');
 const pins = db.collection('pins');
 
-const geoKeys = generateKeyPairSync('ed25519');
-function geographicPolicy(userId, resolve, startsAtMs = 1) {
-  return {
-    startsAtMs, pilotUsers: new Set([userId]), resolver: { version: 'emulator-1', resolve },
-    keyId: 'emulator-key', signingKey: geoKeys.privateKey, verificationKey: geoKeys.publicKey,
-  };
-}
+const catalog = require('../geographyCatalog.json');
+const geographicPolicy = userId => ({ startsAtMs: 1, pilotUsers: new Set([userId]) });
+const geoEvents = async user =>
+  (await user.collection('xpEvents').get()).docs.filter(doc => doc.id.startsWith('geo_v1:'));
 
-async function createGeographicPin(id, userId, latitude, fields = {}) {
+async function createGeographicPin(id, userId, cityId = '264371', fields = {}, publish = true) {
   const pin = pins.doc(id);
-  await pin.create({
-    userId, title: 'Geographic fixture', category: 'nature', latitude, longitude: 23,
-    status: 'published', city: 'Forged', countryCode: 'DE', ...fields,
+  const [, countryCode, , , latitude, longitude] = catalog.cities.find(city => city[0] === cityId);
+  const imageIncarnation = randomUUID();
+  const imageUrls = ['https://example.test/pin.png'];
+  const batch = db.batch().create(pin, {
+    userId, title: 'Geographic fixture', category: 'nature', latitude, longitude,
+    status: 'published', city: 'Forged', countryCode: 'XX',
+    geographySelection: { countryCode, cityId }, imageIncarnation, imageUrls, publishReceipt: true, ...fields,
   });
+  if (publish) {
+    batch.create(db.doc(`users/${userId}/pinPublishReceipts/${id}`), { publishedAt: Timestamp.now() });
+    batch.create(db.collection('pinImageClaims').doc(imageIncarnation), {
+      protocol: 'server-v1', pinId: id, userId, imageUrls,
+    });
+  }
+  await batch.commit();
   return pin.get();
 }
 
-test('geographic awards and badge evidence commit once under concurrent trigger replay', async () => {
+test('distinct catalog cities and countries reward once under concurrent replay and survive deletion', async () => {
   const uid = 'geo-concurrent-user';
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Geo fixture' });
-  const first = await createGeographicPin('geo-first', uid, 38);
-  const sameCity = await createGeographicPin('geo-repeat-city', uid, 38.01, { city: 'Different label' });
-  const countryOnly = await createGeographicPin('geo-country-only', uid, 40);
-  const config = geographicPolicy(uid, async ({ latitude }) =>
-    latitude === 40 ? { countryCode: 'IT' } : { countryCode: 'GR', cityId: 'place-123' });
-  await Promise.all([first, first, sameCity, countryOnly].map(pin => updateProgressionForCreatedPin(pin, config)));
-  // An adapter can return a different valid identity on redelivery, for
-  // example after a corpus refresh. A rewarded incarnation is already spent.
-  await updateProgressionForCreatedPin(countryOnly,
-    geographicPolicy(uid, async () => ({ countryCode: 'FR', cityId: 'changed' })));
+  const first = await createGeographicPin('geo-first', uid);
+  const sameCity = await createGeographicPin('geo-repeat-city', uid, '264371', { latitude: 37.99 });
+  const anotherCity = await createGeographicPin('geo-other-city', uid, '734077');
+  const anotherCountry = await createGeographicPin('geo-other-country', uid, '3169070');
+  const config = geographicPolicy(uid);
+  const inputs = [first, sameCity, anotherCity, anotherCountry];
+  await Promise.all([first, ...inputs].map(pin => updateProgressionForCreatedPin(pin, config)));
   await updateUserProgressionServer(uid);
-  const ledger = await user.collection('xpEvents').get();
-  const verified = ledger.docs.filter(doc => doc.id.startsWith('geo_v1:'));
-  assert.deepEqual(verified.map(doc => doc.id), [
-    'geo_v1:city:GR:place-123', 'geo_v1:country:GR', 'geo_v1:country:IT',
+
+  const rewards = await geoEvents(user);
+  assert.deepEqual(rewards.map(doc => [doc.id, doc.get('xpEarned')]), [
+    ['geo_v1:city:GR:264371', 25], ['geo_v1:city:GR:734077', 25], ['geo_v1:city:IT:3169070', 25],
+    ['geo_v1:country:GR', 150], ['geo_v1:country:IT', 150],
   ]);
-  for (const event of verified) {
-    const source = event.id.endsWith(':IT') ? [countryOnly] : [first, sameCity];
-    assert.ok(source.some(pin => matchesGeographicReceipt(
-      event.get('geographicReceipt'), pin, uid, FIRESTORE_DATABASE_ID, config,
-    )));
+  for (const event of rewards) {
+    assert.equal(event.get('geographicReceipt.schemaVersion'), 2);
+    assert.ok(inputs.some(pin => pin.id === event.get('geographicReceipt.pinId')));
   }
-  for (const id of ['local_explorer', 'border_crosser']) {
-    assert.ok(ledger.docs.some(doc => doc.id === 'achievement:' + id));
+  for (const id of ['local_explorer', 'city_scout', 'border_crosser']) {
+    assert.equal((await user.collection('xpEvents').doc('achievement:' + id).get()).exists, true);
     assert.equal((await user.collection('achievements').doc(id).get()).get('isUnlocked'), true);
   }
   const progress = user.collection('progression').doc('summary');
   const before = (await progress.get()).data();
+  const ledger = await user.collection('xpEvents').get();
   assert.equal(before.xp, ledger.docs.reduce((sum, doc) => sum + doc.get('xpEarned'), 0));
-  assert.equal(before.citiesCount, 1);
+  assert.equal(before.citiesCount, 3);
   assert.equal(before.countriesCount, 2);
-  await Promise.all([first, sameCity, countryOnly].map(pin => pin.ref.delete()));
+  await Promise.all(inputs.map(pin => pin.ref.delete()));
   await updateProgressionForCreatedPin(first, config);
   assert.equal((await progress.get()).get('xp'), before.xp);
-  assert.equal((await user.collection('achievements').doc('local_explorer').get()).get('isUnlocked'), true);
 });
 
-test('a legacy city high-water mark preserves XP and independently allows a verified country', async () => {
+test('catalog evidence can unlock all seven Geography badges without awarding any badge twice', async () => {
+  const uid = 'geo-seven-badges';
+  const user = db.collection('users').doc(uid);
+  await user.set({ displayName: 'Geo fixture' });
+  const batch = db.batch();
+  // Earlier catalog awards from other publication days.
+  const ids = ['264371', '734077', '3169070', '2988507', '2950159', '3117735', '2761369', '2267057', '2562305'];
+  const countries = new Set();
+  for (const id of ids) {
+    const country = catalog.cities.find(city => city[0] === id)[1];
+    countries.add(country);
+    batch.create(user.collection('xpEvents').doc(`geo_v1:city:${country}:${id}`), { xpEarned: 25 });
+  }
+  for (const country of countries) {
+    batch.create(user.collection('xpEvents').doc(`geo_v1:country:${country}`), { xpEarned: 150 });
+  }
+  await batch.commit();
+  const pin = await createGeographicPin('geo-tenth-city', uid, '2618425');
+  await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
+  await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
+  const awarded = await user.collection('achievements').where('category', '==', 'Geography').get();
+  assert.equal(awarded.size, 7);
+  for (const doc of awarded.docs) {
+    assert.equal(doc.get('isUnlocked'), true, doc.id);
+    assert.equal((await user.collection('xpEvents').doc('achievement:' + doc.id).get()).exists, true, doc.id);
+  }
+});
+
+test('legacy city history preserves its counts and XP and allows the unaffected country dimension', async () => {
   const uid = 'geo-legacy-user';
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Geo fixture' });
@@ -88,48 +119,59 @@ test('a legacy city high-water mark preserves XP and independently allows a veri
   await user.collection('xpEvents').doc('city_first:athens').set({
     action: 'UNIQUE_CITY', referenceId: { legacyName: 'athens' }, xpEarned: 25,
   });
-  const pin = await createGeographicPin('geo-legacy', uid, 38);
-  const config = geographicPolicy(uid, async () => ({ countryCode: 'GR', cityId: 'place-123' }));
-  await updateProgressionForCreatedPin(pin, config);
+  const pin = await createGeographicPin('geo-legacy', uid);
+  await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
   const progress = (await user.collection('progression').doc('summary').get()).data();
   assert.equal(progress.citiesCount, 5);
   assert.equal(progress.countriesCount, 1);
   assert.ok(progress.xp >= 550);
-  assert.equal((await user.collection('xpEvents').doc('geo_v1:city:GR:place-123').get()).exists, false);
+  assert.deepEqual((await geoEvents(user)).map(doc => doc.id), ['geo_v1:country:GR']);
   assert.equal((await user.collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
 });
 
-test('geo rejects pre-cutoff pins, recycled IDs, unpublished pins and deletion during resolution', async () => {
-  const uid = 'geo-deletion-user';
+test('invalid, altered, pre-cutoff and unapproved posts cannot establish geography', async () => {
+  const uid = 'geo-invalid-user';
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Geo fixture' });
-  const old = await createGeographicPin('geo-recycled', uid, 38);
-  let calls = 0;
-  const config = geographicPolicy(uid, async () => { calls++; return { countryCode: 'GR' }; });
-  await updateProgressionForCreatedPin(old, { ...config, startsAtMs: old.createTime.toMillis() + 1 });
+  const config = geographicPolicy(uid);
+  const pin = await createGeographicPin('geo-dormant', uid);
+  await updateProgressionForCreatedPin(pin);
+  await updateProgressionForCreatedPin(pin, { ...config, startsAtMs: pin.createTime.toMillis() + 1 });
+  await updateProgressionForCreatedPin(pin, geographicPolicy('other-user'));
+  const invalid = await createGeographicPin('geo-mismatch', uid, '264371', {
+    geographySelection: { countryCode: 'IT', cityId: '264371' },
+  });
+  const far = await createGeographicPin('geo-far', uid, '264371', { latitude: 0 });
+  const noUpload = await createGeographicPin('geo-no-upload', uid, '264371', { imageUrls: [] });
+  const noReceipt = await createGeographicPin('geo-no-receipt', uid, '264371', {}, false);
+  const edited = await createGeographicPin('geo-edited', uid);
+  await edited.ref.update({ geographySelection: { countryCode: 'GR', cityId: '734077' } });
+  const hidden = await createGeographicPin('geo-hidden', uid);
+  await hidden.ref.update({ visibility: 'private' });
+  const old = await createGeographicPin('geo-recycled', uid);
   await old.ref.delete();
-  const current = await createGeographicPin('geo-recycled', uid, 38);
-  await updateProgressionForCreatedPin(old, config);
-  const draft = await createGeographicPin('geo-draft', uid, 38.5, { status: 'draft' });
-  await updateProgressionForCreatedPin(draft, config);
-  const madePrivate = await createGeographicPin('geo-private-before-resolution', uid, 38.7);
-  await madePrivate.ref.update({ visibility: 'private' });
-  await updateProgressionForCreatedPin(madePrivate, config);
-  assert.equal(calls, 0);
-  await updateProgressionForCreatedPin(current, geographicPolicy(uid, async () => {
-    await current.ref.update({ status: 'reported' });
-    return { countryCode: 'GR' };
-  }));
-  const pending = await createGeographicPin('geo-pending-deletion', uid, 39);
-  const lock = db.collection('accountDeletionLocks').doc(uid);
-  await updateProgressionForCreatedPin(pending, geographicPolicy(uid, async () => {
-    await lock.create({ status: 'deleting' });
-    return { countryCode: 'GR' };
-  }));
-  assert.equal((await user.collection('xpEvents').doc('geo_v1:country:GR').get()).exists, false);
-  await updateProgressionForCreatedPin(pending, config);
-  assert.equal(calls, 0);
+  const recreated = await createGeographicPin('geo-recycled', uid, '264371', {}, false);
+  for (const input of [invalid, far, noUpload, noReceipt, edited, hidden, old, recreated]) {
+    await updateProgressionForCreatedPin(input, config);
+  }
+  await db.collection('accountDeletionLocks').doc(uid).create({ status: 'deleting' });
+  await updateProgressionForCreatedPin(pin, config);
+  assert.equal((await geoEvents(user)).length, 0);
+  assert.equal((await user.collection('achievements').doc('local_explorer').get()).get('isUnlocked'), false);
 });
+
+test('at most five distinct rewarded photos count per account per UTC publication day', async () => {
+  const uid = 'geo-daily-cap';
+  const user = db.collection('users').doc(uid);
+  await user.set({ displayName: 'Geo fixture' });
+  const config = geographicPolicy(uid);
+  for (const id of ['264371', '3169070', '2988507', '2950159', '3117735', '2761369']) {
+    await updateProgressionForCreatedPin(await createGeographicPin('geo-cap-' + id, uid, id), config);
+  }
+  assert.equal((await geoEvents(user)).length, 10);
+  assert.equal((await user.collection('progression').doc('summary').get()).get('countriesCount'), 5);
+});
+
 
 test('Trusted Voice stays paginated and exposes the repeated-liker read cost', async t => {
   const author = 'trusted-cost-fixture';

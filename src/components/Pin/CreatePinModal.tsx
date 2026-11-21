@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { LatLngPoint, PinCategory, Pin } from '../../types';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { createPin, newPinPublishAttempt } from '../../services/pinService';
 import { MAX_PIN_IMAGES } from '../../services/storageService';
-import { extractCityAndCountry } from '../../utils/footprintUtils';
 import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
-import { LocationAutocompleteInput } from './LocationAutocompleteInput';
+import type { GeographySelection } from './GeographyPicker';
 import { CloseButton } from '../Common/CloseButton';
 import {
   MapPin,
@@ -20,7 +19,10 @@ import {
   Trash2,
 } from 'lucide-react';
 
+const GeographyPicker = lazy(() => import('./GeographyPicker'));
+
 export interface CreatePinDraft {
+  geographySelection?: GeographySelection;
   title: string;
   description: string;
   category: PinCategory;
@@ -36,10 +38,9 @@ export interface CreatePinDraft {
 interface CreatePinModalProps {
   onClose: () => void;
   selectedLocation: LatLngPoint | null;
-  initialLocationName?: string;
   onActivateMapPick: (currentDraft?: CreatePinDraft) => void;
   onPinCreated: (newPinId: string) => void;
-  onLocationSelect?: (loc: LatLngPoint, locationName?: string) => void;
+  onLocationSelect?: (loc: LatLngPoint) => void;
   isPickingLocation?: boolean;
   initialDraft?: CreatePinDraft | null;
 }
@@ -58,7 +59,6 @@ const CATEGORIES: PinCategory[] = [
 export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   onClose,
   selectedLocation,
-  initialLocationName,
   onActivateMapPick,
   onPinCreated,
   onLocationSelect,
@@ -70,8 +70,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const [title, setTitle] = useState(initialDraft?.title || '');
   const [description, setDescription] = useState(initialDraft?.description || '');
   const [category, setCategory] = useState<PinCategory>(initialDraft?.category || 'Hidden Gems');
-  const [locationName, setLocationName] = useState(
-    initialDraft?.locationName || initialLocationName || ''
+  const [locationName, setLocationName] = useState(initialDraft?.locationName ?? '');
+  const [geographySelection, setGeographySelection] = useState<GeographySelection>(
+    initialDraft?.geographySelection ?? { countryCode: '', cityId: '' },
   );
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState<string[]>(initialDraft?.tags || []);
@@ -97,13 +98,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     }
   }, [selectedLocation]);
 
-  // Sync initialLocationName if updated externally (e.g. reverse geocoding from map click)
-  useEffect(() => {
-    if (initialLocationName) {
-      setLocationName(initialLocationName);
-    }
-  }, [initialLocationName]);
-
   // Sync initialDraft when updated externally
   useEffect(() => {
     if (initialDraft) {
@@ -113,22 +107,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       if (initialDraft.tags) setTags(initialDraft.tags);
       if (initialDraft.files) setFiles(initialDraft.files);
       if (initialDraft.previewUrls) setPreviewUrls(initialDraft.previewUrls);
-      if (initialDraft.locationName) setLocationName(initialDraft.locationName);
+      setLocationName(initialDraft.locationName);
+      if (initialDraft.geographySelection) setGeographySelection(initialDraft.geographySelection);
       if (initialDraft.customLat !== undefined && !selectedLocation) setCustomLat(initialDraft.customLat);
       if (initialDraft.customLng !== undefined && !selectedLocation) setCustomLng(initialDraft.customLng);
     }
   }, [initialDraft]);
-
-  const handleAutocompleteLocationSelect = (loc: {
-    locationName: string;
-    latitude: number;
-    longitude: number;
-  }) => {
-    setLocationName(loc.locationName);
-    setCustomLat(loc.latitude);
-    setCustomLng(loc.longitude);
-    onLocationSelect?.({ lat: loc.latitude, lng: loc.longitude }, loc.locationName);
-  };
 
   const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
     if ('key' in e && e.key !== 'Enter' && e.key !== ',') return;
@@ -180,30 +164,15 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       return;
     }
 
+    if (files.length && geographySelection.countryCode && !geographySelection.cityId) {
+      setErrorMsg('Choose a city or clear the country selection.');
+      return;
+    }
+
     submitInFlight.current = true;
     setIsSubmitting(true);
     console.log('[CreatePinModal] Starting pin publish flow. Files count:', files.length);
     try {
-      // Extract structured geographic metadata for normalization
-      const geo = extractCityAndCountry({
-        id: '',
-        userId: user.uid,
-        userName: '',
-        title: title.trim(),
-        description: description.trim(),
-        latitude: customLat,
-        longitude: customLng,
-        locationName: locationName.trim() || undefined,
-        category,
-        tags,
-        imageUrls: [],
-        likeCount: 0,
-        commentCount: 0,
-        createdAt: new Date().toISOString(),
-      });
-
-      // 2. Publish to Firestore
-      console.log('[CreatePinModal] Step 2: Creating pin document in Firestore...');
       publishAttempt.current ??= newPinPublishAttempt();
       const newPinId = await createPin({
         userId: user.uid,
@@ -214,9 +183,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         latitude: customLat,
         longitude: customLng,
         locationName: locationName.trim() || undefined,
-        countryCode: geo.countryCode,
-        countryName: geo.country,
-        city: geo.city,
+        geographySelection: geographySelection.cityId ? geographySelection : undefined,
         category,
         tags,
       }, files, publishAttempt.current);
@@ -240,6 +207,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     title.trim() ||
     description.trim() ||
     files.length > 0 ||
+    geographySelection.countryCode ||
     (locationName && locationName.trim())
   );
 
@@ -413,6 +381,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         description,
                         category,
                         locationName,
+                        geographySelection,
                         tags,
                         files,
                         previewUrls,
@@ -430,14 +399,16 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                   <div className="relative">
                     <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
-                      Location / City Name
+                      Location name
                     </span>
                     <div className="mt-1">
-                      <LocationAutocompleteInput
+                      <input
+                        type="text"
                         value={locationName}
-                        onChange={setLocationName}
-                        onLocationSelect={handleAutocompleteLocationSelect}
-                        placeholder="e.g. Tromsø, Norway or Montmartre"
+                        onChange={event => setLocationName(event.target.value)}
+                        placeholder="e.g. Old harbor"
+                        aria-label="Location name"
+                        className="liquid-glass-input w-full px-3 py-2 rounded-xl"
                       />
                     </div>
                   </div>
@@ -452,7 +423,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
                         setCustomLat(val);
-                        onLocationSelect?.({ lat: val, lng: customLng }, locationName);
+                        onLocationSelect?.({ lat: val, lng: customLng });
                       }}
                       className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-sans tabular-nums"
                     />
@@ -468,7 +439,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
                         setCustomLng(val);
-                        onLocationSelect?.({ lat: customLat, lng: val }, locationName);
+                        onLocationSelect?.({ lat: customLat, lng: val });
                       }}
                       className="liquid-glass-input w-full mt-1 px-3 py-2 rounded-xl text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/25 font-sans tabular-nums"
                     />
@@ -520,6 +491,17 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {files.length > 0 && (
+                <Suspense fallback={<p role="status" className="text-xs">Loading city catalog…</p>}>
+                  <GeographyPicker selection={geographySelection} onChange={setGeographySelection} disabled={isSubmitting}
+                    onCenter={(lat, lng) => {
+                      setCustomLat(lat);
+                      setCustomLng(lng);
+                      onLocationSelect?.({ lat, lng });
+                    }} />
+                </Suspense>
+              )}
 
               {/* Step 3: Title */}
               <div>

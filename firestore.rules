@@ -316,6 +316,17 @@ service cloud.firestore {
              (data.publishReceipt == true && !exists(receipt) && existsAfter(receipt));
     }
 
+    // A selection is a user declaration. The server validates membership and pin proximity.
+    function validGeographySelection(data) {
+      let selection = data.get('geographySelection', null);
+      return !('geographySelection' in data) ||
+        (data.get('publishReceipt', false) == true && 'imageIncarnation' in data &&
+         data.get('imageUrls', []) is list && data.get('imageUrls', []).size() > 0 &&
+         selection is map && selection.keys().hasOnly(['countryCode', 'cityId']) &&
+         selection.countryCode is string && selection.countryCode.matches('[A-Z]{2}') &&
+         selection.cityId is string && selection.cityId.matches('[0-9]{1,12}'));
+    }
+
     function canEngageWithPin(pinId) {
       let pin = getAfter(/databases/$(database)/documents/pins/$(pinId)).data;
       return pin.userId is string &&
@@ -332,6 +343,7 @@ service cloud.firestore {
                        isValidPin(request.resource.data) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
                        hasValidPublishReceipt(pinId, request.resource.data) &&
+                       validGeographySelection(request.resource.data) &&
                        (("imageIncarnation" in request.resource.data)
                          ? hasNewPinImageClaim(pinId, request.resource.data)
                          : canPublishWithoutClaim(request.resource.data)) &&
@@ -342,7 +354,7 @@ service cloud.firestore {
       // Owner UID, createdAt, counters and location fields cannot be modified by the client.
       // Author name/avatar may only change to the author's current canonical profile values.
       allow update: if isSignedIn() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls", "publishReceipt"]) && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["imageIncarnation", "imageUrls", "publishReceipt", "geographySelection"]) && (
         (
           isOwner(resource.data.userId) && isActiveUser(resource.data.userId) &&
           request.resource.data.userId == resource.data.userId &&

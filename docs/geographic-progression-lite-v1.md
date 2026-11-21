@@ -1,219 +1,100 @@
-# Geographic Progression Lite v1.0
+# Geography Progression Lite v1.1
 
-This candidate layers a dormant resolver and geographic rewards over
-[Achievement System v1.1](achievement-system-v1-1.md). The compiled policy returns
-undefined. No credentials, dataset, network provider, new database, or frontend
-map changes are included. An environment variable alone cannot activate rewards.
+The existing photo picker and verified upload support JPG, PNG and WebP from desktop
+and mobile. A photo's EXIF or device GPS is unnecessary. Choose a pin on the map
+or enter its coordinates, then optionally select a country and city. The picker
+also offers the catalog city center as a starting point. Photos and ordinary pins
+continue to use the existing publishing path.
 
-## Coverage and licensing decision
+The create flow stores manually chosen coordinates and a typed location label.
+The city-center shortcut uses the local catalog. The Google basemap remains a
+display surface for manual pin placement. The create flow no longer calls Google
+Places or reverse geocoding. It does not copy Google place IDs, geocoded coordinates,
+addresses or city/country labels into the catalog, declaration or rewards ledger.
+Existing pins and their historical data are untouched.
 
-| Source | Suitability |
+## Catalog and license
+
+The app and Functions use the same checked-in snapshot,
+`functions/geographyCatalog.json`. It contains 31,801 populated places and 244
+country or territory codes represented in that snapshot. Cities use the source's
+numeric GeoNames ID as a string. Countries use the source's two-letter code.
+Country and region labels help distinguish cities with the same name. The generator
+selects the required columns, joins regional labels, excludes sections of populated
+places and several historical or abandoned feature types, and sorts by ID. Names
+use the source spelling. Smaller localities can be absent, and the catalog does not
+model municipal borders or resolve disputed geography.
+
+Data adapted from [GeoNames](https://www.geonames.org/export/),
+licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
+The in-app selection UI displays attribution. Preserve this notice and in-app attribution
+when distributing the snapshot or an adaptation.
+
+The `geonames-2026-11-21` snapshot was built from these GeoNames exports. SHA-256 hashes
+identify the inputs, which GeoNames updates in place.
+
+| Export | SHA-256 |
 | --- | --- |
-| [Natural Earth 1:10m Admin 0](https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-0-countries/) | Best country prototype input. Its [public domain terms](https://www.naturalearthdata.com/about/terms-of-use/) permit copying and modification, including keeping derived IDs and an offline index. Its generalized boundaries represent a de facto worldview. Islands, coastlines, disputed claim overlays and territory-to-ISO mapping require review before use. |
-| [GeoNames offline export](https://www.geonames.org/export/) | Attribution license permits local copies and durable derived outputs subject to attribution and the applicable license. Gazetteer centers and IDs can inform the city catalog. A nearby center alone cannot prove city containment or securely distinguish neighboring settlements. Pin a release, retain origin and attribution, and curate mergers, duplicates and successors behind stable Heyroq IDs. |
-| [geoBoundaries gbOpen](https://www.geoboundaries.org/api.html) | Potential country/municipal inputs, with per-boundary origin and license metadata. Verify licenses and obligations per feature and the coverage of actual urban localities before accepting a version. Administrative units have different meanings by jurisdiction. |
-| Google Maps / Places / Geocoding | Display only in this release. The [EEA service terms](https://cloud.google.com/terms/maps-platform/eea/maps-service-terms), [standard platform terms](https://cloud.google.com/maps-platform/terms) and [Geocoding policy](https://developers.google.com/maps/documentation/geocoding/policies) need agreement-specific review. The place ID caching exception does not establish permission to retain derived rewards and counts. |
+| [cities15000.zip](https://download.geonames.org/export/dump/cities15000.zip) | `df53bb7aade75a0fa2160a98405e5e1d014fe4c6f4b0db1d6078b9fd7b50486b` |
+| [countryInfo.txt](https://download.geonames.org/export/dump/countryInfo.txt) | `79f8f59ea01cbb40438bf1856dd6c2ff201f03f8fc72d0530b2646aaf603ef04` |
+| [admin1CodesASCII.txt](https://download.geonames.org/export/dump/admin1CodesASCII.txt) | `2e4867f5397acb056ea26377601b57af37cb4c81399770225018e9e439e91ad3` |
 
-Current production coverage of this resolver is **zero**. No exact licensed
-corpus has been approved for reward-grade coverage. A candidate should define
-“city” as a curated populated locality with a reviewed interior footprint:
-one stable ID per locality, across languages and refreshes, independent of
-neighborhood names, municipality hierarchy or metro area. City can abstain
-within a confident country. Require a single confident country with an assigned
-[ISO 3166-1 alpha-2 code](https://www.iso.org/glossary-for-iso-3166.html).
-Treat overlapping claims, conflicting polygons, uncertain territory/ISO
-relations, ocean and uncovered points as unresolved. Define boundary and coast
-buffers for each reviewed dataset using its generalization error and measured
-test fixtures. Include small islands, enclaves, antimeridian, disputed areas and
-border/coast cases. A worldwide basemap provides no assurance of worldwide
-reward coverage. Publish supported areas and omission policy before a pilot.
+Extract the city archive and run
+`node scripts/generate-geography-catalog.mjs cities15000.txt countryInfo.txt admin1CodesASCII.txt`.
+For an update, advance the snapshot version, review IDs that disappear or change country,
+and reconcile moved or merged places before awarding against that version. Review
+GeoNames coverage and any agreement-specific map-display questions before a pilot.
 
-Prefer an immutable, checksummed server-side spatial index with bounded
-candidate lookup. Review its license, notices, corpus hash, attribution,
-coordinate provenance and permanent storage of IDs/counts/XP. In particular,
-audit the UI's coordinate origin: manually chosen user coordinates and
-coordinates returned by a licensed map/place service may have different terms.
-Review GPS and coordinates separately from geocoded Google labels. Approve a
-durable crosswalk and exclusion test corpus before replacing the policy stub.
-No map or provider data is downloaded by the candidate.
+## Validation and progression
 
-## Reward processing
+`pins/{pinId}.geographySelection` is an optional, immutable, public user declaration
+with only `countryCode` and `cityId`. Rules validate its shape and require a first
+publication with the existing atomic publish receipt and an approved photo claim.
+A well-formed declaration can be published even if the selected catalog IDs or
+pin coordinates fail the server's reward checks. The field itself carries no
+verification status or extra privileges.
 
-- Only the pin-create Firestore trigger can propose geography. It uses the
-  Firestore creation timestamp, pilot allowlist and configured cutoff. A missing
-  status on a new pin follows the existing publish convention. Draft-to-public
-  transitions, unavailable evidence and missed deliveries can leave pins
-  unawarded. There is no scheduled scan, callable backfill or replay of historic
-  pins. Timeout is 750 ms for asynchronous resolution and the adapter must
-  cooperate with cancellation. Publish coordinates describe the pin location.
-  They do not establish that its author visited the location.
-- The adapter receives just latitude and longitude. A versioned Ed25519
-  receipt binds the named database, UID, pin path, full creation timestamp and
-  exact point by digest, and signs the canonical country/city result. The
-  transaction checks the current pin against the receipt again, and checks the
-  deletion tombstone, profile existence and summary version. Provider retries
-  can repeat lookup. Concurrent progression writers retry their summary
-  calculation without reissuing the same lookup inside the transaction.
-- Geography uses `geo_v1:country:<ISO>` (+150 XP) and
-  `geo_v1:city:<ISO>:<stable-id>` (+25 XP), one immutable per-user event per
-  canonical identity. Its receipt is stored on the award event. The same
-  transaction commits the ledger entries, summary and achievements. Only the
-  server SDK writes these records under the proposed Rules. A Firestore IAM
-  principal with direct write access remains a trusted operator.
-  An already rewarded pin incarnation cannot earn again if a redelivery
-  resolves to a different identity, including if city coverage improves later.
-- Lifetime XP, counts and unlocks stay permanent. Unreconciled legacy city or
-  country history freezes new awards and unlocks only for the affected
-  dimension. This prevents paying twice for legacy labels or summary-only
-  counts whose canonical identity is unknown. Review privately sampled legacy
-  data and a conservative crosswalk before opening those dimensions. No legacy
-  conversion or XP clawback is included. Deleting an account continues through
-  the existing worker, including recursive removal of its progression data.
-- The dormant build makes no resolver calls and adds no geographic point reads.
-  In a future allowlisted pilot, candidate validation adds a pin and deletion
-  lock lookup before resolution and one pin read per award transaction attempt.
-  A provider outage preserves ordinary progression. The current no-retry
-  Eventarc setting intentionally permits missed geographic credit. Avoid
-  announcing guaranteed credit or enabling bulk recovery.
+The dormant server award path accepts only an original creation event for a
+public, eligible pin. It looks up the stable city ID, matches the country and
+requires the pin within 25 km of the city center. Before committing, the transaction
+rechecks the pin incarnation, selection, account deletion lock, publish receipt
+and exact approved image claim. This is a proximity check on a self-declared
+location. It cannot establish a visit, jurisdiction or photo origin.
 
-## XP sensitivity
+For each user, a permanent city event grants +25 XP and a permanent country event
+grants +150 XP. IDs are `geo_v1:city:{countryCode}:{cityId}` and
+`geo_v1:country:{countryCode}`. Version 2 ledger evidence records the catalog
+version, validated IDs, pin ID and UTC publication day. Deterministic event IDs,
+the progression transaction and a fresh-ledger retry prevent duplicate awards
+from replay or concurrency. At most five distinct pins per account can earn
+geography rewards for a UTC publication day. A pin granting both rewards counts
+once. The quota affects geography only and is retained with the ledger on pin deletion.
 
-Run `npx tsx --test tests/achievementSystemV11.test.ts`. The model uses the
-existing cohort assumptions for distinct pins, likes, followers, photo/rich
-participation, categories and completed profiles, with repeated visits
-within each place. It introduces at most one new city per 55/28/14 pins and
-country per 170/85/48 pins (casual/active/power), with cohort caps. Restricted
-coverage verifies 35% of modeled cities and 50% of countries. Broad coverage
-verifies 70% and 100%. These are scenario assumptions, not coverage forecasts.
+The city totals feed Local Explorer, Urban Scout, Metro Nomad and City Pathfinder
+(1, 2, 5 and 10 cities). The country totals feed Cross Borders, World Citizen and
+Global Voyager (2, 4 and 8 countries). Existing badge IDs, thresholds, rewards,
+already-earned achievements and lifetime XP are preserved. A dimension with
+unmapped legacy events or unexplained lifetime counts stays frozen for that
+account to avoid duplicate awards or retroactive badge qualification. A review of
+legacy identity mapping is required before supporting that dimension. No
+migration or backfill is included.
 
-Months, frozen / restricted / broad:
+## Dormant release state
 
-| Cohort | Level 8 | Level 9 | Level 10 |
-| --- | --- | --- | --- |
-| Casual (2 pins/mo) | 118.0 / 116.0 / 113.0 | 191.5 / 189.0 / 185.0 | 314.5 / 310.0 / 304.5 |
-| Active (8 pins/mo) | 25.4 / 24.9 / 24.0 | 41.8 / 40.9 / 39.6 | 68.8 / 67.1 / 64.9 |
-| Power (24 pins/mo) | 7.0 / 6.7 / 6.3 | 11.9 / 11.4 / 10.9 | 19.5 / 18.6 / 17.9 |
+The shipped policy returns `undefined`. No environment variable, client field
+or Firebase setting can activate geographic XP or awards. Tests inject a local
+policy directly into the server handler. Ordinary progression continues and
+previously unlocked geography badges remain visible. Activation would require an
+explicit reviewed code change and a future cutoff for new publications, with a
+separate release decision. Do not deploy this draft.
 
-If pilot telemetry confirms the long tail, evaluate 13k / 20k / 30k XP as a
-separate Levels 8–10 scenario against current 14k / 22k / 35k, including
-late-stage unlocks for existing users and geography coverage bias. This PR
-changes no thresholds.
+## Verification
 
-## Coordinated release and recovery gates
-
-1. Review this PR, the exact commit and CI, and obtain separate merge approval.
-   Use a disposable project/AI Studio copy with its own Firebase named database,
-   Auth, Storage, endpoints and preview-origin Maps key. Confirm the build
-   cannot use the production backend or Maps key. Exercise normal pin, profile,
-   like, follow, recalculation and deletion flows. Test both stale tabs and the
-   old supported upload path against the intended transition. Local browser
-   emulation is supplemental to a hosted rehearsal.
-2. Before production approval, reconcile every progression writer and indirect
-   trigger against [the deployment manifest](progression-deployment-manifest.json)
-   and [existing release/recovery plan](GEOGRAPHY_XP_RELEASE.md). Inventory
-   immutable source/image identities, active revisions, Eventarc filters,
-   retry settings, IAM, schedulers and the current AI Studio snapshot/source
-   mapping. Treat `heyroq-00024-4xb` in `us-west1` as last reported, pending
-   a fresh read-only preflight. Record and verify the immutable compatible
-   rollback artifact. Confirm operator tools no longer rely on browser admin
-   writes to progression paths before applying the proposed named Rules.
-3. First approved production cutover ships v1.1 and this code with geography
-   frozen. Gate and drain all legacy progression ingress, including Firestore
-   callbacks, deletion cascades and callable recalculation, through an approved
-   mechanism that accounts for queued events. Firebase updates are non-atomic.
-   If the team cannot prove quiescence and safe delivery, stop before rollout.
-   Cut over all affected writers together from one immutable package; preserve
-   unrelated worker settings and follow the existing managed-image/identity
-   ordering for Rules and frontend. Verify exact deployed identities, named DB
-   binding and absence of legacy XP writers before opening ingress. Preview,
-   publish, traffic, IAM and local-vs-live test authority remain separate.
-4. With separate live test-data approval, verify historical and new ledger IDs,
-   badge permanence and pin/delete flows using disposable accounts. Measure
-   Trusted Voice reads and p95 latency in staging/production canary separately
-   from local fixtures. Below 50 distinct eligible likers, repeated likes can
-   require scanning all like documents across qualifying pins. The local
-   benchmark exercises 306 like docs over 12 pages and 98 actor/lock lookups.
-   Agree on latency/read budgets before broadening rollout. The Functions
-   runtime audit reports 10 moderate dependency nodes from `qs` and `uuid`
-   advisories and their parent chains. This code adds no dependencies or new
-   external parser/UUID entry points. Track patched transitive trees in a
-   separate dependency change and repeat compatible Firebase-runtime tests.
-5. Geography activation requires a reviewed corpus and second approved change.
-   Add a default-off operational control and future UTC cutoff to the approved
-   adapter wiring. Isolate signing keys per environment and preserve old key
-   IDs/public keys for receipt inspection. Start with operator UIDs. Check
-   eligibility and abstention rates, country-only counts, award volume, race
-   retries, missing evidence and cross-version deduplication. Hold rollout on
-   mixed writers, misclassification, unexpected awards or budget breach.
-6. To recover from any future geography pilot, stop awards, drain relevant
-   deliveries and redeploy the reviewed dormant baseline if required. Preserve
-   v1 receipts, counts and ledger XP. Roll forward on any shared baseline
-   defect. Never route traffic back to a source with label-based geography or
-   incompatible image, identity, deletion or Rules behavior.
-
-## Isolated AI Studio rehearsal checklist
-
-This is a future rehearsal. The hosted backend, actual preview origin and
-Google Maps behavior remain unverified by the emulator suites.
-
-1. Pin the reviewed PR SHA and make a disposable checkout. Use a separate
-   Firebase/Google Cloud project with a registered web app, the required named
-   Firestore database and edition, Auth test accounts/providers, a Storage
-   bucket, and separately approved callable endpoints in `europe-west2`.
-   Record project ID, database ID, bucket, Functions region and test owner
-   before assembling the preview. Use synthetic records only.
-2. Prepare an environment-only overlay in the disposable checkout. Replace
-   `firebase-applet-config.json` with the preview web app config plus
-   `firestoreDatabaseId`. Point `.firebaserc` and the Firestore database entry
-   in `firebase.json` at the preview; use an explicit project ID for any
-   approved provisioning. Set `FIRESTORE_DATABASE_ID` for Functions discovery
-   and runtime and confirm the named Eventarc filters. In the preview Functions
-   source overlay, replace the hardcoded `avatarBucketName` in
-   `functions/src/index.ts`, which controls both Admin avatar operations and
-   the Storage finalize binding. Confirm the default Admin bucket used by pin
-   images is also the preview bucket and that the finalize trigger region
-   matches its location. Rebuild Functions and record an overlay diff and
-   SHA-256 of the imported artifact. Retain the dormant resolver.
-3. Create a **new** Build app in AI Studio. Import the sanitized overlay
-   archive if the new app exposes archive import, or use the GitHub import
-   for an isolated staging repository containing the verified overlay. Abort
-   if the imported tree cannot be pinned and verified. Keep the existing
-   editor and shared snapshot out of the rehearsal. Open the new preview
-   with no Maps key first, capture the iframe's actual HTTPS origin, and
-   add only its hostname to preview Firebase Auth authorized domains.
-   [AI Studio Build documentation](https://ai.google.dev/gemini-api/docs/aistudio-build-mode)
-4. Issue a dedicated Maps browser key restricted to that HTTPS origin and the
-   APIs used by the app (Maps JavaScript, Places and Geocoding). In the
-   disposable overlay, set `PREVIEW_ORIGIN` in `MapsProvider.tsx` to the new
-   origin and supply only `VITE_GOOGLE_MAPS_PREVIEW_API_KEY` to a development
-   preview. Leave `VITE_GOOGLE_MAPS_API_KEY` unset. If Build serves a production
-   bundle, use a disposable overlay that selects the preview key only on the
-   exact origin, regardless of Vite mode. Check that the key fails on an
-   unrelated origin and that a missing key shows the unavailable state.
-   [Maps key restrictions](https://developers.google.com/maps/api-security-best-practices)
-5. Before signing in, use a clean browser profile to inspect the bundle and
-   network destinations. Confirm Firebase Auth and Firestore target the
-   disposable project/database, Storage URLs target its bucket, callables use
-   its project and region, and Maps requests use only the restricted key.
-   Stop on any production identifier, external write target or unexplained
-   request. With approved preview-only writes, test sign-in, map picking,
-   duplicate publish/recalculate, forged location labels, likes, follows,
-   avatar replacement, deletion and post-tombstone replay. Check ledger and
-   badges before/after, including seeded historical rarity and zero new
-   geographic awards. Record the SHA, origin, endpoint identities, logs and
-   results. A hosted rehearsal needs separate approval to provision its
-   backend and remains incomplete until these checks run.
-
-## Dataset approval evidence still needed
-
-- Exact country, disputed-area and city/locality source versions and hashes,
-  upstream provenance and obligations per source, attribution notices and
-  agreement-specific clearance for caching and permanent derived IDs, counts,
-  rewards and XP, including the accepted coordinate origins.
-- A versioned list of supported territories and ISO mappings, supported city
-  footprints, stable locality IDs with alias/merge/split handling, and a
-  cross-version deduplication test. Treat omitted areas as unresolved.
-- Labeled border, coast, overlap and city fixtures, measured distance/error
-  tolerances and abstention rates, plus precision/coverage and cost/latency
-  acceptance criteria for the planned pilot. Use independently checked samples
-  and document where real-data behavior remains inconclusive.
+- Frontend: `npm run lint`, `npm run build`, `npm test`.
+- Functions: `npm --prefix functions run build` and
+  `node --test functions/tests/progressionLocation.test.cjs functions/tests/geographicProgression.test.cjs`.
+- Local integration and Rules: follow
+  [Functions CI](../.github/workflows/functions-build.yml) and
+  [Rules CI](../.github/workflows/firestore-rules.yml), which use demo projects.
+  Coverage includes disabled defaults, forged selections, distance, claims,
+  historical data, concurrency, replay, the daily cap, and all seven badges.

@@ -1,82 +1,59 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_GEOGRAPHY_PINS_PER_UTC_DAY = void 0;
 exports.configuredGeographicPolicy = configuredGeographicPolicy;
-exports.isGeographicDiscovery = isGeographicDiscovery;
-exports.resolveGeographicReceipt = resolveGeographicReceipt;
-exports.matchesGeographicReceipt = matchesGeographicReceipt;
-const node_crypto_1 = require("node:crypto");
+exports.validateGeographicSelection = validateGeographicSelection;
+exports.geographicReceiptForPin = geographicReceiptForPin;
 const progressionLocation_1 = require("./progressionLocation");
 const progressionEvidence_1 = require("./progressionEvidence");
-const isoCountries = new Set(('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ ' +
-    'CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR ' +
-    'GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP ' +
-    'KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ ' +
-    'NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ ' +
-    'TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW').split(' '));
-// Replacing this stub requires a reviewed provider, corpus and release.
+const catalog = require('../geographyCatalog.json');
+exports.MAX_GEOGRAPHY_PINS_PER_UTC_DAY = 5;
+const cities = new Map(catalog.cities.map(city => [city[0], city]));
+const CITY_CENTER_LIMIT_KM = 25;
+const radians = (degrees) => degrees * Math.PI / 180;
+// Release requires an explicit code change. No environment variable activates awards.
 function configuredGeographicPolicy() {
     return undefined;
 }
-function isGeographicDiscovery(data) {
-    return !!data && (0, progressionEvidence_1.isPublishedDiscovery)(data) && !data.isReported &&
-        !data.isPrivate && data.visibility !== 'private' &&
-        (0, progressionLocation_1.discoveryLocationKey)(data.latitude, data.longitude) !== null;
+function validateGeographicSelection(selection, latitude, longitude) {
+    if (!selection || typeof selection !== 'object' || Object.keys(selection).length !== 2 ||
+        !(0, progressionLocation_1.discoveryLocationKey)(latitude, longitude))
+        return;
+    const { countryCode, cityId } = selection;
+    if (typeof cityId !== 'string' || !/^\d{1,12}$/.test(cityId))
+        return;
+    const city = cities.get(cityId);
+    if (!city || countryCode !== city[1])
+        return;
+    const latDelta = radians(latitude - city[4]);
+    const lngDelta = radians(longitude - city[5]);
+    const h = Math.sin(latDelta / 2) ** 2 +
+        Math.cos(radians(latitude)) * Math.cos(radians(city[4])) * Math.sin(lngDelta / 2) ** 2;
+    const distanceKm = 2 * 6371 * Math.asin(Math.sqrt(Math.min(1, h)));
+    if (distanceKm > CITY_CENTER_LIMIT_KM)
+        return;
+    return { countryCode, cityId };
 }
-function pinDigest(pin, userId, databaseId) {
+function geographicReceiptForPin(pin, userId, policy) {
     const data = pin.data();
-    if (!isGeographicDiscovery(data) || data.userId !== userId || !pin.createTime)
+    const created = pin.createTime;
+    if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
+        created.toMillis() < policy.startsAtMs || !policy.pilotUsers.has(userId) ||
+        data.userId !== userId || !(0, progressionEvidence_1.isPublishedDiscovery)(data) || data.isReported || data.isPrivate ||
+        data.visibility === 'private' || data.publishReceipt !== true ||
+        typeof data.imageIncarnation !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(data.imageIncarnation) ||
+        !Array.isArray(data.imageUrls) || data.imageUrls.length === 0)
         return;
-    return (0, node_crypto_1.createHash)('sha256').update(JSON.stringify([
-        databaseId, userId, pin.ref.path, pin.createTime.seconds, pin.createTime.nanoseconds,
-        data.latitude, data.longitude,
-    ])).digest('hex');
-}
-function payload(receipt) {
-    return JSON.stringify([
-        'heyroq-geography', receipt.schemaVersion, receipt.keyId, receipt.resolverVersion,
-        receipt.pinDigest, receipt.countryCode, receipt.cityId,
-    ]);
-}
-function isAfterCutoff(time, cutoff) {
-    return Number.isSafeInteger(cutoff) && cutoff > 0 && !!time && time.toMillis() >= cutoff;
-}
-async function resolveGeographicReceipt(pin, userId, databaseId, policy) {
-    if (!policy.pilotUsers.has(userId) || !isAfterCutoff(pin.createTime, policy.startsAtMs))
+    const place = validateGeographicSelection(data.geographySelection, data.latitude, data.longitude);
+    if (!place)
         return;
-    const digest = pinDigest(pin, userId, databaseId);
-    if (!digest)
-        return;
-    const { latitude, longitude } = pin.data();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 750);
-    try {
-        const unknown = new Promise((resolve) => {
-            controller.signal.addEventListener('abort', () => resolve(null), { once: true });
-        });
-        const result = await Promise.race([policy.resolver.resolve({ latitude, longitude }, controller.signal), unknown]);
-        if (!result || !isoCountries.has(result.countryCode))
-            return;
-        const cityId = typeof result.cityId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(result.cityId)
-            ? result.cityId : null;
-        const receipt = {
-            schemaVersion: 1, keyId: policy.keyId, resolverVersion: policy.resolver.version,
-            pinDigest: digest, countryCode: result.countryCode, cityId,
-        };
-        return { ...receipt, signature: (0, node_crypto_1.sign)(null, Buffer.from(payload(receipt)), policy.signingKey).toString('base64url') };
-    }
-    catch {
-        console.warn('geographic_resolution_failed');
-        return;
-    }
-    finally {
-        clearTimeout(timeout);
-    }
-}
-function matchesGeographicReceipt(receipt, pin, userId, databaseId, policy) {
-    return receipt.schemaVersion === 1 && receipt.keyId === policy.keyId &&
-        receipt.resolverVersion === policy.resolver.version &&
-        policy.pilotUsers.has(userId) && isAfterCutoff(pin.createTime, policy.startsAtMs) &&
-        receipt.pinDigest === pinDigest(pin, userId, databaseId) &&
-        (0, node_crypto_1.verify)(null, Buffer.from(payload(receipt)), policy.verificationKey, Buffer.from(receipt.signature, 'base64url'));
+    return {
+        schemaVersion: 2,
+        catalogVersion: catalog.version,
+        pinId: pin.id,
+        publishedDay: created.toDate().toISOString().slice(0, 10),
+        ...place,
+    };
 }
 //# sourceMappingURL=geographicProgression.js.map
