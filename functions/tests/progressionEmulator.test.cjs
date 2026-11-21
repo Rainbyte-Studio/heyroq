@@ -1404,6 +1404,11 @@ test('restricted legacy media invalidates issued URLs and remains available to i
     await file.setMetadata({ cacheControl: 'private, no-store', metadata: {
       firebaseStorageDownloadTokens: null, heyroqRestricted: '1', heyroqRestrictedOwner: uid, heyroqRestrictedPin: pinId,
     } }, { ifGenerationMatch: metadata.generation, ifMetagenerationMatch: metadata.metageneration });
+    // The emulator keeps its Firebase token list separately from GCS custom
+    // metadata, so use its explicit token-removal endpoint for this fixture.
+    const removal = await fetch(base + storagePath.split('?')[0] + '?delete_token=' + encodeURIComponent(token),
+      { method: 'POST', headers: { Authorization: 'Bearer owner' } });
+    assert.equal(removal.status, 200);
     assert.ok([401, 403, 404].includes((await fetch(base + storagePath + '&token=' + token)).status));
     assert.ok([401, 403, 404].includes((await fetch(base + storagePath)).status));
     assert.equal((await caller(uid)).content, png.toString('base64'));
