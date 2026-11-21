@@ -47,3 +47,17 @@ jobs:
           GOOGLE_CLOUD_PROJECT: demo-heyroq
           FIRESTORE_DATABASE_ID: ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3
         run: npx --yes firebase-tools@14.27.0 emulators:exec --project demo-heyroq --only firestore,auth,storage 'node --test functions/tests/progressionEmulator.test.cjs'
+      - name: Package the verified recovery runtime
+        run: |
+          mkdir recovery
+          commit=$(git rev-parse HEAD)
+          git archive --format=tar --output="recovery/heyroq-recovery-${commit}.tar" "$commit" \
+            functions firebase.json firestore.rules firestore.indexes.json storage.rules \
+            release/block-firebase-functions.cjs docs/progression-deployment-manifest.json \
+            docs/GEOGRAPHY_XP_RELEASE.md
+          (cd recovery && sha256sum ./*.tar > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geography-recovery-runtime
+          path: recovery/
+          if-no-files-found: error

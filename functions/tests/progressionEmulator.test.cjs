@@ -83,7 +83,7 @@ test('distinct catalog cities and countries reward once under concurrent replay 
   assert.equal((await progress.get()).get('xp'), before.xp);
 });
 
-test('catalog evidence can unlock all seven Geography badges without awarding any badge twice', async () => {
+test('recovery preserves v1.1 awards and all seven badges while ordinary progression continues', async () => {
   const uid = 'geo-seven-badges';
   const user = db.collection('users').doc(uid);
   await user.set({ displayName: 'Geo fixture' });
@@ -109,6 +109,74 @@ test('catalog evidence can unlock all seven Geography badges without awarding an
     assert.equal(doc.get('isUnlocked'), true, doc.id);
     assert.equal((await user.collection('xpEvents').doc('achievement:' + doc.id).get()).exists, true, doc.id);
   }
+
+  const ledger = user.collection('xpEvents');
+  const summaryRef = user.collection('progression').doc('summary');
+  const geographyBadgeIds = new Set(awarded.docs.map(doc => 'achievement:' + doc.id));
+  const readGeographyLedger = async () => (await ledger.get()).docs
+    .filter(doc => /^(geo_v1:|city_first:|country_first:)/.test(doc.id) || geographyBadgeIds.has(doc.id))
+    .map(doc => [doc.id, doc.data()]);
+  const awardedLedger = await readGeographyLedger();
+  const originalSummary = (await summaryRef.get()).data();
+  const originalBadges = awarded.docs.map(doc => [doc.id, doc.get('unlockedAt'), doc.get('progress')]);
+
+  // Leave the awarded state in Firestore and use only the deployed entry points
+  // from here on. The compiled recovery runtime does not accept an award policy
+  // through a trigger or callable request.
+  const newPin = await createGeographicPin('geo-recovery-new-place', uid, '5128581');
+  const followerId = uid + '-follower';
+  const like = newPin.ref.collection('likes').doc(followerId);
+  const comment = newPin.ref.collection('comments').doc(followerId);
+  const follower = user.collection('followers').doc(followerId);
+  await db.collection('users').doc(followerId).set({ displayName: 'Recovery fixture follower' });
+  await like.set({ userId: followerId });
+  await comment.set({ userId: followerId });
+  await follower.set({ userId: followerId });
+  const pinEvent = { params: { pinId: newPin.id } };
+  const followerEvent = { params: { targetUserId: uid, followerId } };
+  const replay = async (handler, event) => {
+    await handler.run(event);
+    await handler.run(event);
+  };
+  await replay(functions.onPinCreatedProgression, { data: newPin });
+  await replay(functions.onPinUpdatedProgression, {
+    data: { before: { data: () => ({ ...newPin.data(), status: 'draft' }) }, after: newPin },
+  });
+  await replay(functions.onPinLikeCreated, pinEvent);
+  await replay(functions.onPinCommentCreated, pinEvent);
+  await replay(functions.onUserFollowerCreated, followerEvent);
+  assert.equal((await newPin.ref.get()).get('likeCount'), 1);
+  assert.equal((await newPin.ref.get()).get('commentCount'), 1);
+  assert.equal((await summaryRef.get()).get('followersCount'), 1);
+  await like.delete();
+  await comment.delete();
+  await follower.delete();
+  await replay(functions.onPinLikeDeleted, pinEvent);
+  await replay(functions.onPinCommentDeleted, pinEvent);
+  await replay(functions.onUserFollowerDeleted, followerEvent);
+  assert.equal((await newPin.ref.get()).get('likeCount'), 0);
+  assert.equal((await newPin.ref.get()).get('commentCount'), 0);
+  const deletedPin = await newPin.ref.get();
+  await newPin.ref.delete();
+  await replay(functions.onPinDeleted, { ...pinEvent, id: randomUUID(), data: deletedPin });
+  await replay(functions.onUserProfileUpdatedProgression, {
+    params: { userId: uid },
+    data: { before: { data: () => ({}) }, after: { data: () => ({ bio: 'Updated bio' }) } },
+  });
+  await replay(functions.recalculateProgression, { auth: { uid, token: {} } });
+
+  const after = (await summaryRef.get()).data();
+  const ordinaryPinXp = await ledger.doc('pin_created:' + newPin.id).get();
+  assert.ok(ordinaryPinXp.get('xpEarned') > 0);
+  assert.ok(after.xp >= originalSummary.xp + ordinaryPinXp.get('xpEarned'));
+  assert.equal(after.xp, (await ledger.get()).docs.reduce((sum, doc) => sum + doc.get('xpEarned'), 0));
+  assert.equal(after.citiesCount, originalSummary.citiesCount);
+  assert.equal(after.countriesCount, originalSummary.countriesCount);
+  assert.equal(after.followersCount, 0);
+  assert.deepEqual(await readGeographyLedger(), awardedLedger);
+  const restoredBadges = await user.collection('achievements').where('category', '==', 'Geography').get();
+  assert.ok(restoredBadges.docs.every(doc => doc.get('isUnlocked')));
+  assert.deepEqual(restoredBadges.docs.map(doc => [doc.id, doc.get('unlockedAt'), doc.get('progress')]), originalBadges);
 });
 
 test('legacy city history preserves its counts and XP and allows the unaffected country dimension', async () => {
@@ -461,6 +529,30 @@ test('all compiled endpoints match the deployment manifest, including retry poli
       assert.equal(endpoint.eventTrigger.retry, trigger.retryPolicy === 'RETRY_POLICY_RETRY', name);
     }
   }
+});
+
+test('recovery entry points match the observed progression trigger contracts', () => {
+  const manifest = require('../../docs/progression-deployment-manifest.json');
+  const required = [
+    'onPinCreatedProgression', 'onPinDeleted', 'onPinLikeCreated', 'onPinLikeDeleted',
+    'onPinCommentCreated', 'onPinCommentDeleted', 'onUserFollowerCreated', 'onUserFollowerDeleted',
+    'onUserProfileUpdatedProgression', 'recalculateProgression',
+  ];
+  for (const name of required) {
+    const live = manifest.productionObservation.functions[name];
+    const endpoint = functions[name].__endpoint;
+    assert.ok(live.revision && live.sourceGeneration && live.runtimeServiceAccount, name);
+    assert.equal(endpoint.timeoutSeconds ?? manifest.observedServiceDefaults.timeoutSeconds, live.timeoutSeconds, name);
+    assert.equal(endpoint.concurrency ?? manifest.observedServiceDefaults.concurrency, live.concurrency, name);
+    if (live.eventarc) {
+      assert.ok(live.eventarc.trigger && live.eventarc.serviceAccount, name);
+      assert.equal(endpoint.eventTrigger.retry, live.eventarc.retryPolicy === 'RETRY_POLICY_RETRY', name);
+    } else {
+      assert.ok(endpoint.callableTrigger, name);
+    }
+  }
+  // There is no production binding to preserve for the new update handler.
+  assert.equal(manifest.productionObservation.functions.onPinUpdatedProgression, undefined);
 });
 
 test('account deletion and downstream replay preserve the surviving user ledger', async () => {

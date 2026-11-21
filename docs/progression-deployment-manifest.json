@@ -1,5 +1,234 @@
 {
   "project": "rainbyte-studio",
+  "productionObservation": {
+    "observedDate": "2026-11-21",
+    "recoveryVerified": false,
+    "frontend": {
+      "region": "us-west1",
+      "revision": "heyroq-00029-pnc",
+      "trafficPercent": 100,
+      "sourceObject": "gs://run-sources-rainbyte-studio-us-west1/services/heyroq/1795197505.157-be9a748d.tar.gz",
+      "sourceGeneration": "1795197505290532",
+      "archiveSha256": "bb7a651a7d7f67eedbbe731d86766e73ead2edba99d7c6b0ca4cd9c2b8077086"
+    },
+    "functions": {
+      "recalculateProgression": {
+        "revision": "recalculateprogression-00002-dij",
+        "sourceGeneration": "1795114040874538",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onUserFollowerDeleted": {
+        "revision": "onuserfollowerdeleted-00003-qup",
+        "sourceGeneration": "1795114038838137",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserfollowerdeleted-637552",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinCommentDeleted": {
+        "revision": "onpincommentdeleted-00003-juw",
+        "sourceGeneration": "1795114036470581",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincommentdeleted-629181",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinDeleted": {
+        "revision": "onpindeleted-00003-pen",
+        "sourceGeneration": "1795113818453108",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpindeleted-199021",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "hq-evt-pin-deleted@rainbyte-studio.iam.gserviceaccount.com"
+        }
+      },
+      "onUserProfileUpdatedProgression": {
+        "revision": "onuserprofileupdatedprogression-00002-seb",
+        "sourceGeneration": "1795114040033887",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserprofileupdatedprogression-614944",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinLikeDeleted": {
+        "revision": "onpinlikedeleted-00003-kem",
+        "sourceGeneration": "1795114033749855",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpinlikedeleted-398095",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onUserFollowerCreated": {
+        "revision": "onuserfollowercreated-00003-jaq",
+        "sourceGeneration": "1795114037703014",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserfollowercreated-459541",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "reconcileAccountDeletion": {
+        "revision": "reconcileaccountdeletion-00002-voq",
+        "sourceGeneration": "1795115967420824",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 120,
+        "concurrency": 1,
+        "maxInstances": 1,
+        "runtimeServiceAccount": "hq-rt-account-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onPinCreatedProgression": {
+        "revision": "onpincreatedprogression-00002-maw",
+        "sourceGeneration": "1795114031122615",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincreatedprogression-137532",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "deleteUserAccount": {
+        "revision": "deleteuseraccount-00003-zud",
+        "sourceGeneration": "1795115415918577",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-account-delete@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "pinImageUpload": {
+        "revision": "pinimageupload-00001-duc",
+        "sourceGeneration": "1795114144720897",
+        "cpu": 1,
+        "memoryMiB": 512,
+        "timeoutSeconds": 60,
+        "concurrency": 2,
+        "maxInstances": 8,
+        "runtimeServiceAccount": "hq-rt-pin-upload@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onUserProfileUpdated": {
+        "revision": "onuserprofileupdated-00002-kul",
+        "sourceGeneration": "1795113068114179",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "hq-rt-profile-updated@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onuserprofileupdated-740975",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "hq-evt-profile-updated@rainbyte-studio.iam.gserviceaccount.com"
+        }
+      },
+      "reconcilePinImageCleanup": {
+        "revision": "reconcilepinimagecleanup-00001-xol",
+        "sourceGeneration": "1795113714463366",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 1,
+        "maxInstances": 1,
+        "runtimeServiceAccount": "hq-rt-pin-reconcile@rainbyte-studio.iam.gserviceaccount.com",
+        "eventarc": null
+      },
+      "onPinCommentCreated": {
+        "revision": "onpincommentcreated-00003-pup",
+        "sourceGeneration": "1795114035194460",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpincommentcreated-837229",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      },
+      "onPinLikeCreated": {
+        "revision": "onpinlikecreated-00003-rov",
+        "sourceGeneration": "1795114032476283",
+        "cpu": 1,
+        "memoryMiB": 256,
+        "timeoutSeconds": 60,
+        "concurrency": 80,
+        "maxInstances": null,
+        "runtimeServiceAccount": "856895300361-compute@developer.gserviceaccount.com",
+        "eventarc": {
+          "trigger": "onpinlikecreated-237095",
+          "location": "us-west1",
+          "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY",
+          "serviceAccount": "856895300361-compute@developer.gserviceaccount.com"
+        }
+      }
+    }
+  },
   "approvedBase": "08e5cae04ee8da46eb5726777ed76ea64fc8ab4c",
   "codebase": "default",
   "source": "functions",
