@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { ensureFocusModalityTracking } from '../../utils/focusModality';
 
 export interface AppWindowProps {
   id: string;
@@ -42,6 +43,7 @@ export const AppWindow: React.FC<AppWindowProps> = ({
 
   useLayoutEffect(() => {
     if (!isOpen) return;
+    ensureFocusModalityTracking();
 
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;

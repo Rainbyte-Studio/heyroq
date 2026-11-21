@@ -15,6 +15,7 @@ import {
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
 import { CloseButton } from '../Common/CloseButton';
+import { ensureFocusModalityTracking } from '../../utils/focusModality';
 import {
   geographyAchievementsAvailable,
   getAchievementPresentation,
@@ -93,12 +94,13 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   }, [dialogId, focusAchievementId, isLoading]);
 
   useLayoutEffect(() => {
+    ensureFocusModalityTracking();
     const dialog = dialogRef.current;
     if (!dialog) return;
 
     const trigger = document.activeElement;
     dialog.showModal();
-    closeButtonRef.current?.focus();
+    closeButtonRef.current?.focus({ preventScroll: true });
 
     return () => {
       dialog.close();

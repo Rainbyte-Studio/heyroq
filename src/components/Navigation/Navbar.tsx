@@ -794,6 +794,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         type="button"
                         role="menuitem"
                         onClick={() => {
+                          profileMenuButtonRef.current?.focus({ preventScroll: true });
                           onOpenAbout();
                           setUserDropdownOpen(false);
                         }}

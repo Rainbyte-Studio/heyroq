@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { UserAvatar } from '../Common/UserAvatar';
 import { CloseButton } from '../Common/CloseButton';
+import { ensureFocusModalityTracking } from '../../utils/focusModality';
 import {
   changeNotification,
   EngagementServiceError,
@@ -102,6 +103,7 @@ export const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({
 
   // Restore focus cleanly on unmount
   useLayoutEffect(() => {
+    ensureFocusModalityTracking();
     const trigger = document.activeElement;
     closeRef.current?.focus({ preventScroll: true });
     return () => {

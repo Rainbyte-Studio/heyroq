@@ -21,6 +21,7 @@ import {
 import { AppLink, AppRoute } from '../../utils/appRoutes';
 import { Wordmark } from './Wordmark';
 import { CloseButton } from './CloseButton';
+import { ensureFocusModalityTracking } from '../../utils/focusModality';
 
 export interface AboutHeyroqModalProps {
   isOpen: boolean;
@@ -43,18 +44,20 @@ export const AboutHeyroqModal: React.FC<AboutHeyroqModalProps> = ({
   // Manage accessible focus entry and reset collapsed disclosure state on close
   useEffect(() => {
     if (!isOpen) return;
+    ensureFocusModalityTracking();
 
     previousFocusRef.current = document.activeElement as HTMLElement | null;
     const focusTimer = setTimeout(() => {
-      closeButtonRef.current?.focus();
+      closeButtonRef.current?.focus({ preventScroll: true });
     }, 30);
 
     return () => {
       clearTimeout(focusTimer);
       setCopiedDiagnostics(false);
       setIsTechnicalOpen(false);
-      if (previousFocusRef.current && typeof previousFocusRef.current.focus === 'function') {
-        previousFocusRef.current.focus();
+      const prev = previousFocusRef.current;
+      if (prev && prev.isConnected && typeof prev.focus === 'function') {
+        prev.focus({ preventScroll: true });
       }
     };
   }, [isOpen]);

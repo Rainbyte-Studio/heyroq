@@ -297,7 +297,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
   );
 
   const mainContentRef = useRef<HTMLElement>(null);
-  const focusMain = useCallback(() => mainContentRef.current?.focus(), []);
+  const focusMain = useCallback(() => mainContentRef.current?.focus({ preventScroll: true }), []);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isDiscoverPeopleOpen, setIsDiscoverPeopleOpen] = useState(false);

@@ -428,14 +428,34 @@
   transform: scale(0.985);
 }
 
-.heyroq-focus-ring:focus-visible,
-button:focus-visible,
-a:focus-visible,
-[role="button"]:focus-visible,
-[role="radio"]:focus-visible,
-summary:focus-visible {
+/* Keyboard-modality focus indicators: preserve visible Solaris Orange outlines for
+   keyboard navigation while suppressing spurious WebKit/iOS Safari :focus-visible
+   outlines triggered by programmatic .focus() during touch/pointer interactions. */
+html:not([data-focus-modality="pointer"]) .heyroq-focus-ring:focus-visible,
+html:not([data-focus-modality="pointer"]) button:focus-visible,
+html:not([data-focus-modality="pointer"]) a:focus-visible,
+html:not([data-focus-modality="pointer"]) [role="button"]:focus-visible,
+html:not([data-focus-modality="pointer"]) [role="radio"]:focus-visible,
+html:not([data-focus-modality="pointer"]) summary:focus-visible {
   outline: 2px solid var(--heyroq-focus-ring);
   outline-offset: 2px;
+}
+
+html[data-focus-modality="pointer"] .heyroq-focus-ring:focus,
+html[data-focus-modality="pointer"] .heyroq-focus-ring:focus-visible,
+html[data-focus-modality="pointer"] button:focus,
+html[data-focus-modality="pointer"] button:focus-visible,
+html[data-focus-modality="pointer"] a:focus,
+html[data-focus-modality="pointer"] a:focus-visible,
+html[data-focus-modality="pointer"] [role="button"]:focus,
+html[data-focus-modality="pointer"] [role="button"]:focus-visible,
+html[data-focus-modality="pointer"] [role="radio"]:focus,
+html[data-focus-modality="pointer"] [role="radio"]:focus-visible,
+html[data-focus-modality="pointer"] summary:focus,
+html[data-focus-modality="pointer"] summary:focus-visible,
+html[data-focus-modality="pointer"] [tabindex="-1"]:focus,
+html[data-focus-modality="pointer"] [tabindex="-1"]:focus-visible {
+  outline: none;
 }
 
 /* ==========================================================================
