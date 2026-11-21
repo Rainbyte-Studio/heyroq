@@ -135,6 +135,22 @@ test('All four informational & legal pages exist, provide Back to Map, and never
   );
 });
 
+test('Help & Support describes Geography XP eligibility and the current pin location flow', () => {
+  const supportSrc = readFileSync(path.join(ROOT_DIR, 'src/components/Legal/HelpSupportPage.tsx'), 'utf8');
+  const copy = supportSrc.replace(/\s+/g, ' ');
+
+  assert.match(copy, /\+25 XP the first time you qualify for a city/);
+  assert.match(copy, /\+150 XP the first time you qualify for a country/);
+  assert.match(copy, /new public pin with an approved photo/);
+  assert.match(copy, /checks the photo approval and that the pin is near the selected city/);
+  assert.match(copy, /bonus only once per account/);
+  assert.match(copy, /Up to five pins per account can earn Geography XP per UTC day/);
+  assert.match(copy, /A pin that earns both bonuses counts once/);
+  assert.match(copy, /Geography achievements advance only with geographic evidence verified by Heyroq/);
+  assert.match(copy, /Click on Map to Pick/);
+  assert.doesNotMatch(copy, /bonuses are paused|Places search/i);
+});
+
 test('Navigation integrations wire AuthModal, AboutHeyroqModal, Navbar, UserProfileModal, and App.tsx without requiring auth', () => {
   const appSrc = readFileSync(path.join(ROOT_DIR, 'src/App.tsx'), 'utf8');
   const authModalSrc = readFileSync(
