@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY?: string;
   readonly VITE_GOOGLE_MAPS_PREVIEW_API_KEY?: string;
   readonly VITE_DEMO_MODE?: string;
+  readonly VITE_GEOGRAPHY_V11_AVAILABLE?: string;
 }
 
 interface ImportMeta {

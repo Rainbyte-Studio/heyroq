@@ -52,6 +52,7 @@ const outDir = await mkdtemp(join(tmpdir(), 'heyroq-browser-'));
 let browser;
 let server;
 try {
+  await db.doc('progressionMaintenance/writers').set({ schemaVersion: 1, mode: 'running' });
   await build({ mode: 'browser-emulator', build: { outDir, rollupOptions: { input: 'tests/browser/index.html' } } });
   server = await preview({ mode: 'browser-emulator', build: { outDir }, preview: {
     host: '127.0.0.1', port: 4173, strictPort: true,

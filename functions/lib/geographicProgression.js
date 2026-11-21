@@ -11,9 +11,13 @@ exports.MAX_GEOGRAPHY_PINS_PER_UTC_DAY = 5;
 const cities = new Map(catalog.cities.map(city => [city[0], city]));
 const CITY_CENTER_LIMIT_KM = 25;
 const radians = (degrees) => degrees * Math.PI / 180;
-// Release requires an explicit code change. No environment variable activates awards.
-function configuredGeographicPolicy() {
-    return undefined;
+// Recovery deployments omit the capability. A capable deployment still needs
+// a post-reset cutoff in the server-owned writer control document.
+function configuredGeographicPolicy(cutoff = undefined) {
+    if (process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE !== 'true' ||
+        typeof cutoff !== 'number' || !Number.isSafeInteger(cutoff) || cutoff <= 0)
+        return undefined;
+    return { startsAtMs: cutoff };
 }
 function validateGeographicSelection(selection, latitude, longitude) {
     if (!selection || typeof selection !== 'object' || Object.keys(selection).length !== 2 ||
@@ -38,7 +42,7 @@ function geographicReceiptForPin(pin, userId, policy) {
     const data = pin.data();
     const created = pin.createTime;
     if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
-        created.toMillis() < policy.startsAtMs || !policy.pilotUsers.has(userId) ||
+        created.toMillis() < policy.startsAtMs || (policy.pilotUsers && !policy.pilotUsers.has(userId)) ||
         data.userId !== userId || !(0, progressionEvidence_1.isPublishedDiscovery)(data) || data.isReported || data.isPrivate ||
         data.visibility === 'private' || data.publishReceipt !== true ||
         typeof data.imageIncarnation !== 'string' ||

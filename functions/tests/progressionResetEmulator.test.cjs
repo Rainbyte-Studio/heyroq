@@ -21,6 +21,7 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
   const cityBadge = profile.collection('achievements').doc('local_explorer');
   const summary = profile.collection('progression').doc('summary');
   const ledger = profile.collection('xpEvents').doc('geo_v1:fixture');
+  const writerControl = db.doc('progressionMaintenance/writers');
   const earnedAt = new Timestamp(1700000000, 123456000);
   const originalProfile = { username: 'reset-fixture', photoURL: 'https://example.invalid/photo', followersCount: 0 };
 
@@ -29,6 +30,8 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
     await cityBadge.set({ category: 'Geography', isUnlocked: true, unlockedAt: earnedAt });
     await ledger.set({ xpEarned: 25 });
     await summary.set({ xp: 450, level: 2, citiesCount: 1, countriesCount: 1 });
+    await assert.rejects(run, /requires an explicit writer freeze/);
+    await writerControl.set({ schemaVersion: 1, mode: 'frozen' });
     await pin.set({ userId: profile.id, description: 'preserve me' });
     await assert.rejects(run, /Preserved pins or posts/);
     assert.equal((await pin.get()).get('description'), 'preserve me');

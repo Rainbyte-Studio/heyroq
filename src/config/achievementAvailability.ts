@@ -2,9 +2,13 @@ import type { UserAchievement } from '../types';
 
 export type AchievementAvailability = 'coming_soon' | 'available' | 'completed';
 
-// Presentation only. Add an ID after server-only writes and verified evidence
-// are in place for that release. Backend eligibility is independently controlled.
-const availableGeographicBadgeIds: ReadonlySet<string> = new Set();
+// Build the activated presentation only after the awarding backend is verified.
+const availableGeographicBadgeIds: ReadonlySet<string> = new Set(
+  import.meta.env?.VITE_GEOGRAPHY_V11_AVAILABLE === 'true'
+    ? ['local_explorer', 'city_scout', 'metro_hopper', 'city_pathfinder',
+      'border_crosser', 'world_citizen', 'global_voyager']
+    : [],
+);
 
 export function getAchievementPresentation(
   badge: Pick<UserAchievement, 'id' | 'category' | 'isUnlocked' | 'progress' | 'target' | 'verifiedGeographicProgress'>,

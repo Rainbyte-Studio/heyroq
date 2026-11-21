@@ -31,6 +31,7 @@ async function request(path, body) {
 }
 
 const marker = `${root}/progressionMaintenance/geography-v11-reset`;
+const writerControl = `${root}/progressionMaintenance/writers`;
 const profileFields = ['citiesCount', 'countriesCount'];
 const deleteCollections = ['progression', 'achievements', 'xpEvents'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -50,6 +51,11 @@ async function inspect(transaction) {
   ]);
   if (users.length === 500 || markers.length === 500) throw new Error('Inventory exceeds supported size');
   if (markers.some(document => document.name === marker)) return { alreadyApplied: true };
+  const control = markers.find(document => document.name === writerControl);
+  if (mode === 'rehearse' && (control?.fields?.schemaVersion?.integerValue !== '1' ||
+      control.fields?.mode?.stringValue !== 'frozen')) {
+    throw new Error('Reset requires an explicit writer freeze');
+  }
   if (pins.length || posts.length) throw new Error('Preserved pins or posts require epoch-aware writers before reset');
   const records = [];
   const profiles = [];
@@ -87,6 +93,8 @@ async function inspect(transaction) {
   const unlocked = achievements.filter(document => document.fields?.isUnlocked?.booleanValue === true);
   return {
     database, marker, users: users.length, pins: 0, posts: 0,
+    summaries: summaries.length,
+    followers: 0, following: 0, publicationReceipts: 0,
     xpEvents: records.filter(document => document.name.split('/').at(-2) === 'xpEvents').length,
     achievements: achievements.length,
     unlockedAchievements: unlocked.length,

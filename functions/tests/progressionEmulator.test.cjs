@@ -1,6 +1,6 @@
 // Integration tests run only against the local Firestore emulator.
 // Never connect this suite to production or use real service-account credentials.
-const { test } = require('node:test');
+const { before, test } = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
@@ -15,6 +15,8 @@ if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST |
 }
 
 const db = getFirestore(FIRESTORE_DATABASE_ID);
+const writerControl = db.doc('progressionMaintenance/writers');
+before(() => writerControl.set({ schemaVersion: 1, mode: 'running' }));
 const userId = 'integration-progression-user';
 const profile = db.collection('users').doc(userId);
 const events = profile.collection('xpEvents');
@@ -45,6 +47,83 @@ async function createGeographicPin(id, userId, cityId = '264371', fields = {}, p
   await batch.commit();
   return pin.get();
 }
+
+test('missing, invalid and frozen writer settings block recomputation and delayed pin deliveries', async () => {
+  const uid = 'writer-freeze-fixture';
+  const user = db.doc(`users/${uid}`);
+  await user.set({ displayName: 'Writer freeze fixture' });
+  const pin = await createGeographicPin('writer-freeze-fixture', uid);
+  const state = { schemaVersion: 1, mode: 'running' };
+  const ledger = user.collection('xpEvents');
+  const playerSummary = user.collection('progression').doc('summary');
+  try {
+    await updateProgressionForCreatedPin(pin, geographicPolicy(uid));
+    assert.deepEqual((await geoEvents(user)).map(doc => doc.get('xpEarned')).sort((a, b) => a - b), [25, 150]);
+    assert.ok((await playerSummary.get()).get('xp') > 175);
+    await writerControl.delete();
+    await writerControl.set({ schemaVersion: 2, mode: 'running' });
+    assert.equal(await updateUserProgressionServer(uid), null);
+    await writerControl.set({ schemaVersion: 1, mode: 'frozen' });
+    const old = await Promise.all([
+      ledger.get(), user.collection('achievements').get(), playerSummary.get(),
+    ]);
+    const batch = db.batch();
+    for (const item of [old[2], ...old[0].docs, ...old[1].docs]) batch.delete(item.ref);
+    await batch.commit();
+    await Promise.all([
+      onPinCreatedProgression.run({ data: pin, params: { pinId: pin.id } }),
+      updateProgressionForCreatedPin(pin, geographicPolicy(uid)),
+      updateUserProgressionServer(uid),
+    ]);
+    assert.equal((await playerSummary.get()).exists, false);
+    assert.equal((await ledger.get()).size, 0);
+    assert.equal((await user.collection('achievements').get()).size, 0);
+    // Production's selective reset requires old source evidence to be absent.
+    await pin.ref.delete();
+    await writerControl.set(state);
+    await updateUserProgressionServer(uid);
+    assert.equal((await playerSummary.get()).get('level'), 1);
+    assert.equal((await playerSummary.get()).get('xp'), 0);
+    assert.equal((await ledger.get()).size, 0);
+  } finally {
+    await writerControl.set(state);
+  }
+});
+
+test('deployed pin entry point requires reset proof and a post-reset cutoff', async () => {
+  const uid = 'writer-activation-fixture';
+  const user = db.doc(`users/${uid}`);
+  const marker = db.doc('progressionMaintenance/geography-v11-reset');
+  const state = { schemaVersion: 1, mode: 'running' };
+  const deliver = pin => onPinCreatedProgression.run({ data: pin, params: { pinId: pin.id } });
+  await user.set({ displayName: 'Activation fixture' });
+  process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE = 'true';
+  try {
+    const oldPin = await createGeographicPin('activation-old', uid);
+    await writerControl.set({ ...state, geographyStartsAtMs: 1 });
+    await deliver(oldPin);
+    assert.equal((await geoEvents(user)).length, 0);
+
+    const proof = await marker.create({ backupSha256: 'a'.repeat(64) });
+    const cutoff = Math.ceil(proof.writeTime.toMillis()) + 1;
+    await writerControl.set({ ...state, geographyStartsAtMs: cutoff });
+    await deliver(oldPin);
+    assert.equal((await geoEvents(user)).length, 0);
+
+    const freshPin = await createGeographicPin('activation-new', uid, '3169070');
+    assert.ok(freshPin.createTime.toMillis() >= cutoff);
+    await Promise.all([deliver(freshPin), deliver(freshPin)]);
+    assert.deepEqual((await geoEvents(user)).map(doc => doc.get('xpEarned')).sort((a, b) => a - b), [25, 150]);
+
+    delete process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE;
+    await deliver(await createGeographicPin('activation-recovery', uid, '264371'));
+    assert.equal((await geoEvents(user)).length, 2);
+  } finally {
+    delete process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE;
+    await marker.delete();
+    await writerControl.set(state);
+  }
+});
 
 test('distinct catalog cities and countries reward once under concurrent replay and survive deletion', async () => {
   const uid = 'geo-concurrent-user';

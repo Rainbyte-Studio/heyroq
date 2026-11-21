@@ -12,7 +12,7 @@ const radians = (degrees: number) => degrees * Math.PI / 180;
 
 export interface GeographicPolicy {
   readonly startsAtMs: number;
-  readonly pilotUsers: ReadonlySet<string>;
+  readonly pilotUsers?: ReadonlySet<string>;
 }
 
 export interface GeographicReceipt {
@@ -24,9 +24,14 @@ export interface GeographicReceipt {
   cityId: string;
 }
 
-// Release requires an explicit code change. No environment variable activates awards.
-export function configuredGeographicPolicy(): GeographicPolicy | undefined {
-  return undefined;
+// Recovery deployments omit the capability. A capable deployment still needs
+// a post-reset cutoff in the server-owned writer control document.
+export function configuredGeographicPolicy(
+  cutoff: unknown = undefined,
+): GeographicPolicy | undefined {
+  if (process.env.HEYROQ_GEOGRAPHY_V11_CAPABLE !== 'true' ||
+      typeof cutoff !== 'number' || !Number.isSafeInteger(cutoff) || cutoff <= 0) return undefined;
+  return { startsAtMs: cutoff };
 }
 
 export function validateGeographicSelection(
@@ -54,7 +59,7 @@ export function geographicReceiptForPin(
   const data = pin.data();
   const created = pin.createTime;
   if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
-      created.toMillis() < policy.startsAtMs || !policy.pilotUsers.has(userId) ||
+      created.toMillis() < policy.startsAtMs || (policy.pilotUsers && !policy.pilotUsers.has(userId)) ||
       data.userId !== userId || !isPublishedDiscovery(data) || data.isReported || data.isPrivate ||
       data.visibility === 'private' || data.publishReceipt !== true ||
       typeof data.imageIncarnation !== 'string' ||

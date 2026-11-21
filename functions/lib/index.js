@@ -23,6 +23,11 @@ const progressionConfig_1 = require("./progressionConfig");
 exports.FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3';
 const db = (0, firestore_1.getFirestore)(exports.FIRESTORE_DATABASE_ID);
 const storage = (0, storage_1.getStorage)();
+const progressionControl = db.doc('progressionMaintenance/writers');
+const progressionReset = db.doc('progressionMaintenance/geography-v11-reset');
+function progressionWritesEnabled(control) {
+    return control.get('schemaVersion') === 1 && control.get('mode') === 'running';
+}
 exports.FUNCTION_REGION = 'europe-west2';
 const avatarBucketName = 'rainbyte-studio.firebasestorage.app';
 const avatarContentTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/avif']);
@@ -217,20 +222,32 @@ async function updateUserProgressionServer(userId) {
     return syncUserProgression(userId);
 }
 // The policy is supplied by the server or injected directly by emulator tests.
-async function updateProgressionForCreatedPin(pin, policy = (0, geographicProgression_1.configuredGeographicPolicy)()) {
+async function updateProgressionForCreatedPin(pin, policy) {
     const userId = pin.get('userId');
     if (typeof userId !== 'string' || !userId || userId.startsWith('system_') || userId.startsWith('demo_'))
         return null;
-    if (policy && pin.updateTime && pin.createTime?.isEqual(pin.updateTime)) {
-        const receipt = (0, geographicProgression_1.geographicReceiptForPin)(pin, userId, policy);
-        if (receipt)
-            return syncUserProgression(userId, { pin, receipt, policy });
-    }
-    return syncUserProgression(userId);
+    return syncUserProgression(userId, { pin, policy });
 }
-async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
+async function syncUserProgression(userId, publication, concurrencyRetry = 0, originalControlVersion) {
     if (!userId || userId.startsWith('system_') || userId.startsWith('demo_'))
         return null;
+    const control = await progressionControl.get();
+    if (!progressionWritesEnabled(control) ||
+        (originalControlVersion && !control.updateTime?.isEqual(originalControlVersion)))
+        return null;
+    const policy = publication?.policy ?? (0, geographicProgression_1.configuredGeographicPolicy)(control.get('geographyStartsAtMs'));
+    const pin = publication?.pin;
+    const receipt = pin && policy && pin.updateTime && pin.createTime?.isEqual(pin.updateTime)
+        ? (0, geographicProgression_1.geographicReceiptForPin)(pin, userId, policy)
+        : undefined;
+    const requiresResetProof = !publication?.policy;
+    const reset = receipt && requiresResetProof ? await progressionReset.get() : undefined;
+    const resetVerified = reset?.createTime && policy &&
+        reset.createTime.toMillis() < policy.startsAtMs &&
+        /^[a-f0-9]{64}$/.test(reset.get('backupSha256') ?? '');
+    const geographic = pin && receipt && policy && (!requiresResetProof || resetVerified)
+        ? { pin, receipt, policy }
+        : undefined;
     // Do not rebuild deleted users' profiles when delayed Firestore triggers arrive.
     const deletionLockRef = db.collection('accountDeletionLocks').doc(userId);
     if ((await deletionLockRef.get()).exists)
@@ -617,7 +634,11 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
     let result;
     try {
         result = await db.runTransaction(async (transaction) => {
-            const [lockSnap, profileSnap, latestSummarySnap] = await transaction.getAll(deletionLockRef, userProfileRef, summaryRef);
+            const [lockSnap, profileSnap, latestSummarySnap, latestControl] = await transaction.getAll(deletionLockRef, userProfileRef, summaryRef, progressionControl);
+            // An invocation started before the freeze cannot commit after a freeze/resume cycle.
+            if (!progressionWritesEnabled(latestControl) ||
+                !latestControl.updateTime?.isEqual(control.updateTime))
+                return 'skip';
             if (lockSnap.exists || !profileSnap.exists)
                 return 'skip';
             // The XP ledger and summary were calculated outside the transaction.
@@ -629,6 +650,11 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
                 throw new Error('PROGRESSION_STALE_SNAPSHOT');
             }
             if (geographic && canRewardPin) {
+                if (reset) {
+                    const latestReset = await transaction.get(progressionReset);
+                    if (!latestReset.updateTime?.isEqual(reset.updateTime))
+                        return 'skip';
+                }
                 const { pin, policy, receipt } = geographic;
                 const incarnation = pin.get('imageIncarnation');
                 const [currentPin, publishReceipt, imageClaim] = await transaction.getAll(pin.ref, userProfileRef.collection('pinPublishReceipts').doc(pin.id), db.collection('pinImageClaims').doc(incarnation));
@@ -659,10 +685,10 @@ async function syncUserProgression(userId, geographic, concurrencyRetry = 0) {
     }
     catch (error) {
         if (error instanceof Error && error.message === 'PROGRESSION_STALE_SNAPSHOT' && concurrencyRetry < 5) {
-            return syncUserProgression(userId, geographic, concurrencyRetry + 1);
+            return syncUserProgression(userId, publication, concurrencyRetry + 1, control.updateTime);
         }
         if (error instanceof Error && error.message === 'PROGRESSION_GEOGRAPHIC_PIN_CHANGED') {
-            return syncUserProgression(userId);
+            return syncUserProgression(userId, undefined, concurrencyRetry, control.updateTime);
         }
         throw error;
     }
@@ -1097,7 +1123,9 @@ async function adoptLegacyDeletionJobs(stopAt) {
 async function resumeAccountDeletion(ref, stopAt) {
     const owner = (0, node_crypto_1.randomUUID)();
     const leased = await db.runTransaction(async (tx) => {
-        const current = await tx.get(ref);
+        const [current, control] = await tx.getAll(ref, progressionControl);
+        if (!progressionWritesEnabled(control))
+            return false;
         const now = Date.now();
         const due = current.get('readyAt');
         if (current.get('status') !== 'deleting' || !current.get('phase') ||
@@ -1173,6 +1201,8 @@ async function resumeAccountDeletion(ref, stopAt) {
     }
 }
 exports.reconcileAccountDeletion = scheduledWorker(deletionWorkerTimeoutSeconds, async () => {
+    if (!progressionWritesEnabled(await progressionControl.get()))
+        return;
     const stopAt = Date.now() + 40_000;
     // Enable only after the synchronous legacy writer and its invocations drain.
     if (process.env.ACCOUNT_DELETION_LEGACY_ADOPTION === 'true') {
@@ -1233,11 +1263,14 @@ exports.deleteUserAccount = (0, https_1.onCall)({
     }
     const ref = deletionLocks.doc(userId);
     const status = await db.runTransaction(async (tx) => {
-        const lock = await tx.get(ref);
+        const [lock, control] = await tx.getAll(ref, progressionControl);
         if (lock.get('status') === 'deleted')
             return 'deleted';
         if (lock.get('status') === 'deleting')
             return 'deleting';
+        if (!progressionWritesEnabled(control)) {
+            throw new https_1.HttpsError('unavailable', 'Account deletion is temporarily paused for maintenance.');
+        }
         if (lock.exists)
             throw new https_1.HttpsError('failed-precondition', 'Deletion state requires support.');
         tx.set(ref, {
