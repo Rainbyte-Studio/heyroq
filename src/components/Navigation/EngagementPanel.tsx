@@ -120,7 +120,7 @@ type Props = {
   unread: number;
   revision: number;
   offline: boolean;
-  openDestination: (destination: NonNullable<ReturnType<typeof engagementDestination>>) => Promise<boolean>;
+  openDestination: (destination: NonNullable<ReturnType<typeof engagementDestination>>, signal: AbortSignal) => Promise<boolean>;
   fallbackFocus: () => void;
 };
 
@@ -135,6 +135,7 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
   const [request, setRequest] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
   const epoch = useRef(0);
+  const navigation = useRef<AbortController | null>(null);
   const heading = view === 'settings' ? 'Notifications & Activity' : view === 'following' || view === 'mine' ? 'Activity' : 'Notifications';
   const isInbox = view === 'inbox' || view === 'history';
   const action = isInbox ? 'inbox' : view === 'settings' ? null : view;
@@ -145,6 +146,7 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
     dialog?.showModal();
     closeRef.current?.focus();
     return () => {
+      navigation.current?.abort();
       dialog?.close();
       if (trigger instanceof HTMLElement && trigger !== document.body && trigger.isConnected) trigger.focus();
       else fallbackFocus();
@@ -181,12 +183,18 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
   useEffect(() => {
     if (view !== 'following') return;
     function refresh() { if (document.visibilityState === 'visible') reload(); }
+    function visibilityChanged() {
+      if (document.visibilityState === 'hidden') {
+        epoch.current++;
+        setPage(null);
+      } else refresh();
+    }
     window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
+    document.addEventListener('visibilitychange', visibilityChanged);
     const timer = window.setInterval(refresh, 30_000);
     return () => {
       window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
+      document.removeEventListener('visibilitychange', visibilityChanged);
       window.clearInterval(timer);
     };
   }, [view, reload]);
@@ -219,15 +227,19 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
 
   async function open(row: EngagementRow) {
     const destination = engagementDestination(row, uid);
-    if (!destination) return;
+    if (!destination || !online) return;
+    navigation.current?.abort();
+    const controller = new AbortController();
+    navigation.current = controller;
     setBusy(true);
     try {
-      if (!await openDestination(destination)) {
+      const opened = await openDestination(destination, controller.signal);
+      if (!opened) {
+        if (controller.signal.aborted) return;
         setError('This activity is no longer available.');
         return;
       }
       if (isInbox && !row.read) await changeNotification('read', row.id).catch(() => {});
-      close();
     } catch {
       setError('This activity could not be opened.');
     } finally {
@@ -246,7 +258,7 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
           : <Icon className="h-4 w-4 text-[var(--brand-primary)]" aria-hidden />}
       </span>
       <span className="min-w-0">
-        <span className={'block break-words ' + (isInbox && !row.read ? 'font-bold' : 'font-medium')}>{text}</span>
+        <span className={'block [overflow-wrap:anywhere] ' + (isInbox && !row.read ? 'font-bold' : 'font-medium')}>{text}</span>
         <span className={'block text-xs ' + secondary}>
           {isInbox && !row.read && 'Unread · '}
           <time dateTime={new Date(row.at).toISOString()} title={fullDate.format(row.at)}>{relativeTime(row.at)}</time>
@@ -257,13 +269,13 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
     return (
       <li key={row.id} className="rounded-2xl border border-[var(--heyroq-border-subtle)] px-2 py-1">
         {destination ? (
-          <button type="button" disabled={busy} onClick={() => void open(row)}
+          <button type="button" disabled={busy || !online} onClick={() => void open(row)}
             className="heyroq-focus-ring flex w-full min-h-12 items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm">{detail}</button>
         ) : <div className="flex min-h-12 items-center gap-3 px-2 py-1.5 text-sm">{detail}</div>}
         {view === 'following' && row.actorId && row.name && destination?.type === 'pin' && (
           <button type="button" className={button + ' ml-[52px] text-xs ' + secondary}
             aria-label={'Open ' + row.name + '’s profile'}
-            disabled={busy} onClick={() => void open({ ...row, pinId: undefined, achievementId: undefined })}>
+            disabled={busy || !online} onClick={() => void open({ ...row, pinId: undefined, achievementId: undefined })}>
             View profile
           </button>
         )}

@@ -24,6 +24,35 @@ Progression consumers use only the server ledger and summary in progressionV11. 
 - Server retries use deterministic IDs and verify event incarnations. Tombstones prevent a deleted or muted notification from reappearing during replay. Account deletion recursively clears the owner's projections and locks invalidate cross-user references immediately when the server builds a feed page. The open Following UI refreshes on window focus and every 30 seconds.
 - Scaling options include follow-cursor partitions, bounded fan-out for low-fanout profiles and pull reads for high-fanout profiles. Any caching layer must preserve revocation checks.
 
+## Audit and Firestore cost
+
+The estimates below count document lookups requested and document writes for the engagement component on a successful first attempt. They exclude the existing social/progression writers, transaction retries, index scans, billed read units determined by bytes, and client public-profile reads. Emulator tests verify observable behavior. They do not measure production billing.
+
+| Operation | Estimated document reads | Estimated document writes |
+| --- | ---: | ---: |
+| Like on another user's public pin | 9 | 2 |
+| Comment on another user's public pin | 9 | 2 |
+| Reply to another user's top-level comment | 10 | 2 |
+| New follow with a matching reciprocal record | 9 | 2 |
+| Achievement unlock | 9 | 3 |
+| Level-up | 8 | 3 |
+| Geographic city or country reward | 9 per ledger event | 3 for the first reward on a pin, 1 for a second reward on that pin |
+| Open Notifications Center or load its next page | 4 baseline plus up to 24 inbox rows and up to 7 distinct lookups per row | 0 |
+| My Activity page | 3 baseline plus up to 72 candidates and at most 3 related document lookups per candidate | 0 |
+| Following Activity page | 3 baseline, up to 91 relationships, 90 preference lookups, 90 reciprocal checks, up to 216 query results and at most 5 distinct source lookups per presented candidate | 0 |
+| Mark all as read | 3 | 1 when there are unread items |
+| Mark or delete one notice | 4 | Up to 2 |
+
+Each feed request shares one current Firestore snapshot and reuses lookups for repeated actors, pins and sources. The figures for subsequent pages follow the same formulas. A 30-second visible Following refresh limits the age of rows displayed in an open panel. Returning to a hidden tab fetches again. Previously delivered content can persist in a browser until it is refreshed, and content already observed cannot be recalled.
+
+Read operations verify both sides of a follow and the owner's current sharing settings. Comment notices retain only document references and timestamps, and lose their actor/title/destination when the comment or reply parent is removed. Re-created likes and follows from the same actor are limited to one notice per UTC day for a target. Unread count changes stay in the inbox transaction and apply to each notification independently of display grouping. The inbox uses delivery sequence for pagination and the source timestamp for display.
+
+## Compatibility and recovery
+
+The frontend expects the callable and named database Rules to be live. Roll the frontend back before retiring the endpoint. Leave the projections and indexes in place during rollback. The Social/Progression producers continue operating independently if the engagement event consumers are paused. Releasing the consumers later starts new history. Old Firestore events are not backfilled automatically.
+
+Confirm the indexes and runtime settings against the production Enterprise database during the authorized release. The emulator exercises Rules and application queries but does not certify Enterprise index build state, billing, Eventarc delivery or runtime IAM. The checked-in deployment manifest lists the intended trigger paths and bindings.
+
 ## Release sequence
 
 1. Use an explicitly authorized release with a reviewed immutable commit and the named Firestore database. Review the index build and security rule diff. Keep the existing progression config and identities intact.

@@ -308,11 +308,11 @@ export async function searchPins(keyword: string): Promise<Pin[]> {
 }
 
 // 4. Fetch single pin by ID
-export async function fetchPinById(pinId: string): Promise<Pin | null> {
+export async function fetchPinById(pinId: string, serverOnly = false): Promise<Pin | null> {
   if (!pinId) return null;
   try {
     const ref = doc(db, PINS_COLLECTION, pinId);
-    const snap = await getDoc(ref);
+    const snap = await (serverOnly ? getDocFromServer(ref) : getDoc(ref));
     if (snap.exists()) {
       const data = snap.data() as Record<string, any>;
       return {

@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   query,
   getDocsFromServer,
@@ -65,16 +66,17 @@ export function toPublicUserProfile(data: Record<string, any>, id: string): Publ
 /**
  * Retrieves a single public user profile, checking the in-memory cache first.
  */
-export async function getPublicUserProfile(userId: string): Promise<PublicUserProfile | null> {
+export async function getPublicUserProfile(userId: string, serverOnly = false): Promise<PublicUserProfile | null> {
   if (!userId) return null;
 
-  if (profileCache.has(userId)) {
+  if (!serverOnly && profileCache.has(userId)) {
     return profileCache.get(userId)!;
   }
 
   try {
     const userDocRef = doc(db, USERS_COLLECTION, userId);
-    const snap = await getDoc(userDocRef);
+    const snap = await (serverOnly ? getDocFromServer(userDocRef) : getDoc(userDocRef));
+    if (serverOnly && (!snap.exists() || snap.get('deletionStatus') === 'deleting')) return null;
     if (snap.exists()) {
       const publicProfile = toPublicUserProfile(snap.data(), snap.id);
       profileCache.set(userId, publicProfile);

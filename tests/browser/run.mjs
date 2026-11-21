@@ -66,12 +66,13 @@ try {
       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
     ],
   });
-  const context = await browser.newContext({ serviceWorkers: 'block' });
-  await context.routeWebSocket(/.*/, async socket => {
+  async function isolatedContext() {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    await context.routeWebSocket(/.*/, async socket => {
     unexpected.add(new URL(socket.url()).origin);
     await socket.close();
-  });
-  await context.route('**/*', async route => {
+    });
+    await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (allowed.has(url.origin)) return route.continue();
     if (url.origin === imageOrigin && url.pathname.startsWith(imagePrefix) && route.request().method() === 'GET') {
@@ -89,7 +90,10 @@ try {
     }
     unexpected.add(url.origin + url.pathname);
     return route.abort('blockedbyclient');
-  });
+    });
+    return context;
+  }
+  const context = await isolatedContext();
 
   const page = await context.newPage();
   await page.goto(origin + '/tests/browser/index.html');
@@ -482,7 +486,8 @@ try {
   assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
 
   await page.evaluate(() => window.heyroqTest.signOut());
-  await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), randomUUID() + '@example.test');
+  const engagementEmail = randomUUID() + '@example.test';
+  await page.evaluate(email => window.heyroqTest.signUp(email, 'username-test-password'), engagementEmail);
   const setup = page.getByRole('dialog', { name: 'Finish setting up your profile' });
   await setup.getByRole('textbox', { name: 'Display Name' }).fill('Resumed Explorer');
   await setup.getByRole('textbox', { name: 'Username' }).fill('resumed_explorer');
@@ -524,21 +529,44 @@ try {
   engagementSeed.set(engagementProfile.collection('notificationState').doc('inbox'), { unread: 2, sequence: 2, revision: 1 });
   await engagementSeed.commit();
   await page.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  const secondDevice = await isolatedContext();
+  const secondTab = await context.newPage();
+  const independentPage = await secondDevice.newPage();
+  for (const companion of [secondTab, independentPage]) {
+    await companion.goto(origin + '/tests/browser/index.html');
+    await companion.waitForFunction(() => Boolean(window.heyroqTest));
+    if (companion === independentPage) {
+      await companion.evaluate(email => window.heyroqTest.signIn(email, 'username-test-password'), engagementEmail);
+    }
+    await companion.evaluate(() => window.heyroqTest.mountSearchApp());
+    await companion.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
+  }
+  await page.bringToFront();
   await bell.click();
   await inbox.getByText('Product update 2').waitFor();
   assert.equal(await inbox.getByText(/^Unread/).count(), 2);
-  for (const [width, height, dark] of [[1280, 900, false], [768, 1024, true], [320, 720, true]]) {
+  const viewports = [[1440, 900], [1280, 900], [1024, 900], [768, 1024], [430, 932], [390, 844], [375, 812], [320, 720]];
+  for (const [width, height, dark] of viewports.flatMap(([w, h]) => [[w, h, false], [w, h, true]])) {
     await page.setViewportSize({ width, height });
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
     const bounds = await inbox.boundingBox();
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
     if (width < 768) assert.equal(bounds.width, width);
     assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
-    if (screenshotDir && width !== 768) {
+    assert.ok(await bell.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      return bounds.x >= 0 && bounds.right <= innerWidth && bounds.width >= 44 && bounds.height >= 44;
+    }));
+    if (screenshotDir && (width === 1280 || width === 320)) {
       await page.screenshot({ path: joinPath(screenshotDir, 'notifications-' + width + (dark ? '-dark' : '-light') + '.png'), animations: 'disabled' });
     }
   }
   await inbox.getByRole('button', { name: 'Mark all as read' }).click();
+  for (const companion of [secondTab, independentPage]) {
+    await companion.getByRole('button', { name: 'Notifications', exact: true }).waitFor();
+  }
+  await secondTab.close();
+  await secondDevice.close();
   await inbox.getByText('Product update 2').waitFor();
   await inbox.getByText(/^Unread/).first().waitFor({ state: 'hidden' });
   await inbox.getByRole('button', { name: 'View history' }).click();

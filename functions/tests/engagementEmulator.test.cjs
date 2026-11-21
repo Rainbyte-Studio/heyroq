@@ -81,6 +81,17 @@ test('social and system delivery, replay, preferences, exact unread count and de
   assert.deepEqual(inbox.items.map(row => row.type).sort(), ['comment', 'follow', 'like']);
   assert.equal((await noticeState(owner)).get('unread'), 3);
   assert.deepEqual((await call(actor, 'inbox')).items.map(row => row.type), ['reply']);
+  const replyRow = (await call(actor, 'inbox')).items[0];
+  await call(owner, 'delete', { id: replyRow.id });
+  await call(owner, 'read', { id: replyRow.id });
+  assert.equal((await noticeState(actor)).get('unread'), 1);
+  assert.equal((await call(actor, 'inbox')).items[0].read, false);
+  const staleLike = await like.get();
+  await like.delete();
+  await like.create({ userId: actor });
+  await emitLike();
+  await onNotificationLike.run({ data: staleLike, params: { pinId: pin.id, actorId: actor } });
+  assert.equal((await noticeState(owner)).get('unread'), 3);
   const likeRow = inbox.items.find(row => row.type === 'like');
   await Promise.all([call(owner, 'read', { id: likeRow.id }), call(owner, 'read', { id: likeRow.id })]);
   assert.equal((await noticeState(owner)).get('unread'), 2);
@@ -113,6 +124,12 @@ test('social and system delivery, replay, preferences, exact unread count and de
   const hidden = (await call(owner, 'inbox')).items.find(row => row.type === 'comment');
   assert.equal(hidden.unavailable, true);
   assert.equal(hidden.pinId, undefined);
+  await pin.update({ visibility: 'public' });
+  await comment.delete();
+  const orphanedReply = (await call(actor, 'inbox')).items[0];
+  assert.equal(orphanedReply.unavailable, true);
+  assert.equal(orphanedReply.actorId, undefined);
+  assert.equal(orphanedReply.pinId, undefined);
   await db.doc('accountDeletionLocks/' + actor).set({ status: 'deleting' });
   const deleted = (await call(owner, 'inbox')).items.find(row => row.type === 'follow');
   assert.equal(deleted.unavailable, true);
@@ -149,7 +166,7 @@ test('reads only committed progressionV11 events and revalidates every Following
   const levelEvent = { data: { before: previous, after: await summary.get() }, params: { uid: owner } };
   await Promise.all([xpEvent(base), xpEvent(achievement), xpEvent(achievement), xpEvent(city), xpEvent(country),
     onActivityProgressionV11Level.run(levelEvent), onActivityProgressionV11Level.run(levelEvent),
-    emit(onActivityPinPublished, pin, { pinId: pin.id })]);
+    emit(onActivityPinPublished, pin, { pinId: pin.id }), xpEvent(legacy)]);
 
   const timeline = (await call(owner, 'mine')).items;
   assert.deepEqual(timeline.map(row => row.type).sort(), ['achievement', 'city', 'country', 'level', 'pin', 'xp']);
@@ -161,15 +178,58 @@ test('reads only committed progressionV11 events and revalidates every Following
   const feed = (await call(viewer, 'following')).items;
   assert.deepEqual(feed.map(row => row.type).sort(), ['achievement', 'city', 'country', 'pin']);
   assert.ok(feed.every(row => !('xp' in row) && !('geographicReceipt' in row) && !('level' in row)));
+  await db.doc('users/' + owner + '/followers/' + viewer).delete();
+  assert.deepEqual((await call(viewer, 'following')).items, []);
+  await link(viewer, owner);
   await prefs(owner).update({ shareGeography: false });
   assert.equal((await call(viewer, 'following')).items.length, 2);
   await db.doc('users/' + viewer + '/following/' + owner).delete();
   assert.equal((await call(viewer, 'following')).items.length, 0);
   await control.update({ progressionStartsAtMs: Date.now() + 5000 });
+  const beforeCutoff = xp.doc('follower_milestone:1');
+  await beforeCutoff.create({ ...data, action: 'FOLLOWER_MILESTONE', referenceId: '1' });
+  await xpEvent(beforeCutoff);
+  assert.equal((await db.doc('users/' + owner).collection('activityV1').get()).size, 6);
   assert.deepEqual((await call(owner, 'mine')).items.map(row => row.type), ['pin']);
 
   await db.recursiveDelete(db.doc('users/' + owner));
   await xpEvent(achievement);
   assert.equal((await noticeState(owner)).exists, false);
   await assert.rejects(call(owner, 'mine'), { code: 'permission-denied' });
+});
+
+test('validates credentials, cursors and request fields before reading the inbox', async () => {
+  const uid = await profile();
+  const handler = engagementV1.run;
+  await assert.rejects(handler({ data: { action: 'inbox' } }), { code: 'unauthenticated' });
+  for (const firebase of [{ sign_in_provider: 'anonymous' }, { sign_in_provider: 'password', tenant: 'other' }, undefined]) {
+    await assert.rejects(handler({ auth: { uid, token: { firebase } }, data: { action: 'inbox' } }), { code: 'unauthenticated' });
+  }
+  for (const [action, payload] of [
+    ['inbox', { before: -1 }], ['inbox', { before: 1.1 }], ['mine', { before: '..' }],
+    ['following', { uid: 'other' }], ['readAll', { id: 'x' }], ['delete', { id: 'a'.repeat(63) }],
+    ['delete', { id: ['a'.repeat(64)] }], ['read', { id: 'a'.repeat(64), extra: true }],
+  ]) await assert.rejects(call(uid, action, payload), { code: 'invalid-argument' });
+});
+
+test('Following honors the recent 90 relationships and rechecks privacy on cursor requests', async () => {
+  const [owner, viewer] = await Promise.all([profile(), profile()]);
+  const pin = await createPin(owner);
+  await emit(onActivityPinPublished, pin, { pinId: pin.id });
+  await prefs(owner).set({ shareActivity: true });
+  const following = db.doc('users/' + viewer).collection('following');
+  const old = Timestamp.fromMillis(Date.now() - 400_000);
+  await db.batch().set(following.doc(owner), { createdAt: old })
+    .set(db.doc('users/' + owner + '/followers/' + viewer), { createdAt: old }).commit();
+  const writes = db.batch();
+  for (let i = 0; i < 90; i++) writes.create(following.doc('fixture-' + i), { createdAt: Timestamp.fromMillis(Date.now() - i) });
+  await writes.commit();
+  assert.deepEqual(await call(viewer, 'following'), { items: [], next: null, limited: true });
+  await following.doc('fixture-0').delete();
+  const available = await call(viewer, 'following');
+  assert.equal(available.items[0].pinId, pin.id);
+  assert.equal(available.limited, false);
+  await prefs(owner).set({ shareActivity: false });
+  assert.deepEqual(await call(viewer, 'following', { before: '9'.repeat(16) + ':' + 'f'.repeat(64) }),
+    { items: [], next: null, limited: false });
 });

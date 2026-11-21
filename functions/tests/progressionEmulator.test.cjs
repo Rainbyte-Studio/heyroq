@@ -711,6 +711,11 @@ test('account deletion and downstream replay preserve the surviving user ledger'
     .set(pin, { userId: survivorId, latitude: 48.8566, longitude: 2.3522, city: 'Paris', countryCode: 'FR' })
     .set(like, { userId: uid }).set(comment, { userId: uid }).set(follower, { followerId: uid })
     .set(departing.collection('following').doc(survivorId), {}).commit();
+  const engagementPaths = ['notifications/grouped-like-1', 'notifications/grouped-like-2',
+    'notificationPreferences/settings', 'notificationState/inbox', 'activityV1/progression-entry',
+    'notificationCommands/pending'];
+  const engagementRecords = engagementPaths.map(path => departing.collection(path.split('/')[0]).doc(path.split('/')[1]));
+  await Promise.all(engagementRecords.map(ref => ref.set({ recipientId: uid })));
 
   const request = { auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } } };
   const ledger = generation(survivor).collection('xpEvents');
@@ -718,6 +723,8 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   assert.deepEqual(await functions.deleteUserAccount.run(request), { success: false, status: 'deleting' });
   assert.equal((await lock.get()).get('phase'), 'likes');
   assert.equal((await departing.get()).exists, true);
+  await assert.rejects(functions.engagementV1.run({ auth: { uid, token: { firebase: { sign_in_provider: 'password' } } },
+    data: { action: 'inbox' } }), { code: 'permission-denied' });
   for (let tick = 0; tick < 6 && (await lock.get()).get('phase') !== 'verifyAvatars'; tick++) {
     await postToScheduledWorker(functions.reconcileAccountDeletion);
   }
@@ -732,6 +739,7 @@ test('account deletion and downstream replay preserve the surviving user ledger'
   const completed = await lock.get();
   assert.equal(completed.get('status'), 'deleted');
   assert.ok(completed.get('completedAt') instanceof Timestamp);
+  assert.ok((await db.getAll(...engagementRecords)).every(record => !record.exists));
 
   let previousEvents;
   for (let delivery = 0; delivery < 2; delivery++) {

@@ -9,6 +9,7 @@ import { EngagementPanel } from './components/Navigation/EngagementPanel';
 import { subscribeToNotificationState, type EngagementView } from './services/engagementService';
 import { getPublicUserProfile } from './services/userService';
 import { engagementDestination } from './utils/engagement';
+import { auth } from './lib/firebase';
 import { HeyroqMap } from './components/Map/HeyroqMap';
 import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
@@ -182,17 +183,19 @@ function HeyroqMainApp() {
       state => setEngagementState({ uid: engagementUid, ...state }),
       () => setEngagementState(null));
   }, [engagementUid]);
-  const openEngagementDestination = useCallback(async (destination: NonNullable<ReturnType<typeof engagementDestination>>) => {
+  const openEngagementDestination = useCallback(async (destination: NonNullable<ReturnType<typeof engagementDestination>>, signal: AbortSignal) => {
+    const stillOpen = () => !signal.aborted && Boolean(engagementUid) && auth.currentUser?.uid === engagementUid;
+    if (!stillOpen()) return false;
     if (destination.type === 'pin') {
-      const pin = await fetchPinById(destination.id);
-      if (!pin || pin.isDeleted || pin.isPrivate || pin.isReported ||
+      const pin = await fetchPinById(destination.id, true);
+      if (!stillOpen() || !pin || pin.isDeleted || pin.isPrivate || pin.isReported || pin.isDemo ||
         (pin.visibility && pin.visibility !== 'public') || (pin.status && pin.status !== 'published')) return false;
       setEngagementView(null);
       handleOpenDetails(pin);
       return true;
     }
     if (destination.type === 'profile') {
-      if (!await getPublicUserProfile(destination.id)) return false;
+      if (!await getPublicUserProfile(destination.id, true) || !stillOpen()) return false;
       setEngagementView(null);
       setProfileUserId(destination.id);
       return true;
@@ -201,7 +204,7 @@ function HeyroqMainApp() {
     setFocusedAchievement(destination.id);
     setIsProgressionOpen(true);
     return true;
-  }, [handleOpenDetails]);
+  }, [engagementUid, handleOpenDetails]);
   const mainContentRef = useRef<HTMLElement>(null);
   const focusMain = useCallback(() => mainContentRef.current?.focus(), []);
   const [isAboutOpen, setIsAboutOpen] = useState(false);

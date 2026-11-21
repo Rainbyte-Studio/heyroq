@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Timestamp, type DocumentSnapshot, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { Timestamp, type DocumentReference, type DocumentSnapshot, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { formatGeographicDiscovery } from './geographicProgression';
@@ -24,7 +24,8 @@ type Activity = {
   achievementId?: string; level?: number; xp?: number;
 };
 type Notice = { type: NoticeType; actorId?: string; pinId?: string; pinCreatedAt?: Timestamp;
-  achievementId?: string; level?: number; title?: string; noticeId?: string; source?: string };
+  achievementId?: string; level?: number; title?: string; noticeId?: string; source?: string;
+  commentId?: string; commentCreatedAt?: Timestamp; parentCommentId?: string; parentCommentCreatedAt?: Timestamp };
 
 export function validDocumentId(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 160 && /^[a-zA-Z0-9_:-]+$/.test(value);
@@ -58,6 +59,18 @@ const noticePreference: Record<NoticeType, Preference | null> = {
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 const sortKey = (at: Timestamp, id: string) => String(Math.floor(at.toMillis())).padStart(16, '0') + ':' + id;
 const incarnation = (at: Timestamp) => at.seconds + ':' + at.nanoseconds;
+const safeCount = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+
+function readDocuments(tx: Transaction) {
+  const reads = new Map<string, Promise<DocumentSnapshot>>();
+  return (ref: DocumentReference) => {
+    const existing = reads.get(ref.path);
+    if (existing) return existing;
+    const pending = tx.get(ref);
+    reads.set(ref.path, pending);
+    return pending;
+  };
+}
 
 function allowedAccount(user: DocumentSnapshot, lock: DocumentSnapshot) {
   return user.exists && !lock.exists && user.get('deletionStatus') !== 'deleting';
@@ -75,23 +88,26 @@ export function mapXp(event: DocumentSnapshot): Omit<Activity, 'pinCreatedAt'> |
   const action = event.get('action');
   const reference = event.get('referenceId');
   const source = event.ref.path;
-  if (!Number.isSafeInteger(xp) || xp < 0) return;
-  if (action === 'ACHIEVEMENT_UNLOCKED' && validDocumentId(reference) && event.id === 'achievement:' + reference) {
-    return { type: 'achievement', achievementId: reference, source, xp };
+  if (!Number.isSafeInteger(xp) || xp < 0 || !validDocumentId(reference)) return;
+  if (action === 'ACHIEVEMENT_UNLOCKED') {
+    if (event.id === 'achievement:' + reference) return { type: 'achievement', achievementId: reference, source, xp };
+    return;
   }
   const receipt = event.get('geographicReceipt');
   if (receipt?.schemaVersion === 2 && validDocumentId(receipt.pinId)) {
-    if (action === 'UNIQUE_CITY' && event.id === 'geo_v1:city:' + reference) {
+    if (action === 'UNIQUE_CITY' && reference === receipt.countryCode + ':' + receipt.cityId &&
+        event.id === 'geo_v1:city:' + reference && formatGeographicDiscovery(receipt, true)) {
       return { type: 'city', pinId: receipt.pinId, source, xp };
     }
-    if (action === 'UNIQUE_COUNTRY' && event.id === 'geo_v1:country:' + reference) {
+    if (action === 'UNIQUE_COUNTRY' && reference === receipt.countryCode &&
+        event.id === 'geo_v1:country:' + reference && formatGeographicDiscovery(receipt, false)) {
       return { type: 'country', pinId: receipt.pinId, source, xp };
     }
   }
   if (xp === 0) return;
-  const pinId = ['PIN_CREATED', 'RICH_DISCOVERY', 'FIRST_DISCOVERY'].includes(action) &&
-    validDocumentId(reference) ? reference : undefined;
-  return { type: 'xp', source, xp, ...(pinId ? { pinId } : {}) };
+  if (['PIN_CREATED', 'RICH_DISCOVERY', 'FIRST_DISCOVERY'].includes(action)) return { type: 'xp', source, xp, pinId: reference };
+  if (['LIKE_MILESTONE', 'FOLLOWER_MILESTONE'].includes(action)) return { type: 'xp', source, xp };
+  return undefined;
 }
 
 export function buildEngagement(db: Firestore, database: string, region: string) {
@@ -111,19 +127,23 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     const noticeRef = inbox(uid).doc(notice?.noticeId ? hash(notice.noticeId) : id);
     const stateRef = state(uid);
     const activityRef = activity(uid).doc(id);
-    const [profile, deletion, settings, previousNotice, inboxState, previousActivity] = await tx.getAll(
-      user(uid), lock(uid), prefs(uid), noticeRef, stateRef, activityRef,
-    );
+    const [profile, deletion, noticeReads, previousActivity] = await Promise.all([
+      tx.get(user(uid)), tx.get(lock(uid)),
+      notice ? tx.getAll(prefs(uid), noticeRef, stateRef) : undefined,
+      item ? tx.get(activityRef) : undefined,
+    ]);
     if (!allowedAccount(profile, deletion)) return;
 
-    if (item && !previousActivity.exists) {
+    if (item && !previousActivity?.exists) {
       tx.create(activityRef, {
         ...item, actorId: uid, schemaVersion: 1, at, key: sortKey(at, id),
         eligible: ['pin', 'city', 'country', 'achievement'].includes(item.type),
         expiresAt: Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY),
       });
     }
-    if (!notice || previousNotice.exists || notice.actorId === uid) return;
+    if (!notice || !noticeReads || notice.actorId === uid) return;
+    const [settings, previousNotice, inboxState] = noticeReads;
+    if (previousNotice.exists) return;
     const preference = noticePreference[notice.type];
     // A suppressed event gets a tombstone, so replay after a preference change cannot deliver it.
     const expiresAt = Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY);
@@ -131,7 +151,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       tx.create(noticeRef, { expiresAt, deleted: true });
       return;
     }
-    const sequence = (Number(inboxState.get('sequence')) || 0) + 1;
+    const sequence = safeCount(inboxState.get('sequence')) + 1;
     const { noticeId: _noticeId, ...fields } = notice;
     tx.create(noticeRef, {
       ...fields, recipientId: uid, sequence, at, deleted: false, read: false, expiresAt,
@@ -139,8 +159,8 @@ export function buildEngagement(db: Firestore, database: string, region: string)
         : ['announcement', 'account'].includes(notice.type) ? 'system' : 'progression',
       schemaVersion: 1,
     });
-    tx.set(stateRef, { sequence, unread: (Number(inboxState.get('unread')) || 0) + 1,
-      revision: (Number(inboxState.get('revision')) || 0) + 1 }, { merge: true });
+    tx.set(stateRef, { sequence, unread: safeCount(inboxState.get('unread')) + 1,
+      revision: safeCount(inboxState.get('revision')) + 1 }, { merge: true });
   }
 
   function fresh(at: Timestamp) {
@@ -175,27 +195,33 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       const eventKey = type + ':' + event.ref.path + ':' + incarnation(at);
       if (type === 'follow') {
         const following = await tx.get(user(actorId).collection('following').doc(parentId));
-        if (following.exists) await project(tx, parentId, eventKey, at, undefined, { type, actorId });
+        if (following.exists) await project(tx, parentId, eventKey, at, undefined, {
+          type, actorId, noticeId: 'follow:' + event.ref.path + ':' + Math.floor(at.toMillis() / DAY),
+        });
         return;
       }
       const pin = await tx.get(pins.doc(parentId));
-      if (!isPublicPin(pin) || !pin.createTime || pin.createTime.toMillis() > at.toMillis()) return;
+      if (!isPublicPin(pin) || !pin.createTime || pin.createTime.valueOf() > at.valueOf()) return;
       const parentCommentId = type === 'comment' ? current.get('parentCommentId') : undefined;
       const parent = validDocumentId(parentCommentId)
         ? await tx.get(pin.ref.collection('comments').doc(parentCommentId)) : undefined;
       if (parentCommentId !== undefined && (!parent?.createTime || parent.get('parentCommentId') ||
-          parent.createTime.toMillis() > at.toMillis())) return;
+          parent.createTime.valueOf() > at.valueOf())) return;
       const recipient = parent ? parent.get('userId') : pin.get('userId');
       if (!validDocumentId(recipient) || recipient === actorId) return;
       await project(tx, recipient, eventKey, at, undefined, {
         type: parent ? 'reply' : type, actorId, pinId: pin.id, pinCreatedAt: pin.createTime,
+        ...(type === 'like' ? {
+          noticeId: 'like:' + event.ref.path + ':' + incarnation(pin.createTime) + ':' + Math.floor(at.toMillis() / DAY),
+        } : { commentId: current.id, commentCreatedAt: at }),
+        ...(parent?.createTime ? { parentCommentId: parent.id, parentCommentCreatedAt: parent.createTime } : {}),
       });
     });
   }
 
   async function xpEvent(event: DocumentSnapshot, uid: string) {
     const at = event.createTime;
-    if (!at || !fresh(at)) return;
+    if (!at || !fresh(at) || event.ref.parent.path !== generation.doc(uid).collection('xpEvents').path) return;
     await db.runTransaction(async tx => {
       const [config, current] = await tx.getAll(control, event.ref);
       if (at.toMillis() < declaredCutoff(config) || !current.createTime?.isEqual(at) ||
@@ -210,11 +236,11 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       }
       if (item.pinId) {
         const pin = await tx.get(pins.doc(item.pinId));
-        if (isPublicPin(pin) && pin.get('userId') === uid && pin.createTime && pin.createTime.toMillis() <= at.toMillis()) {
+        if (isPublicPin(pin) && pin.get('userId') === uid && pin.createTime && pin.createTime.valueOf() <= at.valueOf()) {
           Object.assign(item, { pinCreatedAt: pin.createTime });
           if (item.type === 'city' || item.type === 'country') {
             const geoStart = config.get('geographyStartsAtMs');
-            if (!Number.isSafeInteger(geoStart) || pin.createTime.toMillis() < geoStart) return;
+            if (!Number.isSafeInteger(geoStart) || geoStart < declaredCutoff(config) || pin.createTime.toMillis() < geoStart) return;
             notice = { type: 'geography', pinId: item.pinId, pinCreatedAt: pin.createTime, source: item.source,
               noticeId: 'geo:' + item.pinId + ':' + incarnation(pin.createTime) };
           }
@@ -232,7 +258,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     await db.runTransaction(async tx => {
       const [config, summary] = await tx.getAll(control, after.ref);
       const cutoff = declaredCutoff(config);
-      if (at.toMillis() < cutoff || summary.get('level') < level || !summary.exists) return;
+      if (at.toMillis() < cutoff || safeCount(summary.get('level')) < level || !summary.exists) return;
       await project(tx, uid, 'level:' + cutoff + ':' + level, at,
         { type: 'level', level, source: after.ref.path }, { type: 'level', level, source: after.ref.path });
     });
@@ -245,9 +271,10 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       const current = await tx.get(event.ref);
       const type = current.get('type');
       const title = current.get('title');
-      if (!current.createTime?.isEqual(at) || (type !== 'announcement' && type !== 'account') ||
-          typeof title !== 'string' || !title.trim() || title.length > 180) return;
-      await project(tx, uid, 'system:' + event.ref.path, at, undefined, { type, title: title.trim() });
+      if (!current.createTime?.isEqual(at)) return;
+      if ((type === 'announcement' || type === 'account') && typeof title === 'string' && title.trim() && title.length <= 180) {
+        await project(tx, uid, 'system:' + event.ref.path, at, undefined, { type, title: title.trim() });
+      }
       tx.delete(current.ref);
     });
   }
@@ -258,9 +285,9 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       const active = allowedAccount(profile, deletion);
       if (!active && action !== 'expire') throw new HttpsError('permission-denied', 'Inbox is unavailable.');
       const inboxState = summary.data() ?? {};
-      const unread = Number(inboxState.unread) || 0;
-      const readThrough = Number(inboxState.readThrough) || 0;
-      const revision = (Number(inboxState.revision) || 0) + 1;
+      const unread = safeCount(inboxState.unread);
+      const readThrough = safeCount(inboxState.readThrough);
+      const revision = safeCount(inboxState.revision) + 1;
       if (action === 'readAll') {
         if (unread) tx.set(summary.ref, { unread: 0, readThrough: inboxState.sequence, revision }, { merge: true });
         return;
@@ -282,15 +309,15 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     });
   }
 
-  async function activePin(tx: Transaction, entry: DocumentSnapshot, uid?: string) {
+  async function activePin(read: ReturnType<typeof readDocuments>, entry: DocumentSnapshot, uid?: string) {
     const id = entry.get('pinId');
     const incarnation = entry.get('pinCreatedAt');
     if (!validDocumentId(id) || !(incarnation instanceof Timestamp)) return;
-    const pin = await tx.get(pins.doc(id));
+    const pin = await read(pins.doc(id));
     if (!isPublicPin(pin) || !pin.createTime?.isEqual(incarnation) || (uid && pin.get('userId') !== uid)) return;
     const owner = pin.get('userId');
     if (!validDocumentId(owner)) return;
-    const [ownerProfile, deletion] = await tx.getAll(user(owner), lock(owner));
+    const [ownerProfile, deletion] = await Promise.all([read(user(owner)), read(lock(owner))]);
     return allowedAccount(ownerProfile, deletion) ? pin : undefined;
   }
 
@@ -300,30 +327,39 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     return typeof value === 'string' && value.length <= 1200 ? value : '';
   };
 
-  async function inboxPage(tx: Transaction, uid: string, before?: number) {
+  async function inboxPage(tx: Transaction, read: ReturnType<typeof readDocuments>, uid: string, before?: number) {
     const q = inbox(uid).where('deleted', '==', false).orderBy('sequence', 'desc').limit(PAGE_SIZE);
     const [summary, page, config] = await Promise.all([
       tx.get(state(uid)), tx.get(before ? q.startAfter(before) : q), tx.get(control),
     ]);
-    const readThrough = Number(summary.get('readThrough')) || 0;
+    const readThrough = safeCount(summary.get('readThrough'));
     const cutoff = declaredCutoff(config);
     const items = await Promise.all(page.docs.map(async entry => {
       const actor = entry.get('actorId');
       const isSocial = entry.get('category') === 'social';
-      const [profile, deletion] = validDocumentId(actor) ? await tx.getAll(user(actor), lock(actor)) : [];
+      const [profile, deletion] = validDocumentId(actor) ? await Promise.all([read(user(actor)), read(lock(actor))]) : [];
       const hasActor = Boolean(profile && deletion && allowedAccount(profile, deletion));
-      const pin = await activePin(tx, entry);
+      const pin = await activePin(read, entry);
       const achievementId = entry.get('achievementId');
       const earned = validDocumentId(achievementId)
-        ? await tx.get(generation.doc(uid).collection('achievements').doc(achievementId)) : undefined;
+        ? await read(generation.doc(uid).collection('achievements').doc(achievementId)) : undefined;
       const sourcePath = entry.get('source');
-      const source = typeof sourcePath === 'string' ? await tx.get(db.doc(sourcePath)) : undefined;
+      const source = typeof sourcePath === 'string' ? await read(db.doc(sourcePath)) : undefined;
       const at: Timestamp = entry.get('at');
       const validProgression = entry.get('category') !== 'progression' ||
         (at.toMillis() >= cutoff && source?.exists &&
           (entry.get('type') === 'level' ? source.get('level') >= entry.get('level')
             : source.createTime?.isEqual(at)));
+      const commentId = entry.get('commentId');
+      const parentCommentId = entry.get('parentCommentId');
+      const comments = pin?.ref.collection('comments');
+      const [comment, parent] = comments ? await Promise.all([
+        validDocumentId(commentId) ? read(comments.doc(commentId)) : undefined,
+        validDocumentId(parentCommentId) ? read(comments.doc(parentCommentId)) : undefined,
+      ]) : [];
       const unavailable = !validProgression || (isSocial && !hasActor) || (Boolean(entry.get('pinId')) && !pin) ||
+        (Boolean(commentId) && (!comment?.createTime?.isEqual(entry.get('commentCreatedAt')) || comment.get('userId') !== actor)) ||
+        (Boolean(parentCommentId) && (!parent?.createTime?.isEqual(entry.get('parentCommentCreatedAt')) || parent.get('userId') !== uid)) ||
         (Boolean(achievementId) && earned?.get('isUnlocked') !== true);
       return {
         id: entry.id, type: entry.get('type'), at: at.toMillis(),
@@ -339,7 +375,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     return { items, next: page.size === PAGE_SIZE ? page.docs.at(-1)?.get('sequence') : null };
   }
 
-  async function activityPage(tx: Transaction, uid: string, following: boolean, before?: string) {
+  async function activityPage(tx: Transaction, read: ReturnType<typeof readDocuments>, uid: string, following: boolean, before?: string) {
     const [config, relationships] = await Promise.all([
       tx.get(control),
       following ? tx.get(user(uid).collection('following').orderBy('createdAt', 'desc').limit(FOLLOW_LIMIT + 1)) : undefined,
@@ -348,9 +384,12 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     const sharing = new Map<string, FirebaseFirestore.DocumentData>();
     if (candidates.length) {
       const settings = await tx.getAll(...candidates.map(prefs));
-      for (const setting of settings) {
+      const optedIn = settings.filter(setting => preferenceEnabled(setting.data(), 'shareActivity'));
+      const reciprocal = optedIn.length ? await tx.getAll(...optedIn.map(setting =>
+        setting.ref.parent.parent!.collection('followers').doc(uid))) : [];
+      for (const [index, setting] of optedIn.entries()) {
         const data = setting.data();
-        if (data && preferenceEnabled(data, 'shareActivity')) sharing.set(setting.ref.parent.parent!.id, data);
+        if (data && reciprocal[index]?.exists) sharing.set(setting.ref.parent.parent!.id, data);
       }
     }
     const actors = following ? [...sharing.keys()] : [uid];
@@ -362,18 +401,18 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       const at = entry.get('at').toMillis();
       if (at <= Date.now() - HISTORY_DAYS * DAY || (type !== 'pin' && at < cutoff)) return;
       if (following && !shareActivity(sharing.get(actorId), type)) return;
-      const [profile, deletion] = await tx.getAll(user(actorId), lock(actorId));
+      const [profile, deletion] = await Promise.all([read(user(actorId)), read(lock(actorId))]);
       if (!allowedAccount(profile, deletion)) return;
-      const pin = await activePin(tx, entry, actorId);
+      const pin = await activePin(read, entry, actorId);
       const geography = type === 'city' || type === 'country';
       if ((type === 'pin' || geography) && !pin) return;
-      const source = type === 'pin' ? pin : await tx.get(db.doc(entry.get('source')));
+      const source = type === 'pin' ? pin : await read(db.doc(entry.get('source')));
       if (!source?.exists || (type !== 'pin' && type !== 'level' &&
           (!source.createTime?.isEqual(entry.get('at')) || source.get('userId') !== actorId))) return;
-      if (type === 'level' && source.get('level') < entry.get('level')) return;
+      if (type === 'level' && safeCount(source.get('level')) < entry.get('level')) return;
       const aid = entry.get('achievementId');
       const achievement = validDocumentId(aid)
-        ? await tx.get(generation.doc(actorId).collection('achievements').doc(aid)) : undefined;
+        ? await read(generation.doc(actorId).collection('achievements').doc(aid)) : undefined;
       if (type === 'achievement' && (achievement?.get('isUnlocked') !== true ||
           (following && !['gold', 'platinum'].includes(achievement.get('tier'))))) return;
       return {
@@ -424,9 +463,16 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       await Promise.all(expiredNotices.docs.slice(offset, offset + 10).map(item =>
         changeInbox(item.ref.parent.parent!.id, 'expire', item.id)));
     }
-    const batch = db.batch();
-    for (const item of expiredActivity.docs) batch.delete(item.ref, { lastUpdateTime: item.updateTime });
-    if (!expiredActivity.empty) await batch.commit();
+    // Account cleanup may delete a candidate after the scan. Treat a missing or
+    // changed document independently so it cannot roll back the entire page.
+    for (let offset = 0; offset < expiredActivity.size; offset += 10) {
+      await Promise.all(expiredActivity.docs.slice(offset, offset + 10).map(async item => {
+        try { await item.ref.delete({ lastUpdateTime: item.updateTime }); }
+        catch (error) {
+          if (![5, 9].includes((error as { code?: number }).code ?? 0)) throw error;
+        }
+      }));
+    }
   }
 
   return {
@@ -441,26 +487,29 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     prune,
     api: onCall({ region, maxInstances: 10 }, async request => {
       const uid = request.auth?.uid;
-      if (!uid || request.auth?.token.firebase.sign_in_provider === 'anonymous' || request.auth?.token.firebase.tenant) {
+      const identity = request.auth?.token.firebase;
+      if (!uid || !identity?.sign_in_provider || identity.sign_in_provider === 'anonymous' || identity.tenant) {
         throw new HttpsError('unauthenticated', 'Sign in to continue.');
       }
-      const { action, before, id } = request.data ?? {};
-      if (action === 'readAll' || ((action === 'read' || action === 'delete') &&
+      const data = request.data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new HttpsError('invalid-argument', 'Invalid activity request.');
+      const { action, before, id } = data;
+      const fields = Object.keys(data).length;
+      if ((action === 'readAll' && fields === 1) || ((action === 'read' || action === 'delete') && fields === 2 &&
           typeof id === 'string' && /^[a-f0-9]{64}$/.test(id))) {
         await changeInbox(uid, action, id);
         return { ok: true };
       }
+      const query = (fields === 1 || (fields === 2 && Object.hasOwn(data, 'before'))) &&
+        ((action === 'inbox' && (before === undefined || (Number.isSafeInteger(before) && before > 0))) ||
+         ((action === 'mine' || action === 'following') &&
+          (before === undefined || (typeof before === 'string' && /^\d{16}:[a-f0-9]{64}$/.test(before)))));
+      if (!query) throw new HttpsError('invalid-argument', 'Invalid activity request.');
       return db.runTransaction(async tx => {
-        const [profile, deletion] = await tx.getAll(user(uid), lock(uid));
+        const read = readDocuments(tx);
+        const [profile, deletion] = await Promise.all([read(user(uid)), read(lock(uid))]);
         if (!allowedAccount(profile, deletion)) throw new HttpsError('permission-denied', 'Activity is unavailable.');
-        if (action === 'inbox' && (before === undefined || (Number.isSafeInteger(before) && before > 0))) {
-          return inboxPage(tx, uid, before);
-        }
-        if ((action === 'mine' || action === 'following') &&
-            (before === undefined || (typeof before === 'string' && /^\d{16}:[a-f0-9]{64}$/.test(before)))) {
-          return activityPage(tx, uid, action === 'following', before);
-        }
-        throw new HttpsError('invalid-argument', 'Invalid activity request.');
+        return action === 'inbox' ? inboxPage(tx, read, uid, before) : activityPage(tx, read, uid, action === 'following', before);
       }, { readOnly: true });
     }),
   };

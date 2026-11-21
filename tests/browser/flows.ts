@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDocFromServer, updateDoc } from 'firebase/firestore';
 import { getBytes, ref } from 'firebase/storage';
 import { createElement } from 'react';
@@ -16,6 +16,7 @@ import { uploadProfileImage } from '../../src/services/storageService';
 Object.assign(window, {
   heyroqTest: {
     signOut: () => signOut(auth),
+    signIn: (email: string, password: string) => signInWithEmailAndPassword(auth, email, password).then(() => undefined),
     mountCreatePin() {
       const host = document.createElement('div');
       document.body.append(host);
