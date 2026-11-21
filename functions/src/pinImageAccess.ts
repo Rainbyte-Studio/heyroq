@@ -46,7 +46,8 @@ async function managedBytes(db: Firestore, bucket: Bucket, key: ImageKey, pin: D
   if (!pin.exists || typeof uid !== 'string' || !segment.test(uid) || uid === '.' || uid === '..' ||
       pin.get('imageIncarnation') !== key.incarnation || !Array.isArray(pin.get('imageUrls')) ||
       !pin.get('imageUrls').includes(url)) throw unavailable();
-  const claim = await db.doc('pinImageClaims/' + key.incarnation).get();
+  const claimRef = db.doc('pinImageClaims/' + key.incarnation);
+  const claim = await claimRef.get();
   const matches = claim.get('images');
   const entry = Array.isArray(matches) ? matches.find(row => row.uploadId === key.image) : undefined;
   if (claim.get('protocol') !== IMAGE_PROTOCOL || claim.get('delivery') !== 'checked-v1' ||
@@ -63,7 +64,7 @@ async function managedBytes(db: Firestore, bucket: Bucket, key: ImageKey, pin: D
       !Number.isSafeInteger(size) || size < 1 || size > maxImageBytes) throw unavailable();
   const [bytes] = await bucket.file(path, { generation: entry.generation }).download({ decompress: false });
   if (bytes.length !== size || !matchesImageSignature(bytes, type)) throw unavailable();
-  return { bytes, type };
+  return { bytes, type, claimRef, claimVersion: claim.updateTime! };
 }
 
 export async function readPublicPinImage(db: Firestore, bucket: Bucket, key: Partial<ImageKey>) {
@@ -77,10 +78,11 @@ export async function readPublicPinImage(db: Firestore, bucket: Bucket, key: Par
     const lock = db.doc('accountDeletionLocks/' + uid);
     const profile = db.doc('users/' + uid);
     const output = await managedBytes(db, bucket, key, pin);
-    const [current, owner, deletion] = await db.getAll(ref, profile, lock);
+    const [current, owner, deletion, claim] = await db.getAll(ref, profile, lock, output.claimRef);
     if (!isPublicPin(current) || !current.updateTime?.isEqual(pin.updateTime!) || !owner.exists ||
-        owner.get('deletionStatus') === 'deleting' || deletion.exists) throw unavailable();
-    return output;
+        owner.get('deletionStatus') === 'deleting' || deletion.exists ||
+        !claim.updateTime?.isEqual(output.claimVersion)) throw unavailable();
+    return { bytes: output.bytes, type: output.type };
   } catch { throw unavailable(); }
 }
 
@@ -112,9 +114,10 @@ export async function readRestrictedPinImage(
       const query = new URL(value).searchParams;
       const key = { pin: pinId, incarnation: query.get('incarnation') ?? '', image: query.get('image') ?? '' };
       if (!validImageKey(key) || value !== pinImageDeliveryUrl(key.pin, key.incarnation, key.image)) throw unavailable();
-      const { bytes, type } = await managedBytes(db, bucket, key, pin);
-      const [current, owner, deletion] = await db.getAll(...refs);
-      if (!permitted(current, owner, deletion, uid) || !current.updateTime?.isEqual(pin.updateTime!)) throw unavailable();
+      const { bytes, type, claimRef, claimVersion } = await managedBytes(db, bucket, key, pin);
+      const [current, owner, deletion, claim] = await db.getAll(...refs, claimRef);
+      if (!permitted(current, owner, deletion, uid) || !current.updateTime?.isEqual(pin.updateTime!) ||
+          !claim.updateTime?.isEqual(claimVersion)) throw unavailable();
       return { mimeType: type, content: bytes.toString('base64') };
     } catch { throw unavailable(); }
   }
