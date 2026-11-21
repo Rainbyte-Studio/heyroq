@@ -637,7 +637,7 @@ export function subscribeToComments(
  */
 export function subscribeToPinDocument(
   pinId: string,
-  onUpdate: (data: { commentCount?: number; likeCount?: number }) => void,
+  onUpdate: (data: { commentCount?: number; likeCount?: number; publicPin: boolean }) => void,
   onUnavailable?: () => void
 ): () => void {
   if (!pinId) return () => {};
@@ -651,6 +651,7 @@ export function subscribeToPinDocument(
       if (snap.exists()) {
         const data = snap.data();
         onUpdate({
+          publicPin: isPublicPin(data),
           commentCount: typeof data.commentCount === 'number' ? data.commentCount : undefined,
           likeCount: typeof data.likeCount === 'number' ? data.likeCount : undefined,
         });

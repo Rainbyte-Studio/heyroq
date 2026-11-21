@@ -40,6 +40,13 @@ function objectFor(raw) {
   return bucket.file(decodeURIComponent(url.pathname.slice(imagePrefix.length)));
 }
 
+function managedObject(uid, raw) {
+  const url = new URL(raw);
+  assert.equal(url.pathname, '/publicPinImageV1');
+  return bucket.file(['pin-images-v2', uid, url.searchParams.get('pin'),
+    url.searchParams.get('incarnation'), url.searchParams.get('image')].join('/'));
+}
+
 async function waitForRemoval(file) {
   for (let attempt = 0; attempt < 80; attempt++) {
     if (!(await file.exists())[0]) return;
@@ -75,6 +82,13 @@ try {
     await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (allowed.has(url.origin)) return route.continue();
+    if (url.origin === 'https://europe-west2-demo-heyroq.cloudfunctions.net' &&
+        url.pathname === '/publicPinImageV1' && route.request().method() === 'GET') {
+      const response = await fetch('http://127.0.0.1:5001/demo-heyroq/europe-west2/publicPinImageV1' + url.search, { redirect: 'error' });
+      return route.fulfill({ status: response.status, body: Buffer.from(await response.arrayBuffer()),
+        contentType: response.headers.get('content-type') || 'application/octet-stream',
+        headers: { 'access-control-allow-origin': origin, 'cache-control': 'private, no-store' } });
+    }
     if (url.origin === imageOrigin && url.pathname.startsWith(imagePrefix) && route.request().method() === 'GET') {
       if (failAvatarDelivery && decodeURIComponent(url.pathname).includes('/profile-images/')) {
         return route.fulfill({ status: 503, body: '' });
@@ -328,10 +342,10 @@ try {
   assert.equal(urls.length, 1);
   assert.deepEqual(await read(urls[0]), { status: 200, bytes: png });
   const invalid = new URL(urls[0]);
-  invalid.searchParams.delete('token');
-  assert.equal((await read(invalid.href)).status, 403);
-  invalid.searchParams.set('token', randomUUID());
-  assert.equal((await read(invalid.href)).status, 403);
+  invalid.searchParams.delete('image');
+  assert.equal((await read(invalid.href)).status, 404);
+  invalid.searchParams.set('image', randomUUID());
+  assert.equal((await read(invalid.href)).status, 404);
 
   const avatar = () => page.evaluate(args => window.heyroqTest.avatar(...args), [uid, png]);
   const oldAvatar = await avatar();
@@ -352,7 +366,8 @@ try {
   assert.deepEqual(await read(newAvatar), { status: 200, bytes: png });
 
   assert.equal(await page.evaluate(args => window.heyroqTest.removePin(...args), [pinId, uid]), false);
-  await waitForRemoval(objectFor(urls[0]));
+  await waitForRemoval(managedObject(uid, urls[0]));
+  assert.equal((await read(urls[0])).status, 404);
   assert.deepEqual(await page.evaluate(() => window.heyroqTest.deleteAccount()), ['deleting', 'deleting']);
   assert.equal((await db.collection('accountDeletionLocks').doc(uid).get()).get('status'), 'deleting');
   const searchPins = db.collection('pins');

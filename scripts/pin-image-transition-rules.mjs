@@ -38,7 +38,7 @@ ${checks.join(' &&\n')};
 }
 
 export function makePinImageTransitionStorageRules(finalRules) {
-  const legacy = 'match /pins/{userId}/{fileName} {\n      allow get: if true;';
+  const legacy = "match /pins/{userId}/{fileName} {\n      allow get: if resource.metadata.get('heyroqRestricted', '') != '1';";
   if (finalRules.split(legacy).length !== 2) {
     throw new Error('Expected exactly one read-only legacy pin Storage match.');
   }

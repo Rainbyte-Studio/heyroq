@@ -626,7 +626,7 @@ test('all compiled endpoints match the deployment manifest, including retry poli
       assert.ok(endpoint.callableTrigger, name);
       assert.equal(endpoint.maxInstances, expected.maxInstances, name);
     } else {
-      assert.deepEqual(endpoint.httpsTrigger?.invoker, ['private'], name);
+      assert.deepEqual(endpoint.httpsTrigger?.invoker, [expected.publicHttp ? 'public' : 'private'], name);
       assert.equal(endpoint.timeoutSeconds, expected.timeoutSeconds, name);
       assert.equal(endpoint.concurrency, expected.concurrency, name);
       assert.equal(endpoint.maxInstances, expected.maxInstances, name);
@@ -1239,7 +1239,8 @@ test('server upload binds an authenticated owner, reserves each slot once and ve
   assert.deepEqual(claim.images, [{ uploadId, generation: String(metadata.generation) }]);
   assert.equal(claim.userId, uid);
   assert.deepEqual((await file.download())[0], png);
-  assert.equal(new URL(claim.imageUrls[0]).searchParams.get('token'), metadata.metadata.firebaseStorageDownloadTokens);
+  assert.equal(new URL(claim.imageUrls[0]).searchParams.has('token'), false);
+  assert.equal(metadata.metadata.firebaseStorageDownloadTokens, undefined);
   assert.equal((await db.collection('pinImageApprovals').doc(incarnation).get()).get('claim.pinId'), pinId);
   await intent.update({ expiresAt: Timestamp.fromMillis(Date.now() - 1) });
   await assert.rejects(call(upload), { code: 'deadline-exceeded' });
@@ -1306,11 +1307,16 @@ test('the named database applies the pin-image rules to an authenticated client'
   const download = new URL(claim.imageUrls[0]);
   const storageHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST;
   assert.match(storageHost ?? '', /^(127\.0\.0\.1|localhost):\d+$/);
-  const publicDownload = await fetch('http://' + storageHost + download.pathname + download.search);
-  assert.equal(publicDownload.status, 200);
-  assert.deepEqual(Buffer.from(await publicDownload.arrayBuffer()), png);
-  const withoutToken = await fetch('http://' + storageHost + download.pathname + '?alt=media');
-  assert.equal(withoutToken.status, 403);
+  const { pinImagePath } = require('../lib/pinImageUpload.js');
+  const { readPublicPinImage } = require('../lib/pinImageAccess.js');
+  const bucket = require('firebase-admin/storage').getStorage().bucket();
+  const path = pinImagePath(uid, pinId, begin.incarnation, begin.uploadIds[0]);
+  const storageUrl = 'http://' + storageHost + '/v0/b/' + bucket.name + '/o/' + encodeURIComponent(path) + '?alt=media';
+  const key = Object.fromEntries(download.searchParams);
+  const publicRead = () => readPublicPinImage(db, bucket, key);
+  const ownerRead = (identity, data = { pinId, index: 0 }) => functions.pinImageAccessV1.run({ auth: identity, data });
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  assert.equal((await fetch(storageUrl)).status, 403);
 
   const database = 'projects/demo-heyroq/databases/' + FIRESTORE_DATABASE_ID;
   const url = 'http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents:commit';
@@ -1327,35 +1333,89 @@ test('the named database applies the pin-image rules to an authenticated client'
     body: JSON.stringify({ writes }),
   });
   const pin = { userId: uid, title: 'Local spot', latitude: 37, longitude: 23, category: 'Other',
-    publicAccess: true, visibility: 'public', status: 'published',
+    publicAccess: false, visibility: 'private', status: 'draft', publishReceipt: true,
     createdAt: new Date().toISOString(), imageUrls: claim.imageUrls };
   const pinWrite = write('pins/' + pinId, { ...pin, imageIncarnation: begin.incarnation });
   const claimWrite = write('pinImageClaims/' + begin.incarnation, claim);
+  const receipt = { update: { name: database + '/documents/users/' + uid + '/pinPublishReceipts/' + pinId },
+    updateTransforms: [{ fieldPath: 'publishedAt', setToServerValue: 'REQUEST_TIME' }] };
   assert.equal((await commit([claimWrite])).status, 403);
   assert.equal((await commit([write('pins/' + pinId, pin)])).status, 403);
-  const published = await commit([pinWrite, claimWrite]);
+  const published = await commit([pinWrite, claimWrite, receipt]);
   assert.equal(published.status, 200, await published.text());
   assert.deepEqual((await pins.doc(pinId).get()).get('imageUrls'), claim.imageUrls);
   assert.equal((await commit([write('pins/' + pins.doc().id, pin)])).status, 403);
 
-  // Emulate a historical restricted pin whose bearer URL was already minted.
-  // Firestore hides its fields, but only revoking the Storage capability can
-  // make a previously copied URL stop working.
-  await pins.doc(pinId).update({ visibility: 'private', publicAccess: false });
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  await assert.rejects(ownerRead(undefined), { code: 'unauthenticated' });
+  await assert.rejects(ownerRead({ ...auth, uid: 'different-owner' }), { code: 'not-found' });
+  await assert.rejects(ownerRead(auth, { pinId: '../other', index: 0 }), { code: 'invalid-argument' });
+  assert.equal((await ownerRead(auth)).content, png.toString('base64'));
+  const publishFields = { publicAccess: true, visibility: 'public', status: 'published' };
+  const publicWrite = write('pins/' + pinId, publishFields);
+  publicWrite.updateMask = { fieldPaths: Object.keys(publishFields) };
+  const promoted = await commit([publicWrite]);
+  assert.equal(promoted.status, 200, await promoted.text());
+  assert.deepEqual((await publicRead()).bytes, png);
+  const privateFields = { publicAccess: false, visibility: 'private' };
+  const privateWrite = write('pins/' + pinId, privateFields);
+  privateWrite.updateMask = { fieldPaths: Object.keys(privateFields) };
+  const restricted = await commit([privateWrite]);
+  assert.equal(restricted.status, 200, await restricted.text());
   const hiddenPin = await fetch('http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents/pins/' + pinId);
   assert.equal(hiddenPin.status, 403);
-  const retainedCapability = await fetch('http://' + storageHost + download.pathname + download.search);
-  assert.equal(retainedCapability.status, 200);
-  assert.deepEqual(Buffer.from(await retainedCapability.arrayBuffer()), png);
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  assert.equal((await ownerRead(auth)).content, png.toString('base64'));
 
   const snapshot = await pins.doc(pinId).get();
   await pins.doc(pinId).delete();
   await require('../lib/index.js').onPinDeleted.run({ id: randomUUID(), params: { pinId }, data: snapshot });
-  const bucket = require('firebase-admin/storage').getStorage().bucket();
-  const path = decodeURIComponent(download.pathname.split('/o/')[1]);
   assert.equal((await bucket.file(path).exists())[0], false);
-  const gone = await fetch('http://' + storageHost + download.pathname + download.search);
+  await assert.rejects(ownerRead(auth), { code: 'not-found' });
+  await assert.rejects(publicRead(), { code: 'not-found' });
+  const gone = await fetch(storageUrl);
   assert.equal(gone.ok, false);
+});
+
+test('restricted legacy media invalidates issued URLs and remains available to its owner', async () => {
+  const { randomUUID } = require('node:crypto');
+  const { getStorage } = require('firebase-admin/storage');
+  const bucket = getStorage().bucket();
+  const uid = 'legacy-image-owner';
+  const pinId = 'legacy-image-fixture';
+  const file = bucket.file('pins/' + uid + '/legacy.png');
+  const token = randomUUID();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=', 'base64');
+  const storagePath = '/v0/b/' + bucket.name + '/o/' + encodeURIComponent(file.name) + '?alt=media';
+  const base = 'http://' + process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+  const pin = pins.doc(pinId);
+  const owner = db.doc('users/' + uid);
+  const caller = (userId, input = { pinId, index: 0 }) => functions.pinImageAccessV1.run({
+    auth: { uid: userId, token: { firebase: { sign_in_provider: 'password' } } }, data: input,
+  });
+  await owner.set({ displayName: 'Legacy image fixture' });
+  await file.save(png, { resumable: false, metadata: { contentType: 'image/png',
+    metadata: { firebaseStorageDownloadTokens: token } } });
+  await pin.create({ userId: uid, visibility: 'private', status: 'draft', publicAccess: false,
+    imageUrls: ['https://firebasestorage.googleapis.com' + storagePath + '&token=' + token] });
+  try {
+    assert.equal((await fetch(base + storagePath + '&token=' + token)).status, 200);
+    const [metadata] = await file.getMetadata();
+    await file.setMetadata({ cacheControl: 'private, no-store', metadata: {
+      firebaseStorageDownloadTokens: null, heyroqRestricted: '1', heyroqRestrictedOwner: uid, heyroqRestrictedPin: pinId,
+    } }, { ifGenerationMatch: metadata.generation, ifMetagenerationMatch: metadata.metageneration });
+    assert.ok([401, 403, 404].includes((await fetch(base + storagePath + '&token=' + token)).status));
+    assert.ok([401, 403, 404].includes((await fetch(base + storagePath)).status));
+    assert.equal((await caller(uid)).content, png.toString('base64'));
+    await assert.rejects(caller('other-user'), { code: 'not-found' });
+    await assert.rejects(caller(uid, { pinId, index: 0, path: file.name }), { code: 'invalid-argument' });
+    await pin.delete();
+    await assert.rejects(caller(uid), { code: 'not-found' });
+  } finally {
+    await pin.delete();
+    await owner.delete();
+    await file.delete({ ignoreNotFound: true });
+  }
 });
 
 test('v1.1 discovery awards use published evidence and remain permanent across retries and deletion', async () => {

@@ -426,12 +426,24 @@ service cloud.firestore {
         (validPinAccess(after) &&
           // Previously issued image URLs are independent capabilities. Only image-free
           // pins can enter a restricted state through a client update.
-          (after.publicAccess || after.get('imageUrls', []) == []) &&
+          (after.publicAccess || after.get('imageUrls', []) == [] || hasCheckedPinImages(before)) &&
           (!after.publicAccess || before.get('publicAccess', false) == true ||
             (before.get('publishReceipt', false) == true &&
              before.get('status', '') in ['draft', 'published'] &&
              before.get('isDeleted', false) == false && before.get('isReported', false) == false &&
              before.get('isDemo', false) == false)));
+    }
+
+    function hasCheckedPinImages(data) {
+      let incarnation = data.get('imageIncarnation', '');
+      return validIncarnation(incarnation) &&
+        get(/databases/$(database)/documents/pinImageClaims/$(incarnation)).data.get('delivery', '') == 'checked-v1';
+    }
+
+    function hasCheckedPinImagesAfter(data) {
+      let incarnation = data.get('imageIncarnation', '');
+      return validIncarnation(incarnation) &&
+        getAfter(/databases/$(database)/documents/pinImageClaims/$(incarnation)).data.get('delivery', '') == 'checked-v1';
     }
 
     match /pins/{pinId} {
@@ -447,7 +459,8 @@ service cloud.firestore {
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
                        validPinAccess(request.resource.data) &&
-                       (request.resource.data.publicAccess || request.resource.data.get('imageUrls', []) == []) &&
+                       (request.resource.data.publicAccess || request.resource.data.get('imageUrls', []) == [] ||
+                        hasCheckedPinImagesAfter(request.resource.data)) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
                        hasValidPublishReceipt(pinId, request.resource.data) &&
                        validGeographySelection(request.resource.data) &&

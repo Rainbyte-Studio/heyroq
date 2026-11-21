@@ -1031,7 +1031,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     className="liquid-glass-card rounded-2xl overflow-hidden hover:border-[var(--brand-primary)]/55 cursor-pointer transition-all duration-150 group heyroq-focus-ring"
                   >
                     <div className="h-28 bg-slate-200/70 dark:bg-black/50 relative overflow-hidden">
-                      <ProfilePinImage src={pin.imageUrls?.[0]} alt={pin.title} />
+                      <ProfilePinImage src={pin.publicAccess === true ? pin.imageUrls?.[0] : undefined} alt={pin.title} />
                       <div className="absolute top-2 left-2">
                         <CategoryBadge category={pin.category} size="xs" />
                       </div>

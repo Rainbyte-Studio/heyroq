@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.reconcileAccountDeletion = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.pinImageUpload = exports.onAccountAvatarFinalized = exports.uploadProfileAvatar = exports.onUserProfileUpdated = exports.engagementV1 = exports.pruneEngagementHistory = exports.onNotificationCommand = exports.onActivityProgressionV11Level = exports.onActivityProgressionV11Xp = exports.onNotificationFollow = exports.onNotificationComment = exports.onNotificationLike = exports.onActivityPinPublished = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
+exports.deleteUserAccount = exports.reconcileAccountDeletion = exports.recalculateProgression = exports.onUserProfileUpdatedProgression = exports.onPinUpdatedProgression = exports.onPinCreatedProgression = exports.onPinDeleted = exports.reconcilePinImageCleanup = exports.onUserFollowerDeleted = exports.onUserFollowerCreated = exports.onPinCommentDeleted = exports.onPinCommentCreated = exports.onPinLikeDeleted = exports.onPinLikeCreated = exports.publicPinImageV1 = exports.pinImageAccessV1 = exports.pinImageUpload = exports.onAccountAvatarFinalized = exports.uploadProfileAvatar = exports.onUserProfileUpdated = exports.engagementV1 = exports.pruneEngagementHistory = exports.onNotificationCommand = exports.onActivityProgressionV11Level = exports.onActivityProgressionV11Xp = exports.onNotificationFollow = exports.onNotificationComment = exports.onNotificationLike = exports.onActivityPinPublished = exports.FUNCTION_REGION = exports.FIRESTORE_DATABASE_ID = void 0;
 exports.updateUserProgressionServer = updateUserProgressionServer;
 exports.updateProgressionForCreatedPin = updateProgressionForCreatedPin;
 exports.cleanAccountReports = cleanAccountReports;
@@ -15,6 +15,7 @@ const https_1 = require("firebase-functions/v2/https");
 const storage_2 = require("firebase-functions/v2/storage");
 const pinImageCleanup_1 = require("./pinImageCleanup");
 const pinImageUpload_1 = require("./pinImageUpload");
+const pinImageAccess_1 = require("./pinImageAccess");
 const engagement_1 = require("./engagement");
 const progressionLocation_1 = require("./progressionLocation");
 const geographicProgression_1 = require("./geographicProgression");
@@ -208,7 +209,33 @@ exports.onAccountAvatarFinalized = (0, storage_2.onObjectFinalized)({ bucket: av
         return;
     await deleteAvatarGeneration(event.data.name, String(event.data.generation));
 });
-exports.pinImageUpload = (0, https_1.onCall)({ region: exports.FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 }, request => (0, pinImageUpload_1.handlePinImageUpload)(db, () => storage.bucket(), request.auth, request.data));
+exports.pinImageUpload = (0, https_1.onCall)({ region: exports.FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 }, request => (0, pinImageUpload_1.handlePinImageUpload)(db, getAvatarBucket, request.auth, request.data));
+exports.pinImageAccessV1 = (0, https_1.onCall)({ region: exports.FUNCTION_REGION, memory: '512MiB', concurrency: 2, maxInstances: 4, timeoutSeconds: 30 }, request => {
+    request.rawRequest?.res?.setHeader('Cache-Control', 'private, no-store');
+    const firebase = request.auth?.token.firebase;
+    return (0, pinImageAccess_1.readRestrictedPinImage)(db, getAvatarBucket(), firebase?.sign_in_provider &&
+        firebase.sign_in_provider !== 'anonymous' && !firebase.tenant ? request.auth?.uid : undefined, request.data);
+});
+exports.publicPinImageV1 = (0, https_1.onRequest)({ region: exports.FUNCTION_REGION, memory: '512MiB', concurrency: 4, maxInstances: 12,
+    timeoutSeconds: 30, invoker: 'public' }, async (request, response) => {
+    response.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+    if (request.method !== 'GET') {
+        response.set('Allow', 'GET').sendStatus(405);
+        return;
+    }
+    const { pin, incarnation, image } = request.query;
+    if (typeof pin !== 'string' || typeof incarnation !== 'string' || typeof image !== 'string') {
+        response.sendStatus(404);
+        return;
+    }
+    try {
+        const { bytes, type } = await (0, pinImageAccess_1.readPublicPinImage)(db, getAvatarBucket(), { pin, incarnation, image });
+        response.type(type).send(bytes);
+    }
+    catch {
+        response.sendStatus(404);
+    }
+});
 function isActivePin(data) {
     return !data.isDeleted && data.status !== 'reported' && data.status !== 'removed';
 }
@@ -814,7 +841,7 @@ function scheduledWorker(timeoutSeconds, run) {
         }
     });
 }
-exports.reconcilePinImageCleanup = scheduledWorker(60, () => (0, pinImageCleanup_1.reconcilePinImages)(db, () => storage.bucket()));
+exports.reconcilePinImageCleanup = scheduledWorker(60, () => (0, pinImageCleanup_1.reconcilePinImages)(db, getAvatarBucket));
 exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
     document: 'pins/{pinId}',
     database: exports.FIRESTORE_DATABASE_ID,
@@ -855,7 +882,7 @@ exports.onPinDeleted = (0, firestore_2.onDocumentDeleted)({
     };
     const results = await Promise.allSettled([
         cleanup(),
-        deletedPin ? (0, pinImageCleanup_1.cleanupPinImages)(db, () => storage.bucket(), deletedPin, event.id) : Promise.resolve(),
+        deletedPin ? (0, pinImageCleanup_1.cleanupPinImages)(db, getAvatarBucket, deletedPin, event.id) : Promise.resolve(),
         typeof authorId === 'string' ? updateUserProgressionServer(authorId) : Promise.resolve(),
     ]);
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);

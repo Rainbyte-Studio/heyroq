@@ -9,6 +9,7 @@ import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
 import { cleanupPinImages, reconcilePinImages } from './pinImageCleanup';
 import { handlePinImageUpload, matchesImageSignature } from './pinImageUpload';
+import { readPublicPinImage, readRestrictedPinImage } from './pinImageAccess';
 import { buildEngagement } from './engagement';
 import { discoveryLocationKey, eligibleDiscoveryIds } from './progressionLocation';
 import {
@@ -238,7 +239,40 @@ export const onAccountAvatarFinalized = onObjectFinalized(
 
 export const pinImageUpload = onCall(
   { region: FUNCTION_REGION, timeoutSeconds: 60, memory: '512MiB', concurrency: 2, maxInstances: 8 },
-  request => handlePinImageUpload(db, () => storage.bucket(), request.auth, request.data),
+  request => handlePinImageUpload(db, getAvatarBucket, request.auth, request.data),
+);
+
+export const pinImageAccessV1 = onCall(
+  { region: FUNCTION_REGION, memory: '512MiB', concurrency: 2, maxInstances: 4, timeoutSeconds: 30 },
+  request => {
+    request.rawRequest?.res?.setHeader('Cache-Control', 'private, no-store');
+    const firebase = request.auth?.token.firebase;
+    return readRestrictedPinImage(db, getAvatarBucket(), firebase?.sign_in_provider &&
+      firebase.sign_in_provider !== 'anonymous' && !firebase.tenant ? request.auth?.uid : undefined, request.data);
+  },
+);
+
+export const publicPinImageV1 = onRequest(
+  { region: FUNCTION_REGION, memory: '512MiB', concurrency: 4, maxInstances: 12,
+    timeoutSeconds: 30, invoker: 'public' },
+  async (request, response) => {
+    response.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+    if (request.method !== 'GET') {
+      response.set('Allow', 'GET').sendStatus(405);
+      return;
+    }
+    const { pin, incarnation, image } = request.query;
+    if (typeof pin !== 'string' || typeof incarnation !== 'string' || typeof image !== 'string') {
+      response.sendStatus(404);
+      return;
+    }
+    try {
+      const { bytes, type } = await readPublicPinImage(db, getAvatarBucket(), { pin, incarnation, image });
+      response.type(type).send(bytes);
+    } catch {
+      response.sendStatus(404);
+    }
+  },
 );
 
 function isActivePin(data: FirebaseFirestore.DocumentData): boolean {
@@ -887,7 +921,7 @@ function scheduledWorker(timeoutSeconds: number, run: () => Promise<void>) {
 }
 
 export const reconcilePinImageCleanup = scheduledWorker(
-  60, () => reconcilePinImages(db, () => storage.bucket()),
+  60, () => reconcilePinImages(db, getAvatarBucket),
 );
 
 export const onPinDeleted = onDocumentDeleted(
@@ -931,7 +965,7 @@ export const onPinDeleted = onDocumentDeleted(
 
     const results = await Promise.allSettled([
       cleanup(),
-      deletedPin ? cleanupPinImages(db, () => storage.bucket(), deletedPin, event.id) : Promise.resolve(),
+      deletedPin ? cleanupPinImages(db, getAvatarBucket, deletedPin, event.id) : Promise.resolve(),
       typeof authorId === 'string' ? updateUserProgressionServer(authorId) : Promise.resolve(),
     ]);
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);

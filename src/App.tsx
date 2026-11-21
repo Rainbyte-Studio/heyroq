@@ -517,7 +517,15 @@ function HeyroqMainApp() {
   useEffect(() => {
     // If detailPinId is open, PinDetailModal manages its own listener directly
     if (activeFocusPinId) {
-      const unsubscribe = subscribeToPinDocument(activeFocusPinId, ({ commentCount, likeCount }) => {
+      const unsubscribe = subscribeToPinDocument(activeFocusPinId, ({ commentCount, likeCount, publicPin }) => {
+        if (!publicPin) {
+          setPins(current => current.filter(pin => pin.id !== activeFocusPinId));
+          if (selectedPinId === activeFocusPinId) {
+            setSelectedPinId(null);
+            setSelectedPinFallback(null);
+          }
+          setDetailPinFallback(current => current?.id === activeFocusPinId && isPublicPin(current) ? null : current);
+        }
         setPins((prev) =>
           prev.map((p) => {
             if (p.id !== activeFocusPinId) return p;
@@ -555,7 +563,7 @@ function HeyroqMainApp() {
         unsubscribe();
       };
     }
-  }, [activeFocusPinId, detailPinId]);
+  }, [activeFocusPinId, detailPinId, selectedPinId]);
 
   const handleToggleLikePin = async (pinId: string) => {
     if (!user) {

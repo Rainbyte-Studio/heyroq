@@ -12,6 +12,8 @@
     "onActivityProgressionV11Level": { "event": "written", "document": "progressionV11/{uid}/state/summary", "retry": true },
     "onNotificationCommand": { "event": "created", "document": "users/{uid}/notificationCommands/{id}", "retry": true },
     "engagementV1": { "callable": true, "maxInstances": 10 },
+    "pinImageAccessV1": { "callable": true, "maxInstances": 4 },
+    "publicPinImageV1": { "publicHttp": true, "timeoutSeconds": 30, "concurrency": 4, "maxInstances": 12 },
     "pruneEngagementHistory": { "privateHttp": true, "schedule": "*/15 * * * *", "timeoutSeconds": 120, "concurrency": 1, "maxInstances": 1 }
   }
 }

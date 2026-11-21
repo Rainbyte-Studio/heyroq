@@ -4,6 +4,8 @@ import { Pin, Comment } from '../../types';
 import { CategoryBadge } from '../Map/CategoryBadge';
 import { useAuth } from '../../context/AuthContext';
 import { auth } from '../../lib/firebase';
+import { isPublicPin } from '../../services/pinVisibility';
+import { usePrivatePinImage } from '../../services/privatePinImage';
 import {
   fetchComments,
   subscribeToComments,
@@ -128,6 +130,8 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
 
   const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
   const images = (pin.imageUrls || []).filter((url) => typeof url === 'string' && url.trim().length > 0);
+  const publicPin = isPublicPin(pin);
+  const privateImage = usePrivatePinImage(pin, activeImageIndex, user?.uid);
 
   useEffect(() => {
     setFailedImages(new Set());
@@ -674,7 +678,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
       : 0;
 
   const renderGallery = (isMobile: boolean) => {
-    const activeUrl = images[activeImageIndex];
+    const activeUrl = publicPin ? images[activeImageIndex] : privateImage;
     const showFallback = !activeUrl || failedImages.has(activeImageIndex);
 
     return (
@@ -742,7 +746,7 @@ export const PinDetailModal: React.FC<PinDetailModalProps> = ({
         </div>
 
         {/* Thumbnail navigation */}
-        {images.length > 1 && (
+        {publicPin && images.length > 1 && (
           <div className="absolute bottom-3 inset-x-0 flex justify-center gap-2 px-4 z-10">
             {images.map((img, i) => (
               <button
