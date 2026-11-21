@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join as joinPath } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
@@ -48,7 +48,7 @@ async function waitForRemoval(file) {
   assert.fail('Storage cleanup did not remove ' + file.name);
 }
 
-const outDir = await mkdtemp(join(tmpdir(), 'heyroq-browser-'));
+const outDir = await mkdtemp(joinPath(tmpdir(), 'heyroq-browser-'));
 let browser;
 let server;
 try {
@@ -202,7 +202,7 @@ try {
     assert.ok(await textContrast(geography) >= 4.5, `selected filter text passes at ${width}px`);
     if (screenshotDir && width !== 768) {
       await page.screenshot({
-        path: join(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
+        path: joinPath(screenshotDir, `geography-${width}-${dark ? 'dark' : 'light'}.png`),
         animations: 'disabled',
       });
     }
@@ -230,7 +230,7 @@ try {
   assert.deepEqual((await historical.get()).data(), history);
   assert.deepEqual((await legacyProgress.get()).data(), { progress: 10, isUnlocked: false });
   if (screenshotDir) {
-    await page.screenshot({ path: join(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
+    await page.screenshot({ path: joinPath(screenshotDir, 'geography-historical-dark.png'), animations: 'disabled' });
   }
   await modal.getByRole('button', { name: /^All Badges/ }).click();
   assert.equal(await modal.getByRole('article').count(), 26);
@@ -535,7 +535,7 @@ try {
     if (width < 768) assert.equal(bounds.width, width);
     assert.ok(await inbox.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
     if (screenshotDir && width !== 768) {
-      await page.screenshot({ path: join(screenshotDir, 'notifications-' + width + (dark ? '-dark' : '-light') + '.png'), animations: 'disabled' });
+      await page.screenshot({ path: joinPath(screenshotDir, 'notifications-' + width + (dark ? '-dark' : '-light') + '.png'), animations: 'disabled' });
     }
   }
   await inbox.getByRole('button', { name: 'Mark all as read' }).click();
@@ -555,7 +555,7 @@ try {
   assert.equal(await activityPanel.getByRole('listitem').count(), 24);
   await activityPanel.getByRole('button', { name: 'Load more' }).click();
   await page.waitForFunction(() => document.querySelectorAll('dialog[open] ol li').length === 26);
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
+  if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
   await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
   await userMenu.click();
   const settingsLink = page.getByRole('menuitem', { name: 'Notifications & Activity' });
@@ -570,7 +570,7 @@ try {
   await settingsLink.click();
   await likes.waitFor();
   assert.equal(await likes.isChecked(), false);
-  if (screenshotDir) await page.screenshot({ path: join(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
+  if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
   await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
   console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');

@@ -171,7 +171,7 @@ function HeyroqMainApp() {
   const [focusedAchievement, setFocusedAchievement] = useState<string>();
   const [engagementView, setEngagementView] = useState<EngagementView | null>(null);
   const [engagementState, setEngagementState] = useState<{ uid: string; unread: number; revision: number; offline: boolean } | null>(null);
-  const engagementUid = user && !user.isAnonymous && profile && !needsProfile ? user.uid : undefined;
+  const engagementUid = user && !user.isAnonymous && profile?.id === user.uid && !needsProfile ? user.uid : undefined;
   const unread = engagementState?.uid === engagementUid ? engagementState?.unread ?? 0 : 0;
   const closeEngagement = useCallback(() => setEngagementView(null), []);
   useEffect(() => {

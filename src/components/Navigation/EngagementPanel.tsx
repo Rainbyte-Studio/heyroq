@@ -208,7 +208,10 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
     setError('');
     try { await changeNotification(operation, row?.id); }
     catch { setError('Your inbox could not be updated.'); }
-    finally { setBusy(false); }
+    finally {
+      setBusy(false);
+      if (document.activeElement === document.body) closeRef.current?.focus();
+    }
   }
 
   async function open(row: EngagementRow) {
@@ -254,6 +257,13 @@ export function EngagementPanel({ uid, view, setView, close, unread, revision, o
           <button type="button" disabled={busy} onClick={() => void open(row)}
             className="heyroq-focus-ring flex w-full min-h-12 items-center gap-3 rounded-xl px-2 py-1.5 text-left text-sm">{detail}</button>
         ) : <div className="flex min-h-12 items-center gap-3 px-2 py-1.5 text-sm">{detail}</div>}
+        {view === 'following' && row.actorId && row.name && destination?.type === 'pin' && (
+          <button type="button" className={button + ' ml-[52px] text-xs ' + secondary}
+            aria-label={'Open ' + row.name + '’s profile'}
+            disabled={busy} onClick={() => void open({ ...row, pinId: undefined, achievementId: undefined })}>
+            View profile
+          </button>
+        )}
         {isInbox && (
           <div className={'flex flex-wrap justify-end gap-x-1 text-xs ' + secondary}>
             {!row.read && <button className={button} type="button" disabled={busy || offline} onClick={() => void mutate('read', row)}>Mark as read</button>}

@@ -146,7 +146,7 @@ test('reads only committed progressionV11 events and revalidates every Following
   assert.equal(timeline.find(row => row.type === 'city').title, 'Athens');
   assert.deepEqual((await call(owner, 'inbox')).items.map(row => row.type).sort(), ['achievement', 'geography', 'level']);
   await link(viewer, owner);
-  assert.equal((await call(viewer, 'following')).items.length, 0);
+  assert.deepEqual(await call(viewer, 'following'), { items: [], next: null, limited: false });
   await prefs(owner).set({ shareActivity: true, shareAchievements: true, shareGeography: true });
   const feed = (await call(viewer, 'following')).items;
   assert.deepEqual(feed.map(row => row.type).sort(), ['achievement', 'city', 'country', 'pin']);

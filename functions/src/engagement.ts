@@ -256,7 +256,8 @@ export function buildEngagement(db: Firestore, database: string, region: string)
   async function changeInbox(uid: string, action: 'read' | 'delete' | 'readAll' | 'expire', id?: string) {
     return db.runTransaction(async tx => {
       const [profile, deletion, summary] = await tx.getAll(user(uid), lock(uid), state(uid));
-      if (!allowedAccount(profile, deletion)) return;
+      const active = allowedAccount(profile, deletion);
+      if (!active && action !== 'expire') throw new HttpsError('permission-denied', 'Inbox is unavailable.');
       const inboxState = summary.data() ?? {};
       const unread = Number(inboxState.unread) || 0;
       const readThrough = Number(inboxState.readThrough) || 0;
@@ -272,7 +273,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       if (action === 'expire') {
         if (item.get('expiresAt')?.toMillis() > Date.now()) return;
         tx.delete(item.ref);
-        if (item.get('deleted')) return;
+        if (!active || item.get('deleted')) return;
       } else {
         if (item.get('deleted') || (action === 'read' && !wasUnread)) return;
         if (action === 'delete') tx.set(item.ref, { deleted: true, expiresAt: item.get('expiresAt') });
@@ -341,25 +342,26 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       tx.get(control),
       following ? tx.get(user(uid).collection('following').orderBy('createdAt', 'desc').limit(FOLLOW_LIMIT + 1)) : undefined,
     ]);
-    const actors = relationships?.docs.slice(0, FOLLOW_LIMIT).map(doc => doc.id) ?? [uid];
+    const candidates = relationships?.docs.slice(0, FOLLOW_LIMIT).map(doc => doc.id) ?? [];
+    const sharing = new Map<string, FirebaseFirestore.DocumentData>();
+    if (candidates.length) {
+      const settings = await tx.getAll(...candidates.map(prefs));
+      for (const setting of settings) {
+        const data = setting.data();
+        if (data && preferenceEnabled(data, 'shareActivity')) sharing.set(setting.ref.parent.parent!.id, data);
+      }
+    }
+    const actors = following ? [...sharing.keys()] : [uid];
     const chunks = Array.from({ length: Math.ceil(actors.length / 30) }, (_, i) => actors.slice(i * 30, i * 30 + 30));
-    const pages = await Promise.all(chunks.map(ids => {
-      const collection = following
-        ? db.collectionGroup(privateCollection).where('actorId', 'in', ids).where('eligible', '==', true)
-        : activity(uid);
-      const ordered = collection.orderBy('key', 'desc').limit(PAGE_SIZE);
-      return tx.get(before ? ordered.startAfter(before) : ordered);
-    }));
-    const window = pages.flatMap(page => page.docs)
-      .sort((a, b) => b.get('key').localeCompare(a.get('key'))).slice(0, PAGE_SIZE);
     const cutoff = declaredCutoff(config);
-    const rows = await Promise.all(window.map(async entry => {
+    async function present(entry: DocumentSnapshot) {
       const actorId = entry.get('actorId');
       const type: ActivityType = entry.get('type');
       const at = entry.get('at').toMillis();
       if (at <= Date.now() - HISTORY_DAYS * DAY || (type !== 'pin' && at < cutoff)) return;
-      const [profile, deletion, settings] = await tx.getAll(user(actorId), lock(actorId), prefs(actorId));
-      if (!allowedAccount(profile, deletion) || (following && !shareActivity(settings.data(), type))) return;
+      if (following && !shareActivity(sharing.get(actorId), type)) return;
+      const [profile, deletion] = await tx.getAll(user(actorId), lock(actorId));
+      if (!allowedAccount(profile, deletion)) return;
       const pin = await activePin(tx, entry, actorId);
       const geography = type === 'city' || type === 'country';
       if ((type === 'pin' || geography) && !pin) return;
@@ -379,9 +381,34 @@ export function buildEngagement(db: Firestore, database: string, region: string)
         ...(achievement ? { achievementId: aid, title: label(achievement.get('title')) } : {}),
         ...(!following ? { xp: entry.get('xp') ?? null, level: entry.get('level') ?? null } : {}),
       };
-    }));
-    return { items: rows.filter(Boolean), next: window.length === PAGE_SIZE ? window.at(-1)?.get('key') : null,
-      limited: (relationships?.size ?? 0) > FOLLOW_LIMIT };
+    }
+
+    const items = [];
+    let scanAfter = before;
+    let lastVisibleKey: string | null = null;
+    // Keep the cursor tied to visible content. Hidden records must not disclose
+    // their existence or timestamps through the pagination response.
+    for (let attempt = 0; attempt < 3 && items.length < PAGE_SIZE; attempt++) {
+      const pages = await Promise.all(chunks.map(ids => {
+        const collection = following
+          ? db.collectionGroup(privateCollection).where('actorId', 'in', ids).where('eligible', '==', true)
+          : activity(uid);
+        const query = collection.orderBy('key', 'desc').limit(PAGE_SIZE);
+        return tx.get(scanAfter ? query.startAfter(scanAfter) : query);
+      }));
+      const window = pages.flatMap(page => page.docs)
+        .sort((a, b) => b.get('key').localeCompare(a.get('key'))).slice(0, PAGE_SIZE);
+      const rows = await Promise.all(window.map(present));
+      for (const [index, row] of rows.entries()) {
+        if (!row) continue;
+        items.push(row);
+        lastVisibleKey = window[index].get('key');
+        if (items.length === PAGE_SIZE) break;
+      }
+      if (window.length < PAGE_SIZE) break;
+      scanAfter = window.at(-1)?.get('key');
+    }
+    return { items, next: items.length === PAGE_SIZE ? lastVisibleKey : null, limited: (relationships?.size ?? 0) > FOLLOW_LIMIT };
   }
 
   async function prune() {
