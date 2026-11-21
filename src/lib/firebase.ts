@@ -5,6 +5,7 @@ import {
   connectFirestoreEmulator,
   getFirestore,
   persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
@@ -39,7 +40,7 @@ try {
     app,
     {
       experimentalAutoDetectLongPolling: true,
-      localCache: persistentLocalCache({}),
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     },
     firebaseConfig.firestoreDatabaseId
   );

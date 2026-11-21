@@ -539,9 +539,7 @@ try {
   for (const companion of [secondTab, independentPage]) {
     await companion.goto(origin + '/tests/browser/index.html');
     await companion.waitForFunction(() => Boolean(window.heyroqTest));
-    if (companion === independentPage) {
-      await companion.evaluate(email => window.heyroqTest.signIn(email, 'username-test-password'), engagementEmail);
-    }
+    await companion.evaluate(email => window.heyroqTest.signIn(email, 'username-test-password'), engagementEmail);
     await companion.evaluate(() => window.heyroqTest.mountSearchApp());
     await companion.getByRole('button', { name: 'Notifications, 2 unread' }).waitFor();
   }
