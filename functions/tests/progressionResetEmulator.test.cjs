@@ -38,6 +38,18 @@ test('reset refuses old publication evidence, preserves profile fields, and runs
     assert.equal(inventory.writes, 4);
     assert.equal((await ledger.get()).exists, true);
 
+    const marker = db.doc('progressionMaintenance/geography-v11-reset');
+    const logical = JSON.parse((await run('initialize-frozen-generation')).stdout);
+    assert.equal(logical.writes, 1);
+    assert.equal(logical.legacyRecordsRetained, 3);
+    assert.equal((await summary.get()).get('xp'), 450);
+    assert.equal((await cityBadge.get()).get('isUnlocked'), true);
+    assert.equal((await ledger.get()).get('xpEarned'), 25);
+    assert.match((await run('initialize-frozen-generation')).stdout, /already exists/);
+    assert.equal((await db.doc('progressionV11/reset-fixture/state/summary').get()).exists, false);
+    // Run the separate physical-cleanup rehearsal on this synthetic fixture.
+    await marker.delete();
+
     const { stdout } = await run();
     const report = JSON.parse(stdout);
     assert.equal(report.unlockedGeography, 1);

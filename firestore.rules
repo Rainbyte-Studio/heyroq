@@ -188,6 +188,10 @@ service cloud.firestore {
       return !exists(control) || get(control).data.mode == 'running';
     }
 
+    function legacyProgressionReadable() {
+      return !exists(/databases/$(database)/documents/progressionMaintenance/geography-v11-reset);
+    }
+
     // Server-owned tombstones prevent recreation during and after deletion.
     match /accountDeletionLocks/{userId} {
       allow read, write: if false;
@@ -248,21 +252,21 @@ service cloud.firestore {
       // Explorer Progression Summary: users/{userId}/progression/{docId}
       // SERVER-AUTHORITATIVE: Client reads permitted; all client writes strictly denied.
       match /progression/{docId} {
-        allow read: if true;
+        allow read: if legacyProgressionReadable();
         allow write: if false;
       }
 
       // Explorer Achievements: users/{userId}/achievements/{achievementId}
       // SERVER-AUTHORITATIVE: Client reads permitted; all client writes strictly denied.
       match /achievements/{achievementId} {
-        allow read: if true;
+        allow read: if legacyProgressionReadable();
         allow write: if false;
       }
 
       // Explorer XP Event Ledger: users/{userId}/xpEvents/{eventId}
       // SERVER-AUTHORITATIVE: Owner reads permitted; all client writes strictly denied.
       match /xpEvents/{eventId} {
-        allow read: if isOwner(userId) || isAdmin();
+        allow read: if legacyProgressionReadable() && (isOwner(userId) || isAdmin());
         allow write: if false;
       }
     }

@@ -1,10 +1,8 @@
 import {
   doc,
-  getDoc,
   getDocs,
   collection,
   query,
-  where,
   orderBy,
   limit,
   onSnapshot,
@@ -434,51 +432,6 @@ export async function fetchUserXpEvents(userId: string, count = 10): Promise<XpE
     console.warn('Error fetching XP events:', err);
     return [];
   }
-}
-
-/**
- * @deprecated Server-authoritative architecture: progression is calculated exclusively by Cloud Functions.
- * Client writes to progression documents are strictly prohibited by Firestore rules.
- * This helper calculates progression purely in-memory for preview/dry-run purposes and does NOT execute any write to Firestore.
- */
-export async function syncUserProgression(
-  userId: string,
-  knownPins?: Pin[]
-): Promise<UserProgressionSummary> {
-  if (!userId) {
-    return getDefaultProgressionSummary('');
-  }
-
-  let pinsToUse: Pin[] = knownPins || [];
-  if (!knownPins || knownPins.length === 0) {
-    try {
-      const q = query(
-        collection(db, 'pins'),
-        where('userId', '==', userId),
-        limit(200)
-      );
-      const snap = await getDocs(q);
-      pinsToUse = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Pin, 'id'>),
-      }));
-    } catch (err) {
-      console.warn('Error reading pins for in-memory preview:', err);
-    }
-  }
-
-  let userProfile: Partial<UserProfile> | null = null;
-  try {
-    const userDoc = await getDoc(doc(db, 'users', userId));
-    if (userDoc.exists()) {
-      userProfile = userDoc.data() as UserProfile;
-    }
-  } catch (err) {
-    console.warn('Error reading profile for in-memory preview:', err);
-  }
-
-  const { summary } = calculateProgression(userId, pinsToUse, userProfile);
-  return summary;
 }
 
 // Helpers

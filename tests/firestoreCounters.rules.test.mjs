@@ -70,6 +70,12 @@ it('only server SDKs can write progression and receipts, including for admin cli
   await assertSucceeds(getDoc(doc(alice(), activeReceipt)));
   await assertSucceeds(getDoc(doc(admin, activeReceipt)));
   await assertFails(getDoc(doc(bob(), activeReceipt)));
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'progressionMaintenance/geography-v11-reset'), { generation: 'progressionV11' });
+  });
+  await assertFails(getDoc(doc(alice(), receiptPath)));
+  await assertFails(getDoc(doc(admin, receiptPath)));
+  await assertSucceeds(getDoc(doc(alice(), activeReceipt)));
 });
 
 it('follow and unfollow preserve both records in the same batch', async () => {

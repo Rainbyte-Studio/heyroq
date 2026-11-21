@@ -4,9 +4,10 @@ import { resolve } from 'node:path';
 
 const [mode, backupPath, ...extra] = process.argv.slice(2);
 const noBackup = mode === 'rehearse-no-backup';
-if (extra.length || (mode === 'inventory' || noBackup ? backupPath !== undefined :
+const initialize = mode === 'initialize-frozen-generation';
+if (extra.length || (mode === 'inventory' || noBackup || initialize ? backupPath !== undefined :
     !['plan', 'rehearse'].includes(mode) || !backupPath)) {
-  throw new Error('Usage: node scripts/reset-explorer-progression.mjs inventory | rehearse-no-backup | plan|rehearse NEW_BACKUP_PATH');
+  throw new Error('Usage: inventory | initialize-frozen-generation | rehearse-no-backup | plan|rehearse NEW_BACKUP_PATH');
 }
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
@@ -14,14 +15,16 @@ if (emulator && !/^(127\.0\.0\.1|localhost):\d+$/.test(emulator)) {
   throw new Error('Expected a local Firestore emulator');
 }
 const readOnly = mode === 'inventory' || mode === 'plan';
-if (!readOnly && !emulator) throw new Error('Writes require a local emulator');
+if (!readOnly && !initialize && !emulator) throw new Error('Physical cleanup requires a local emulator');
 
 const project = emulator ? 'demo-heyroq' : 'rainbyte-studio';
 const database = `projects/${project}/databases/ai-studio-heyroq-1fe92aa9-dbc6-4461-813f-e3a63d7e92a3`;
 const root = `${database}/documents`;
 const base = emulator ? `http://${emulator}` : 'https://firestore.googleapis.com';
-const token = emulator ? 'owner' : process.env.HEYROQ_FIRESTORE_READ_TOKEN;
-if (!token) throw new Error('A Firestore read access token is required');
+const token = emulator ? 'owner' : initialize
+  ? process.env.HEYROQ_FIRESTORE_RELEASE_TOKEN
+  : process.env.HEYROQ_FIRESTORE_READ_TOKEN;
+if (!token) throw new Error('An authorized Firestore session is required');
 
 async function request(path, body) {
   const response = await fetch(`${base}/v1/${path}`, {
@@ -53,13 +56,27 @@ async function inspect(transaction) {
     query(root, 'posts', 1), query(root, 'progressionMaintenance', 500),
   ]);
   if (users.length === 500 || markers.length === 500) throw new Error('Inventory exceeds supported size');
-  if (markers.some(document => document.name === marker)) return { alreadyApplied: true };
+  const existing = markers.find(document => document.name === marker);
+  if (existing) {
+    if (initialize && existing.fields?.generation?.stringValue !== 'progressionV11') {
+      throw new Error('Reset marker belongs to a different generation');
+    }
+    return { alreadyApplied: true, cutoffAfter: existing.createTime };
+  }
   const control = markers.find(document => document.name === writerControl);
   if (!readOnly && (control?.fields?.schemaVersion?.integerValue !== '1' ||
       control.fields?.mode?.stringValue !== 'frozen')) {
     throw new Error('Reset requires an explicit writer freeze');
   }
   if (pins.length || posts.length) throw new Error('Preserved pins or posts require epoch-aware writers before reset');
+  if (initialize) {
+    for (const user of users) {
+      const parent = `${root}/progressionV11/${user.name.split('/').at(-1)}`;
+      const active = await Promise.all(['state', 'achievements', 'xpEvents']
+        .map(collection => query(parent, collection, 1)));
+      if (active.some(collection => collection.length)) throw new Error('Active progression already exists');
+    }
+  }
   const records = [];
   const profiles = [];
   for (const user of users) {
@@ -116,7 +133,7 @@ let committed = false;
 try {
   const plan = await inspect(transaction);
   if (plan.alreadyApplied) {
-    console.log('Reset marker already exists');
+    console.log(JSON.stringify({ status: 'Reset marker already exists', cutoffAfter: plan.cutoffAfter }));
   } else {
     const { records, profiles, writes, ...counts } = plan;
     let checksum;
@@ -136,16 +153,20 @@ try {
     if (!readOnly) {
       const fields = { resetVersion: { integerValue: '1' }, generation: { stringValue: 'progressionV11' } };
       if (checksum) fields.backupSha256 = { stringValue: checksum };
-      await request(`${root}:commit`, {
+      const result = await request(`${root}:commit`, {
         transaction,
-        writes: [...writes, {
+        writes: [...(initialize ? [] : writes), {
           update: { name: marker, fields },
           currentDocument: { exists: false },
         }],
       });
       committed = true;
+      if (initialize) {
+        console.log(JSON.stringify({ ...counts, legacyRecordsRetained: records.length,
+          writes: 1, cutoffAfter: result.commitTime }));
+      }
     }
-    console.log(JSON.stringify({ ...counts, writes: writes.length, backupSha256: checksum }));
+    if (!initialize) console.log(JSON.stringify({ ...counts, writes: writes.length, backupSha256: checksum }));
   }
 } finally {
   if (!committed) await request(`${root}:rollback`, { transaction });

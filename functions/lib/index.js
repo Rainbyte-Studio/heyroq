@@ -250,7 +250,7 @@ async function syncUserProgression(userId, publication, concurrencyRetry = 0, or
     const reset = receipt && requiresResetProof ? await progressionReset.get() : undefined;
     const resetVerified = reset?.createTime && policy &&
         reset.createTime.toMillis() < policy.startsAtMs &&
-        (reset.get('resetVersion') === 1 || /^[a-f0-9]{64}$/.test(reset.get('backupSha256') ?? ''));
+        reset.get('resetVersion') === 1 && reset.get('generation') === progressionGeneration.id;
     const geographic = pin && receipt && policy && (!requiresResetProof || resetVerified)
         ? { pin, receipt, policy }
         : undefined;
@@ -282,12 +282,20 @@ async function syncUserProgression(userId, publication, concurrencyRetry = 0, or
         }
     });
     const activeSpotsCount = validPins.length;
-    // 2. Fetch user profile for followers & completeness
-    const userDoc = await db.collection('users').doc(userId).get();
+    // Shared counters can have been updated by a legacy revision. For rewards,
+    // count actual relationship records created after the generation cutoff.
+    const userRef = db.collection('users').doc(userId);
+    const [userDoc, followers] = await Promise.all([
+        userRef.get(), userRef.collection('followers').get(),
+    ]);
     const userData = userDoc.exists ? userDoc.data() : null;
-    const followersCount = Number(userData?.followersCount) || 0; // DYNAMIC: Current followers
-    // Engagement metrics: aggregate likes across surviving pins
-    const likesReceived = validPins.reduce((acc, p) => acc + (Number(p.likeCount) || 0), 0); // DYNAMIC: Current likes
+    const followersCount = followers.docs.filter(doc => doc.createTime.toMillis() >= startsAt).length;
+    let likesReceived = 0;
+    const generationPins = pinsSnap.docs.filter(doc => doc.createTime.toMillis() >= startsAt && isActivePin(doc.data()));
+    for (const published of generationPins) {
+        const likes = await published.ref.collection('likes').get();
+        likesReceived += likes.docs.filter(doc => doc.createTime.valueOf() >= published.createTime.valueOf()).length;
+    }
     // Category metrics across current active spots
     let hiddenGemsCount = 0;
     let foodCount = 0;
@@ -527,7 +535,7 @@ async function syncUserProgression(userId, publication, concurrencyRetry = 0, or
     const trustedLikeCount = existingMap.get(trustedVoice.id)?.isUnlocked ||
         earnedAchievementEvents.has((0, progressionConfig_1.getAchievementEventId)(trustedVoice.id))
         ? trustedVoice.target
-        : await (0, progressionEvidence_1.countTrustedLikes)(db, userId, pinsSnap.docs, trustedVoice.target);
+        : await (0, progressionEvidence_1.countTrustedLikes)(db, userId, generationPins, trustedVoice.target);
     const metricContext = {
         totalSpots: lifetimeSpotsCount, // Historical lifetime spots
         citiesCount: verifiedCities.size,

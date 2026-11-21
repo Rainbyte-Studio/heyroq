@@ -95,7 +95,7 @@ test('legacy ledger writes and delayed publications cannot seed the new generati
   const uid = 'generation-barrier-fixture';
   const user = db.doc(`users/${uid}`);
   const current = generation(user);
-  await user.set({ displayName: 'Generation barrier fixture' });
+  await user.set({ displayName: 'Generation barrier fixture', followersCount: 900 });
   const historical = await createGeographicPin('generation-old-pin', uid);
   const control = {
     schemaVersion: 1, mode: 'running', generation: 'progressionV11',
@@ -122,7 +122,7 @@ test('legacy ledger writes and delayed publications cannot seed the new generati
     assert.equal((await historical.ref.get()).exists, true);
     assert.equal((await user.get()).get('pinsCount'), 1);
 
-    const fresh = await createGeographicPin('generation-new-pin', uid, '3169070');
+    const fresh = await createGeographicPin('generation-new-pin', uid, '3169070', { likeCount: 900 });
     await Promise.all([onPinCreatedProgression.run({ data: fresh }), onPinCreatedProgression.run({ data: fresh })]);
     assert.equal((await summary.get()).get('xp'), 175);
   } finally {
@@ -144,7 +144,7 @@ test('deployed pin entry point requires reset proof and a post-reset cutoff', as
     await deliver(oldPin);
     assert.equal((await geoEvents(user)).length, 0);
 
-    const proof = await marker.create({ resetVersion: 1 });
+    const proof = await marker.create({ resetVersion: 1, generation: 'progressionV11' });
     const cutoff = Math.ceil(proof.writeTime.toMillis()) + 1;
     await writerControl.set({ ...state, geographyStartsAtMs: cutoff });
     await deliver(oldPin);
@@ -810,7 +810,11 @@ test('a slower recomputation cannot publish metrics read before a newer summary 
   const slower = updateUserProgressionServer(uid);
   try {
     await staleRead.promise;
-    await pin.update({ likeCount: 12 });
+    const batch = db.batch();
+    for (let index = 0; index < 12; index++) {
+      batch.create(pin.collection('likes').doc(`concurrent-like-${index}`), {});
+    }
+    await batch.commit();
     await updateUserProgressionServer(uid);
     assert.equal((await metrics.get()).get('likesReceivedCount'), 12);
   } finally {

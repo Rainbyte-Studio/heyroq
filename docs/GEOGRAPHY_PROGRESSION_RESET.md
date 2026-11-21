@@ -1,12 +1,10 @@
 # Geography v1.1 progression reset
 
-The reset drops old progression for existing profiles. The client displays
-Level 1 and 0 XP when the summary is absent. Missing achievements use the
-locked catalog defaults. The migration deletes the existing per-user
-`progression`, `achievements`, and `xpEvents` documents, and removes only
-the two legacy profile fields `citiesCount` and `countriesCount`. Auth,
-user documents, usernames, photos, pins, posts, follows, and publication
-receipts remain outside the deletion scope.
+Activation establishes a fresh authoritative generation and leaves legacy
+summaries, achievements and XP events untouched. The client displays Level 1
+and 0 XP when the active summary is absent. Missing achievements use locked
+catalog defaults. The activation marker closes legacy progression client reads.
+Account, username, profile, pin, photo and relationship records are preserved.
 
 ## Inventory and rehearsal
 
@@ -14,7 +12,7 @@ Run `node scripts/reset-explorer-progression.mjs inventory`
 with a short-lived Firestore read token supplied through
 `HEYROQ_FIRESTORE_READ_TOKEN`. The named production database is fixed.
 The command prints counts from a read-only transaction and creates no
-backup or file. It has no production write mode.
+backup or file. This command does not write production data.
 
 The script's `rehearse-no-backup` mode requires the loopback emulator, an explicit
 `{schemaVersion: 1, mode: "frozen"}` control document, and uses
@@ -49,26 +47,19 @@ any data or runtime path outside the reviewed inventory.
    update when provisioned. Inspect comment handlers and account-deletion
    intake, Gen1 Auth deletion and queued deletion work for cascades.
    Preserve delivery for non-progression side effects during the freeze.
-3. Establish that tagged URLs and all other legacy destinations are
-   unreachable, that in-flight legacy requests have drained, and that
-   queued deliveries resolve only to safe runtimes. Keep the destination
-   service, trigger, filters and subscription intact across in-place source
-   updates. Verify there are no old revision routes or tags. Confirm old
-   revision instance counts have reached zero with current metrics and
-   account for monitoring latency. An HTTP timeout can leave an old instance
-   executing. Inspect Scheduler dispatches and held account-deletion leases.
-   Compare Firestore audit evidence during the freeze if available. Verify the rollback
-   destinations too. A client write freeze or 100% latest-revision
-   traffic alone does not establish these conditions. Use an explicit
-   cutoff enforced on the persisted pin creation timestamp and reject
-   delayed pre-cutoff Geography awards.
-4. Under the verified freeze, repeat the inventory and check exact paths
-   in memory. Use the inspected transaction and document version
-   preconditions for the reset, with the versioned marker created atomically.
-   Verify counts after the commit while writers are frozen and reconcile
-   the protected account, profile and content inventory. The authorized
-   cutover creates no backup and leaves prior artifacts untouched. On drift,
-   stop and repeat the inventory after resolving the cause.
+3. Verify that every route can reach only the intended compatible revision
+   for new invocations, and that the account-deletion worker has no active
+   lease on a preserved profile. Keep stable Eventarc and Scheduler targets.
+   A delayed legacy progression write confined to its old paths is harmless.
+   No assumption about old process retirement is needed for those writes.
+4. After the compatible Rules and frontend are verified, run
+   `node scripts/reset-explorer-progression.mjs initialize-frozen-generation`
+   using `HEYROQ_FIRESTORE_RELEASE_TOKEN` in the authorized operator session.
+   Expect one marker write and a returned server commit time. The command
+   verifies that the generation is empty and the control is frozen. A
+   repeat reports the existing marker and cutoff without changing any data.
+   Leave legacy records in place. An inventory or rollout mismatch keeps the
+   generation frozen. Reconcile forward with the generation-compatible build.
 5. Run full CI on the exact merge candidate. Use
    `HEYROQ_GEOGRAPHY_V11_CAPABLE=true` only on an explicitly authorized
    Geography award runtime. Set the server control's `geographyStartsAtMs` to
@@ -133,15 +124,12 @@ ledger for a legitimate account deletion.
    Recover forward from the pinned compatible artifact and repeat the
    comparison. During maintenance a new entry point can accept a delayed
    event without awarding it because the active generation is frozen.
-5. Before a physical purge of old paths, require positive retirement
-   evidence for old execution, existing leases and legacy routes. A
-   namespace can make stale writes irrelevant to the new generation, but
-   it cannot stop a legacy process from rewriting its old documents or
-   modifying preserved records through its other permissions.
-   Do not use temporary account-deletion tombstones as a fence. The legacy
-   avatar finalize handler treats the presence of a deletion lock as
-   authority to delete a newly uploaded avatar.
-6. After a verified reset, set `generation: "progressionV11"` and
+5. Verify that any remaining legacy executions are confined to the inactive
+   paths. Legacy account-deletion work can affect preserved profiles and
+   must be checked independently. Do not use temporary account-deletion
+   tombstones as a fence because legacy avatar finalize can remove a file
+   when its owner has a tombstone. Defer the legacy physical purge.
+6. After verified logical initialization, set `generation: "progressionV11"` and
    `progressionStartsAtMs` to a server-controlled cutoff at or after
    the reset. Verify that legacy inputs are absent before reopening.
    The running control requires both fields. Continue to use the
@@ -149,7 +137,16 @@ ledger for a legitimate account deletion.
    routing, resume the Scheduler job using the same command with
    `resume` in place of `pause` and expect state ENABLED.
 
-Current production still routes the twelve scoped services to their
-original source. The local reset rehearsal performs the selective delete;
-the production inventory command is read-only. Maintenance and routing have
-not been established in production.
+The PR frontend artifact is a smoke build without the production Maps key.
+Use the Frontend Release Candidate workflow's `production_profile` dispatch
+input for the exact reviewed revision. Expect
+`geography-v11-maps-configured` in `BUILD_PROFILE` and verify its artifact
+checksum and the published origin. Provision a production-configured immutable
+image and verify the live service is compatible with its entrypoint before
+routing traffic. An active Geography badge build should only serve once the
+award endpoint and Rules are ready.
+
+Legacy cleanup is a separate future operation. Inventory and remove only
+old-generation documents after confirming that no supported reader relies on
+them and all legacy writers and leases have retired. The release command does
+not delete historical progression.
