@@ -509,6 +509,7 @@ try {
   await ownerProfile.getByRole('button', { name: 'Save Profile' }).click();
   const profileHeader = ownerProfile.locator('header');
   await profileHeader.getByText('@second_handle', { exact: true }).waitFor();
+  assert.equal(await profileHeader.evaluate(header => getComputedStyle(header).backdropFilter), 'blur(24px) saturate(1.4)');
   assert.equal((await db.doc('usernames/first_handle').get()).exists, false);
   assert.equal((await db.doc('usernames/second_handle').get()).get('uid'), claim.get('uid'));
 
@@ -561,6 +562,8 @@ try {
   await profileSettingsLink.click();
   const engagementSettings = page.locator('#heyroq-settings-window');
   const closeSettings = engagementSettings.getByRole('button', { name: 'Close Settings' });
+  const settingsHeader = engagementSettings.locator('header.liquid-glass-nav');
+  assert.equal(await settingsHeader.evaluate(header => getComputedStyle(header).backdropFilter), 'blur(24px) saturate(1.4)');
   await engagementSettings.getByRole('switch', { name: 'Share public activity with followers' }).waitFor();
   await closeSettings.click();
   await ownPinProfile.waitFor({ state: 'hidden' });

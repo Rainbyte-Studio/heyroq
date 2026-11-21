@@ -275,11 +275,12 @@
    - Interior cards, inputs, pills & segmented controls remain solid editorial surfaces
    ========================================================================== */
 
+/* Keep the standard backdrop-filter last so the production CSS optimizer preserves it. */
 .liquid-glass-nav,
 .heyroq-window-header {
   background-color: var(--glass-nav-bg);
-  backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-nav-blur)) saturate(var(--glass-saturation));
   border-bottom: 1px solid var(--glass-border);
   box-shadow: var(--heyroq-glass-highlight);
 }
@@ -291,32 +292,32 @@
 
 .liquid-glass-panel {
   background-color: var(--glass-sidebar-bg);
-  backdrop-filter: blur(var(--glass-sidebar-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-sidebar-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-sidebar-blur)) saturate(var(--glass-saturation));
   border-color: var(--glass-border);
   box-shadow: var(--glass-shadow), var(--heyroq-glass-highlight);
 }
 
 .liquid-glass-floating {
   background-color: var(--glass-floating-bg);
-  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   border: 1px solid var(--glass-border-strong);
   box-shadow: var(--glass-shadow), var(--heyroq-glass-highlight);
 }
 
 .liquid-glass-popover {
   background-color: var(--glass-floating-bg);
-  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   border: 1px solid var(--glass-border-strong);
   box-shadow: var(--heyroq-shadow-popover), var(--heyroq-glass-highlight);
 }
 
 .liquid-glass-modal {
   background-color: var(--heyroq-glass-modal-bg);
-  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   border: 1px solid var(--glass-border-strong);
   box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
 }
@@ -324,15 +325,15 @@
 /* Sibling modal glass backdrop layer — keeps outer dialog free of ancestor backdrop-filter so sticky .liquid-glass-nav headers blur scrolled content natively */
 .liquid-glass-modal-surface {
   background-color: var(--heyroq-glass-modal-bg);
-  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   box-shadow: var(--heyroq-glass-highlight);
 }
 
 .liquid-glass-sheet {
   background-color: var(--heyroq-glass-modal-bg);
-  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   -webkit-backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-floating-blur)) saturate(var(--glass-saturation));
   border-top: 1px solid var(--glass-border-strong);
   box-shadow: var(--heyroq-shadow-modal), var(--heyroq-glass-highlight);
 }
@@ -709,8 +710,8 @@ summary:focus-visible {
   .liquid-glass-sheet,
   .liquid-glass-pill,
   .liquid-glass-backdrop {
-    backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
 
@@ -742,8 +743,8 @@ summary:focus-visible {
   .heyroq-btn-secondary,
   .heyroq-btn-destructive {
     border: 1px solid CanvasText;
-    backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
 
