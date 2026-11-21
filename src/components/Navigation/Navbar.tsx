@@ -842,10 +842,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={closeMobileSearch}
-              className="liquid-glass-pill min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
+              className="liquid-glass-pill inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
               aria-label="Close search"
             >
-              Close
+              <X className="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
 
