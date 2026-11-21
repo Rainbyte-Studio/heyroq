@@ -6,8 +6,11 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  documentId,
+  where,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { getVerifiedGeographicCounts, type VerifiedGeographicCounts } from '../config/achievementAvailability';
 import {
   Pin,
   UserProfile,
@@ -354,6 +357,28 @@ export function subscribeToUserProgression(
       console.warn('Progression observer read event:', err);
       if (onError) onError(err);
     }
+  );
+}
+
+// Keep this subscription in the signed-in user's achievement modal. XP ledger
+// reads remain owner/admin-only under the existing Firestore rules.
+export function subscribeToVerifiedGeographicCounts(
+  userId: string,
+  onUpdate: (counts: VerifiedGeographicCounts | null) => void,
+): () => void {
+  const ledger = collection(db, 'progressionV11', userId, 'xpEvents');
+  // The exclusive upper bound includes only document IDs beginning with geo_v1:.
+  const geographicEvents = query(ledger,
+    where(documentId(), '>=', 'geo_v1:'),
+    where(documentId(), '<', 'geo_v1;'),
+  );
+
+  return onSnapshot(geographicEvents, { includeMetadataChanges: true },
+    (snapshot) => onUpdate(getVerifiedGeographicCounts(snapshot.docs.map(({ id }) => id), snapshot.metadata)),
+    (error) => {
+      console.warn('Verified geographic progress observer read event:', error);
+      onUpdate(null);
+    },
   );
 }
 
