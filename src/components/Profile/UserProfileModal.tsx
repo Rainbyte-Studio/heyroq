@@ -9,6 +9,7 @@ import {
   deletePreviousProfileImage,
   validateImageFile,
 } from '../../services/storageService';
+import { USERNAME_HINT } from '../../services/usernameService';
 import { isCustomUploadedAvatarUrl } from '../../utils/avatarUtils';
 import { FootprintSection } from './FootprintSection';
 import { ExplorerProgressionBar } from './ExplorerProgressionBar';
@@ -103,6 +104,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isLoadingFollow, setIsLoadingFollow] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const originalUsername = useRef('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaveError, setProfileSaveError] = useState('');
   const [bioInput, setBioInput] = useState('');
 
   // Avatar upload, preview, replace & remove state
@@ -124,6 +129,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const profileCloseButtonRef = useRef<HTMLButtonElement>(null);
   const settingsSectionRef = useRef<HTMLDivElement>(null);
   const settingsHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -500,22 +506,27 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const handleSaveProfile = async () => {
-    if (!isMe) return;
+    if (!isMe || isSavingProfile) return;
+    setIsSavingProfile(true);
+    setProfileSaveError('');
     try {
       await updateUserProfile({
         displayName: displayNameInput.trim() || 'Explorer',
         bio: bioInput.trim(),
+        ...(usernameInput !== originalUsername.current ? { username: usernameInput } : {}),
       });
       setIsEditing(false);
-    } catch (err) {
-      console.error('Error saving profile:', err);
+    } catch (error) {
+      setProfileSaveError(error instanceof Error ? error.message : 'Could not save your profile. Try again.');
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
   // Keyboard navigation & Escape key dismiss
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showAccountSecurityModal) return;
+      if (showAccountSecurityModal || showAchievementsModal) return;
       if (e.key === 'Escape') {
         if (pendingAvatarFile || isAvatarControlsOpen) {
           clearPendingAvatarSelection();
@@ -529,7 +540,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, onClose]);
+  }, [isEditing, isAvatarControlsOpen, pendingAvatarFile, showAccountSecurityModal, showAchievementsModal, onClose]);
 
   const handleBackdropClick = () => {
     if (isEditing) {
@@ -554,6 +565,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       >
         {/* Close Button */}
         <CloseButton
+          ref={profileCloseButtonRef}
           onClick={onClose}
           ariaLabel="Close Profile"
           className="absolute top-3.5 sm:top-5 right-3.5 sm:right-5 z-20"
@@ -627,7 +639,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => (isEditing ? handleSaveProfile() : setIsEditing(true))}
+                    disabled={isSavingProfile}
+                    onClick={() => {
+                      if (isEditing) {
+                        void handleSaveProfile();
+                      } else {
+                        setDisplayNameInput(profile?.displayName || '');
+                        setBioInput(profile?.bio || '');
+                        originalUsername.current = profile?.username || '';
+                        setUsernameInput(originalUsername.current);
+                        setProfileSaveError('');
+                        setIsEditing(true);
+                      }
+                    }}
                     className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 cursor-pointer min-h-[40px] whitespace-nowrap heyroq-focus-ring ${
                       isEditing
                         ? 'heyroq-btn-primary'
@@ -637,7 +661,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     {isEditing ? (
                       <>
                         <Check className="w-3.5 h-3.5" />
-                        <span>Save Profile</span>
+                        <span>{isSavingProfile ? 'Saving…' : 'Save Profile'}</span>
                       </>
                     ) : (
                       <>
@@ -816,6 +840,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   placeholder="Display Name"
                   className="liquid-glass-input w-full text-base sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/40 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[var(--brand-primary)] min-h-[42px]"
                 />
+                <label className="block text-xs font-semibold" htmlFor="profile-username">Username</label>
+                <input
+                  id="profile-username"
+                  type="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  aria-describedby="profile-username-hint"
+                  value={usernameInput}
+                  onChange={event => setUsernameInput(event.target.value)}
+                  className="liquid-glass-input w-full text-base sm:text-sm rounded-xl px-3.5 py-2.5 min-h-[42px]"
+                />
+                <p id="profile-username-hint" className="text-xs text-[var(--heyroq-text-secondary)]">{USERNAME_HINT}</p>
+                {profileSaveError && <p role="alert" className="text-xs text-rose-700 dark:text-rose-300">{profileSaveError}</p>}
                 <textarea
                   rows={2}
                   value={bioInput}
@@ -1110,6 +1148,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <AchievementsModal
           userId={userId}
           displayName={profile?.displayName}
+          fallbackFocusRef={profileCloseButtonRef}
           onClose={() => setShowAchievementsModal(false)}
         />
       )}

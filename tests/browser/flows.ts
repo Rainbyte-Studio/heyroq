@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDocFromServer, updateDoc } from 'firebase/firestore';
 import { getBytes, ref } from 'firebase/storage';
 import { createElement } from 'react';
@@ -6,24 +6,57 @@ import { createRoot } from 'react-dom/client';
 import { AchievementsModal } from '../../src/components/Profile/AchievementsModal';
 import { auth, db, storage } from '../../src/lib/firebase';
 import '../../src/index.css';
+import App from '../../src/App';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
 import { createPin, deletePin, newPinPublishAttempt } from '../../src/services/pinService';
 import { uploadProfileImage } from '../../src/services/storageService';
 
 Object.assign(window, {
   heyroqTest: {
-    openAchievements(uid: string) {
+    signOut: () => signOut(auth),
+    mountSearchApp() {
+      window.history.replaceState(null, '', '/');
       const host = document.createElement('div');
-      document.body.append(host);
+      document.body.replaceChildren(host);
+      createRoot(host).render(createElement(App));
+    },
+    mountAchievementsTrigger(uid: string, nested = false) {
+      const host = document.createElement('div');
+      const trigger = document.createElement('button');
+      trigger.textContent = nested ? 'Open Profile Achievements' : 'Open Explorer Progression';
+      const parent = nested ? document.createElement('dialog') : null;
+      const fallback = document.createElement('button');
+      fallback.textContent = 'Close fixture profile';
+      if (parent) {
+        parent.setAttribute('aria-label', 'Fixture profile');
+        parent.append(fallback, trigger, host);
+        document.body.append(parent);
+        parent.showModal();
+        fallback.addEventListener('click', () => parent.close());
+      } else {
+        document.body.append(trigger, host);
+      }
       const root = createRoot(host);
-      root.render(createElement(AchievementsModal, {
-        userId: uid,
-        displayName: 'Browser fixture',
-        onClose: () => {
-          root.unmount();
-          host.remove();
-        },
-      }));
+      trigger.dataset.backgroundEscaped = 'false';
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') trigger.dataset.backgroundEscaped = 'true';
+      });
+      trigger.addEventListener('click', () => {
+        root.render(createElement(AchievementsModal, {
+          userId: uid,
+          displayName: 'Browser fixture',
+          onClose: () => root.render(null),
+          fallbackFocusRef: { current: fallback },
+        }));
+      });
+    },
+    async tryWriteVerifiedProgress(uid: string) {
+      try {
+        await updateDoc(doc(db, 'users', uid, 'achievements', 'city_pathfinder'), { verifiedGeographicProgress: 10 });
+        return 'unexpected success';
+      } catch (error) {
+        return (error as { code: string }).code;
+      }
     },
     async signUp(email: string, password: string) {
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
@@ -47,7 +80,7 @@ Object.assign(window, {
     async avatar(uid: string, bytes: number[]) {
       const file = new File([new Uint8Array(bytes)], 'avatar.png', { type: 'image/png' });
       const url = await uploadProfileImage(file, uid);
-      await updateDoc(doc(db, 'users', uid), { photoURL: url });
+      await updateDoc(doc(db, 'users', uid), { photoURL: url, avatarUrl: url });
       return url;
     },
     async removePin(pinId: string, uid: string) {

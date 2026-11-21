@@ -6,7 +6,8 @@ import { PinCategory, DiscoveryFilter, Pin, UserProgressionSummary } from '../..
 import { normalizeCategory, isSameCategory } from '../../utils/categoryUtils';
 import { CategoryBadge, CATEGORY_CONFIG } from '../Map/CategoryBadge';
 import { GlobalSearchDropdown } from './GlobalSearchDropdown';
-import { executeGlobalSearch, CategorizedSearchResults } from '../../services/searchService';
+import { executeGlobalSearch, CategorizedSearchResults, EMPTY_SEARCH_RESULTS } from '../../services/searchService';
+import { hasSpotSearchQuery } from '../../utils/spotSearch';
 import {
   Search,
   Plus,
@@ -111,18 +112,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Global Search Dropdown State
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [globalSearchResults, setGlobalSearchResults] = useState<CategorizedSearchResults>({
-    spots: [],
-    people: [],
-    cities: [],
-    tags: [],
-    totalCount: 0,
-  });
+  const [globalSearchResults, setGlobalSearchResults] = useState<CategorizedSearchResults>(EMPTY_SEARCH_RESULTS);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const globalSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const globalSearchSeqRef = useRef(0);
   const mobileSearchToggleRef = useRef<HTMLButtonElement>(null);
+  const profileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSearchPanelRef = useRef<HTMLDivElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Global Search Debounce & Stale Request Guard
@@ -133,17 +130,9 @@ export const Navbar: React.FC<NavbarProps> = ({
       clearTimeout(globalSearchDebounceRef.current);
     }
 
-    if (q.length < 2) {
+    setGlobalSearchResults(EMPTY_SEARCH_RESULTS);
+    if (!hasSpotSearchQuery(q)) {
       setIsSearchingGlobal(false);
-      if (q.length === 0) {
-        setGlobalSearchResults({
-          spots: [],
-          people: [],
-          cities: [],
-          tags: [],
-          totalCount: 0,
-        });
-      }
       return;
     }
 
@@ -156,6 +145,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       } catch (err) {
         if (seq === globalSearchSeqRef.current) {
           console.error('[Heyroq Global Search] Error:', err);
+          setGlobalSearchResults({ ...EMPTY_SEARCH_RESULTS, spotsUnavailable: true });
         }
       } finally {
         if (seq === globalSearchSeqRef.current) {
@@ -441,7 +431,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               onFocus={() => setIsSearchFocused(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') {
+                if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                  e.preventDefault();
+                  setIsSearchFocused(false);
+                } else if (e.key === 'Escape') {
                   setIsSearchFocused(false);
                 }
               }}
@@ -492,7 +485,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             isLoading={isSearchingGlobal}
             onSelectSpot={(pin) => {
               onSelectSpot?.(pin);
-              onSearchChange(pin.title);
               setIsSearchFocused(false);
             }}
             onSelectPerson={(uid) => {
@@ -579,6 +571,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="relative shrink-0" ref={dropdownRef}>
               <button
                 id="user-profile-menu-btn"
+                ref={profileMenuButtonRef}
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 aria-expanded={userDropdownOpen}
@@ -669,6 +662,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     role="menuitem"
                     onClick={() => {
                       if (onOpenProgression) {
+                        profileMenuButtonRef.current?.focus({ preventScroll: true });
                         onOpenProgression();
                       }
                       setUserDropdownOpen(false);
@@ -806,44 +800,53 @@ export const Navbar: React.FC<NavbarProps> = ({
             }
           }}
           className="md:hidden px-3 pb-3 pt-2 border-t border-[var(--heyroq-border-subtle)] bg-[var(--heyroq-bg-surface)]/95 relative animate-in fade-in slide-in-from-top-1">
-          <div className="relative flex items-center">
-            <Search className="w-4 h-4 text-[var(--heyroq-text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              autoFocus
-              aria-label="Search Heyroq"
-              aria-controls={isSearchFocused && searchQuery.trim() ? "mobile-search-results" : undefined}
-              value={searchQuery}
-              onChange={(e) => {
-                onSearchChange(e.target.value);
-                setIsSearchFocused(true);
-              }}
-              onFocus={() => setIsSearchFocused(true)}
-              placeholder="Search spots, coffee, tags, cities..."
-              className="liquid-glass-input w-full text-base pl-9.5 pr-18 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
-            />
-            <div className="absolute right-2 flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            <div className="relative flex min-w-0 flex-1 items-center">
+              <Search className="w-4 h-4 text-[var(--heyroq-text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                ref={mobileSearchInputRef}
+                autoFocus
+                aria-label="Search Heyroq"
+                aria-controls={isSearchFocused && searchQuery.trim() ? "mobile-search-results" : undefined}
+                value={searchQuery}
+                onChange={(e) => {
+                  onSearchChange(e.target.value);
+                  setIsSearchFocused(true);
+                }}
+                onFocus={() => setIsSearchFocused(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && hasSpotSearchQuery(searchQuery)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeMobileSearch();
+                  }
+                }}
+                placeholder="Search spots, coffee, tags, cities..."
+                className={`liquid-glass-input min-h-11 w-full text-base pl-9.5 py-2 rounded-full text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] focus:outline-none focus:border-[var(--brand-primary)] ${searchQuery ? 'pr-11' : 'pr-3'}`}
+              />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => {
                     onSearchChange('');
+                    mobileSearchInputRef.current?.focus();
                   }}
-                  className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer"
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-full text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
                   aria-label="Clear search"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={closeMobileSearch}
-                className="p-1.5 text-[var(--heyroq-text-muted)] hover:text-[var(--heyroq-text-primary)] cursor-pointer"
-                aria-label="Close search"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={closeMobileSearch}
+              className="liquid-glass-pill min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold text-[var(--heyroq-text-primary)] cursor-pointer heyroq-focus-ring"
+              aria-label="Close search"
+            >
+              Close
+            </button>
           </div>
 
           {/* Mobile Global Search Dropdown */}
@@ -856,7 +859,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             isLoading={isSearchingGlobal}
             onSelectSpot={(pin) => {
               onSelectSpot?.(pin);
-              onSearchChange(pin.title);
               setIsSearchFocused(false);
               setMobileSearchOpen(false);
             }}
@@ -1135,14 +1137,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 >
                                   <Icon className="w-4 h-4" />
                                 </div>
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs font-semibold text-[var(--heyroq-text-primary)] truncate">
-                                    {cat}
-                                  </span>
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${config.bg} shrink-0`}
-                                  />
-                                </div>
+                                <span className="min-w-0 truncate text-xs font-semibold text-[var(--heyroq-text-primary)]">
+                                  {cat}
+                                </span>
                               </div>
                               {isSelected && (
                                 <div className="w-5 h-5 rounded-full bg-[var(--brand-cta-bg)] flex items-center justify-center text-white shrink-0 shadow-sm ml-2">
@@ -1452,9 +1449,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                                   <span className="text-sm font-semibold text-[var(--heyroq-text-primary)]">
                                     {cat}
                                   </span>
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${config.bg} shrink-0`}
-                                  />
                                 </div>
                                 <div className="text-xs text-[var(--heyroq-text-muted)] mt-0.5 leading-snug">
                                   {descMap[cat] || `Filter spots curated in ${cat}`}

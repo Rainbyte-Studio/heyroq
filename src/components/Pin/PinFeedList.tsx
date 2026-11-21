@@ -19,6 +19,8 @@ interface PinFeedListProps {
   onScroll?: (scrollTop: number) => void;
   isDesktop?: boolean;
   isLive?: boolean;
+  searchQuery?: string;
+  isSearching?: boolean;
   isError?: boolean;
   onRetry?: () => void;
 }
@@ -61,6 +63,8 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
   onScroll,
   isDesktop = false,
   isLive = true,
+  searchQuery,
+  isSearching = false,
   isError = false,
   onRetry,
 }) => {
@@ -78,22 +82,23 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
   const mobileHeightClass =
     pins.length === 0 ? 'h-auto max-h-[224px]' : 'h-[38vh] sm:h-[36vh]';
 
-  const spotCountCopy =
-    isError && pins.length === 0
-      ? 'Discovery offline'
-      : `${pins.length} ${pins.length === 1 ? 'spot' : 'spots'} in this area`;
+  const heading = searchQuery ? 'Matching Spots' : 'Nearby Spots';
+  const count = `${pins.length} ${pins.length === 1 ? 'spot' : 'spots'}`;
+  const spotCountCopy = searchQuery
+    ? isSearching ? 'Searching…' : isError ? 'Search unavailable' : count + ' found'
+    : isError ? 'Discovery offline' : count + ' in this area';
 
   return (
     <aside
       id="pin-discovery-feed-drawer"
-      aria-label="Nearby Spots"
+      aria-label={heading}
       className={`liquid-glass-panel w-full ${mobileHeightClass} lg:max-h-none lg:w-[344px] xl:w-[372px] lg:h-full transition-colors duration-200 flex flex-col border-t lg:border-t-0 lg:border-l border-[var(--heyroq-glass-border)] z-20 text-[var(--heyroq-text-primary)] shrink-0 animate-in fade-in`}
     >
       {/* Unified Compact Header */}
       <div className="px-4 sm:px-5 py-3.5 border-b border-[var(--heyroq-divider)] flex items-center justify-between gap-3 shrink-0">
         <div className="min-w-0 flex flex-col gap-1">
           <h2 className="font-heading text-base sm:text-[17px] font-semibold leading-tight tracking-tight text-[var(--heyroq-text-primary)] truncate">
-            Nearby Spots
+            {heading}
           </h2>
           <p className="font-sans text-xs font-medium text-[var(--heyroq-text-secondary)] leading-snug tabular-nums truncate">
             {spotCountCopy}
@@ -101,7 +106,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
         </div>
 
         <div className="flex items-center gap-3 sm:gap-3.5 shrink-0">
-          {!isError &&
+          {!searchQuery && !isError &&
             (isLive ? (
               <span
                 id="nearby-spots-live-indicator"
@@ -123,7 +128,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
               </span>
             ))}
 
-          <CloseButton onClick={onToggle} ariaLabel="Close Nearby Spots" />
+          <CloseButton onClick={onToggle} ariaLabel={`Close ${heading}`} />
         </div>
       </div>
 
@@ -139,10 +144,10 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                 <MapPin className="w-4 h-4" strokeWidth={1.75} />
               </div>
               <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">
-                Discovery feed offline
+                {searchQuery ? 'Spot search unavailable' : 'Discovery feed offline'}
               </p>
               <p className="mt-1 text-[var(--heyroq-text-secondary)] max-w-[236px] mx-auto leading-relaxed">
-                Unable to reach the discovery service. Check your connection or retry.
+                {searchQuery ? 'Check your connection and retry.' : 'Unable to reach the discovery service. Check your connection or retry.'}
               </p>
               {onRetry && (
                 <button
@@ -150,7 +155,7 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                   onClick={onRetry}
                   className="mt-3 px-4 py-2 liquid-glass-pill text-[var(--heyroq-text-primary)] text-xs font-semibold rounded-full transition cursor-pointer min-h-[38px]"
                 >
-                  Retry Discovery
+                  {searchQuery ? 'Retry search' : 'Retry Discovery'}
                 </button>
               )}
             </div>
@@ -163,10 +168,10 @@ export const PinFeedList: React.FC<PinFeedListProps> = ({
                 <MapPin className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
               </div>
               <p className="font-heading font-semibold text-sm text-[var(--heyroq-text-primary)]">
-                No spots in this area
+                {isSearching ? 'Searching spots…' : searchQuery ? 'No matching spots' : 'No spots in this area'}
               </p>
               <p className="mt-1 text-xs text-[var(--heyroq-text-secondary)] max-w-[236px] mx-auto leading-relaxed">
-                Move the map or explore another location to discover spots.
+                {searchQuery ? (isSearching ? '' : `No spots match “${searchQuery}”.`) : 'Move the map or explore another location to discover spots.'}
               </p>
             </div>
           )

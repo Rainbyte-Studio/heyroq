@@ -101,7 +101,10 @@ export const ExplorerProgressionBar: React.FC<ExplorerProgressionBarProps> = ({
         {onOpenAchievements && (
           <button
             type="button"
-            onClick={onOpenAchievements}
+            onClick={(event) => {
+              event.currentTarget.focus({ preventScroll: true });
+              onOpenAchievements();
+            }}
             className="liquid-glass-pill group flex items-center gap-1.5 px-3 py-1.5 min-h-[38px] rounded-full text-slate-800 dark:text-white/85 hover:text-slate-950 dark:hover:text-white transition-colors duration-150 cursor-pointer shrink-0 heyroq-focus-ring"
             title="View Explorer Achievements & Badges"
           >
