@@ -540,7 +540,7 @@ test('recovery entry points match the observed progression trigger contracts', (
   ];
   for (const name of required) {
     const live = manifest.productionObservation.functions[name];
-    const endpoint = functions[name].__endpoint;
+    const endpoint = JSON.parse(JSON.stringify(functions[name].__endpoint));
     assert.ok(live.revision && live.sourceGeneration && live.runtimeServiceAccount, name);
     assert.equal(endpoint.timeoutSeconds ?? manifest.observedServiceDefaults.timeoutSeconds, live.timeoutSeconds, name);
     assert.equal(endpoint.concurrency ?? manifest.observedServiceDefaults.concurrency, live.concurrency, name);
