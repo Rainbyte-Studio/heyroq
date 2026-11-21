@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { deleteObject, getMetadata, ref, uploadBytes } from 'firebase/storage';
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, where, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 import { makePinImageTransitionRules, makePinImageTransitionStorageRules } from '../scripts/pin-image-transition-rules.mjs';
 
@@ -37,6 +37,7 @@ const createProfile = (client, data) => writeBatch(client)
 
 const pin = (overrides = {}) => ({
   userId: 'alice', title: 'A real place', latitude: 37.98, longitude: 23.73,
+  visibility: 'public', status: 'published', publicAccess: true,
   category: 'Other', createdAt: '2026-01-01T00:00:00.000Z',
   likeCount: 0, commentCount: 0, ...overrides,
 });
@@ -80,15 +81,57 @@ it('isolates engagement settings, counters and raw projections', async () => {
   await assertFails(getDoc(doc(alice(), settings)));
 });
 
-it('documents the release blocker in existing raw pin access', async t => {
-  const privatePin = 'pins/audit-private-pin';
-  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), privatePin),
-    pin({ visibility: 'private', status: 'draft' })));
-  const snapshot = await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), privatePin)));
-  assert.equal(snapshot.get('visibility'), 'private');
-  assert.equal(snapshot.get('status'), 'draft');
-  assert.equal(typeof snapshot.get('latitude'), 'number');
-  t.diagnostic('Pre-existing pin Rules grant public reads of raw pin documents. This must be resolved before claiming database-wide private pin isolation.');
+it('protects pin coordinates and related documents at the database boundary', async () => {
+  await seedAlice();
+  const pub = 'pins/visible';
+  await env.withSecurityRulesDisabled(async context => {
+    const admin = context.firestore();
+    await setDoc(doc(admin, 'users/bob'), profile({ uid: 'bob', displayName: 'Bob' }));
+    await setDoc(doc(admin, pub), pin());
+    for (const [id, fields] of Object.entries({
+      private: { visibility: 'private', publicAccess: false },
+      draft: { status: 'draft', publicAccess: false },
+      deleted: { isDeleted: true, publicAccess: false },
+      archived: { status: 'archived', publicAccess: false },
+    })) {
+      await setDoc(doc(admin, 'pins/' + id), pin(fields));
+      await setDoc(doc(admin, 'pins/' + id + '/comments/old'), { userId: 'alice', text: 'Restricted fixture' });
+      await setDoc(doc(admin, 'pins/' + id + '/likes/alice'), { userId: 'alice' });
+    }
+    await setDoc(doc(admin, 'pins/ambiguous'), { userId: 'alice', latitude: 37, longitude: 23 });
+  });
+  const guest = env.unauthenticatedContext().firestore();
+  for (const client of [guest, bob()]) {
+    assert.equal((await assertSucceeds(getDoc(doc(client, pub)))).exists(), true);
+    for (const id of ['private', 'draft', 'deleted', 'archived', 'ambiguous']) {
+      await assertFails(getDoc(doc(client, 'pins/' + id)));
+      await assertFails(getDoc(doc(client, 'pins/' + id + '/comments/old')));
+      await assertFails(getDoc(doc(client, 'pins/' + id + '/likes/alice')));
+    }
+    await assertFails(getDocs(collection(client, 'pins')));
+    assert.deepEqual((await assertSucceeds(getDocs(query(collection(client, 'pins'),
+      where('publicAccess', '==', true))))).docs.map(record => record.id), ['visible']);
+  }
+  const owner = alice();
+  for (const id of ['private', 'draft', 'ambiguous']) assert.equal((await assertSucceeds(getDoc(doc(owner, 'pins/' + id)))).exists(), true);
+  const scoped = await assertSucceeds(getDocs(query(collection(owner, 'pins'), where('userId', '==', 'alice'))));
+  assert.equal(scoped.size, 6);
+  await assertFails(updateDoc(doc(bob(), 'pins/draft'), { publicAccess: true, status: 'published' }));
+  await assertFails(updateDoc(doc(owner, 'pins/draft'), { publicAccess: true }));
+  await assertFails(updateDoc(doc(owner, 'pins/ambiguous'), { publicAccess: true, visibility: 'public', status: 'published' }));
+  await assertFails(updateDoc(doc(owner, pub), { userId: 'bob' }));
+  await assertSucceeds(updateDoc(doc(owner, pub), { visibility: 'private', publicAccess: false }));
+  await assertFails(getDoc(doc(guest, pub)));
+  await assertSucceeds(deleteDoc(doc(owner, pub)));
+  assert.equal((await assertSucceeds(getDoc(doc(guest, pub)))).exists(), false);
+
+  const draft = doc(owner, 'pins/approved-draft');
+  await assertSucceeds(writeBatch(owner)
+    .set(draft, pin({ status: 'draft', publicAccess: false, publishReceipt: true }))
+    .set(doc(owner, 'users/alice/pinPublishReceipts/approved-draft'), { publishedAt: serverTimestamp() }).commit());
+  await assertFails(getDoc(doc(guest, draft.path)));
+  await assertSucceeds(updateDoc(draft, { status: 'published', publicAccess: true }));
+  assert.equal((await assertSucceeds(getDoc(doc(guest, draft.path)))).exists(), true);
 });
 
 it('accepts replies to existing top-level comments on the same pin and keeps their parent immutable', async () => {

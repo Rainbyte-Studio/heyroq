@@ -33,8 +33,8 @@ export function validDocumentId(value: unknown): value is string {
 
 export function isPublicPin(pin: DocumentSnapshot) {
   return pin.exists && !pin.get('isDeleted') && !pin.get('isPrivate') && !pin.get('isReported') &&
-    !pin.get('isDemo') && ['public', undefined].includes(pin.get('visibility')) &&
-    ['published', undefined].includes(pin.get('status'));
+    !pin.get('isDemo') && pin.get('publicAccess') === true &&
+    pin.get('visibility') === 'public' && pin.get('status') === 'published';
 }
 
 export function preferenceEnabled(data: Record<string, unknown> | undefined, key: Preference) {

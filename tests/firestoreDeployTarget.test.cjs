@@ -13,7 +13,7 @@ test('Firebase deploy configuration targets the exact Heyroq named database', ()
 test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () => {
   const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../firestore.indexes.json'), 'utf8'));
   assert.deepEqual(config.fieldOverrides || [], []);
-  assert.equal(config.indexes.length, 10);
+  assert.equal(config.indexes.length, 16);
   const orphanQueue = config.indexes.find(index => index.collectionGroup === 'pinImageUploadIntents');
   assert.deepEqual(orphanQueue, {
     collectionGroup: 'pinImageUploadIntents', queryScope: 'COLLECTION', apiScope: 'ANY_API', density: 'DENSE',
@@ -35,4 +35,3 @@ test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () 
       index.queryScope === 'COLLECTION'));
   }
 });
-

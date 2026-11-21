@@ -69,6 +69,7 @@ export interface Pin {
   createdAt: string;
   updatedAt?: string;
   visibility?: 'public' | 'private' | 'unlisted';
+  publicAccess?: boolean;
   isPrivate?: boolean;
   status?: 'published' | 'draft' | 'archived' | 'reported' | 'removed';
   isReported?: boolean;

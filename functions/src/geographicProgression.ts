@@ -70,7 +70,8 @@ export function geographicReceiptForPin(
   if (!data || !created || !Number.isSafeInteger(policy.startsAtMs) || policy.startsAtMs <= 0 ||
       created.toMillis() < policy.startsAtMs || (policy.pilotUsers && !policy.pilotUsers.has(userId)) ||
       data.userId !== userId || !isPublishedDiscovery(data) || data.isReported || data.isPrivate ||
-      data.visibility === 'private' || data.publishReceipt !== true ||
+      (data.visibility != null && data.visibility !== 'public') || data.publicAccess === false ||
+      data.publishReceipt !== true ||
       typeof data.imageIncarnation !== 'string' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(data.imageIncarnation) ||
       !Array.isArray(data.imageUrls) || data.imageUrls.length === 0) return;

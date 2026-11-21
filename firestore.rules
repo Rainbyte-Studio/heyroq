@@ -397,18 +397,56 @@ service cloud.firestore {
 
     function canEngageWithPin(pinId) {
       let pin = getAfter(/databases/$(database)/documents/pins/$(pinId)).data;
-      return pin.userId is string &&
+      return isPublicPinState(pin) && pin.get('publicAccess', false) == true && pin.userId is string &&
              !exists(/databases/$(database)/documents/accountDeletionLocks/$(pin.userId));
     }
 
+    function isPublicPinState(data) {
+      return data.get('visibility', '') == 'public' && data.get('status', '') == 'published' &&
+        data.get('isPrivate', false) == false && data.get('isDeleted', false) == false &&
+        data.get('isReported', false) == false && data.get('isDemo', false) == false;
+    }
+
+    function validPinAccess(data) {
+      return data.publicAccess is bool &&
+        data.visibility in ['public', 'private', 'unlisted'] &&
+        data.status in ['published', 'draft', 'archived', 'reported', 'removed'] &&
+        data.publicAccess == isPublicPinState(data);
+    }
+
+    function canReadPinRelations(pinId) {
+      let pin = get(/databases/$(database)/documents/pins/$(pinId)).data;
+      return isAdmin() || isOwner(pin.userId) ||
+        (pin.get('publicAccess', false) == true && isPublicPinState(pin));
+    }
+
+    function validPinAccessUpdate(before, after) {
+      let changed = after.diff(before).affectedKeys();
+      return !changed.hasAny(['publicAccess', 'visibility', 'status', 'isPrivate', 'isDeleted', 'isReported', 'isDemo']) ||
+        (validPinAccess(after) &&
+          // Previously issued image URLs are independent capabilities. Only image-free
+          // pins can enter a restricted state through a client update.
+          (after.publicAccess || after.get('imageUrls', []) == []) &&
+          (!after.publicAccess || before.get('publicAccess', false) == true ||
+            (before.get('publishReceipt', false) == true &&
+             before.get('status', '') in ['draft', 'published'] &&
+             before.get('isDeleted', false) == false && before.get('isReported', false) == false &&
+             before.get('isDemo', false) == false)));
+    }
+
     match /pins/{pinId} {
-      // Pins are publicly readable
-      allow read: if true;
+      allow get: if resource == null || isOwner(resource.data.userId) || isAdmin() ||
+        (resource.data.get('publicAccess', false) == true && isPublicPinState(resource.data));
+      // Only trusted migration or validated writes may set publicAccess. List queries
+      // must constrain it explicitly because Firestore Rules do not filter results.
+      allow list: if isOwner(resource.data.userId) || isAdmin() || resource.data.publicAccess == true;
 
       // Only authenticated users may create pins; owner UID must equal request.auth.uid
       allow create: if progressionActivityOpen() && (isSignedIn() && isActiveUser(request.auth.uid) &&
                        request.resource.data.userId == request.auth.uid &&
                        isValidPin(request.resource.data) &&
+                       validPinAccess(request.resource.data) &&
+                       (request.resource.data.publicAccess || canPublishWithoutClaim(request.resource.data)) &&
                        hasCanonicalPinIdentity(request.resource.data) &&
                        hasValidPublishReceipt(pinId, request.resource.data) &&
                        validGeographySelection(request.resource.data) &&
@@ -433,7 +471,8 @@ service cloud.firestore {
           isValidPin(request.resource.data)
         ) ||
         isAdmin()
-      ));
+      ) && request.resource.data.userId == resource.data.userId &&
+        validPinAccessUpdate(resource.data, request.resource.data));
 
       // Only the pin owner (or admin) may delete their pin
       allow delete: if progressionActivityOpen() && (isSignedIn() && (
@@ -444,7 +483,7 @@ service cloud.firestore {
       // 3. Likes Subcollection: pins/{pinId}/likes/{userId}
       // ---------------------------------------------------------
       match /likes/{userId} {
-        allow read: if true;
+        allow read: if canReadPinRelations(pinId);
         // Only authenticated non-anonymous users may like; document ID must equal request.auth.uid
         allow create, update: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(userId) && canEngageWithPin(pinId) &&
                                  request.auth.uid == userId &&
@@ -457,7 +496,7 @@ service cloud.firestore {
       // 4. Comments Subcollection: pins/{pinId}/comments/{commentId}
       // ---------------------------------------------------------
       match /comments/{commentId} {
-        allow read: if true;
+        allow read: if canReadPinRelations(pinId);
         // Authenticated non-anonymous users can create comments; author UID must equal request.auth.uid
         allow create: if progressionActivityOpen() && (isNonAnonymous() && isActiveUser(request.auth.uid) && canEngageWithPin(pinId) &&
                          request.resource.data.userId == request.auth.uid &&

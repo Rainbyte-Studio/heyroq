@@ -27,8 +27,8 @@ function validDocumentId(value) {
 }
 function isPublicPin(pin) {
     return pin.exists && !pin.get('isDeleted') && !pin.get('isPrivate') && !pin.get('isReported') &&
-        !pin.get('isDemo') && ['public', undefined].includes(pin.get('visibility')) &&
-        ['published', undefined].includes(pin.get('status'));
+        !pin.get('isDemo') && pin.get('publicAccess') === true &&
+        pin.get('visibility') === 'public' && pin.get('status') === 'published';
 }
 function preferenceEnabled(data, key) {
     const value = data?.[key];

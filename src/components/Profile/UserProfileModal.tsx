@@ -408,7 +408,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         // Subscribe to user pins so likeCount and commentCount stay 100% authoritative and live
         unsubscribePins = subscribeToUserPins(userId, (pins) => {
           if (isMounted) setUserPins(pins);
-        });
+        }, isMe);
 
         if (user && !isMe) {
           const following = await checkIfFollowing(user.uid, userId);
@@ -993,7 +993,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             onSelectPin={onSelectPin}
             onOpenCreatePin={onOpenCreatePin}
             onCloseProfileModal={onClose}
-            pins={userPins}
+            pins={userPins.filter(pin => pin.publicAccess === true)}
           />
 
           {/* Pins Section */}

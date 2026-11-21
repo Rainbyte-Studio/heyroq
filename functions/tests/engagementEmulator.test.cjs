@@ -35,7 +35,8 @@ async function profile() {
 async function createPin(uid) {
   const pin = db.collection('pins').doc();
   cleanup.add(pin);
-  await db.batch().create(pin, { userId: uid, status: 'published', title: 'Public pin', city: 'Untrusted label' })
+  await db.batch().create(pin, { userId: uid, status: 'published', visibility: 'public', publicAccess: true,
+    title: 'Public pin', city: 'Untrusted label' })
     .create(db.doc('users/' + uid + '/pinPublishReceipts/' + pin.id), {}).commit();
   return pin;
 }

@@ -1,6 +1,7 @@
 import { collection, query, where, getDocs, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Pin } from '../types';
+import { publicPinFilter } from './pinVisibility';
 import {
   GeographicCluster,
   FootprintStatsData,
@@ -98,14 +99,16 @@ export function subscribeToUserFootprint(
   try {
     const q = query(
       collection(db, 'pins'),
+      publicPinFilter(),
       where('userId', '==', userId),
       limit(250)
     );
 
     return onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snap) => {
-        const rawPins: Pin[] = snap.docs.map((d) => {
+        const rawPins: Pin[] = (snap.metadata.fromCache ? [] : snap.docs).map((d) => {
           const data = d.data() as Record<string, any>;
           return {
             id: d.id,
@@ -165,6 +168,7 @@ export async function fetchUserFootprint(userId: string): Promise<UserFootprintD
     try {
       const q = query(
         collection(db, 'pins'),
+        publicPinFilter(),
         where('userId', '==', userId),
         limit(150)
       );

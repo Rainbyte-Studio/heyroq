@@ -10,6 +10,7 @@ import { subscribeToNotificationState, type EngagementView } from './services/en
 import { getPublicUserProfile } from './services/userService';
 import { engagementDestination } from './utils/engagement';
 import { auth } from './lib/firebase';
+import { isPublicPin } from './services/pinVisibility';
 import { HeyroqMap } from './components/Map/HeyroqMap';
 import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
@@ -31,7 +32,7 @@ import { OPERATOR_IDENTITY } from './config/brandConfig';
 import { AppLink, useAppRoute } from './utils/appRoutes';
 import { MapsProvider } from './components/Map/MapsProvider';
 import {
-  fetchPinsInViewport,
+  subscribeToViewportPins,
   fetchPinById,
   fetchPinsByDiscovery,
   subscribeToDiscoveryPins,
@@ -139,6 +140,7 @@ function HeyroqMainApp() {
     } else {
       setDetailPinId(pin.id);
       setDetailPinFallback(pin);
+      if (!isPublicPin(pin)) return;
       setPins((prev) => {
         const existing = prev.find((p) => p.id === pin.id);
         if (existing) {
@@ -187,9 +189,8 @@ function HeyroqMainApp() {
     const stillOpen = () => !signal.aborted && Boolean(engagementUid) && auth.currentUser?.uid === engagementUid;
     if (!stillOpen()) return false;
     if (destination.type === 'pin') {
-      const pin = await fetchPinById(destination.id, true);
-      if (!stillOpen() || !pin || pin.isDeleted || pin.isPrivate || pin.isReported || pin.isDemo ||
-        (pin.visibility && pin.visibility !== 'public') || (pin.status && pin.status !== 'published')) return false;
+      const pin = await fetchPinById(destination.id);
+      if (!stillOpen() || !pin || !isPublicPin(pin)) return false;
       setEngagementView(null);
       handleOpenDetails(pin);
       return true;
@@ -281,6 +282,9 @@ function HeyroqMainApp() {
 
   // Viewport tracking ref to eliminate redundant queries for unchanged bounds
   const lastBoundsRef = useRef<LatLngBounds | null>(null);
+  const stopViewport = useRef<(() => void) | null>(null);
+  const viewportIds = useRef(new Set<string>());
+  const discoveryIds = useRef(new Set<string>());
 
   // Canonical selected category for consistent case/space matching
   const canonicalSelectedCategory = normalizeCategory(selectedCategory);
@@ -413,7 +417,6 @@ function HeyroqMainApp() {
     }
 
 
-    const canonical = normalizeCategory(selectedCategory);
     // Subscribe to discovery candidates. Sort mode (recent/popular/trending) is decoupled
     // and applied locally in displayedPins with 0 incremental Firestore reads.
     const unsubscribe = subscribeToDiscoveryPins(
@@ -421,34 +424,12 @@ function HeyroqMainApp() {
       selectedCategory,
       (discovered) => {
         setIsDiscoveryError(false);
-        setPins((prev) => {
-          const map = new Map<string, Pin>();
-          // Only retain previous pins that match the current category filter
-          prev.forEach((p) => {
-            if (!canonical || matchesCategoryFilter(p.category, canonical)) {
-              map.set(p.id, p);
-            }
-          });
-          discovered.forEach((d) => {
-            if (!canonical || matchesCategoryFilter(d.category, canonical)) {
-              const existing = map.get(d.id);
-              if (existing) {
-                map.set(d.id, {
-                  ...existing,
-                  ...d,
-                  category: normalizeCategory(d.category) || 'Other',
-                  commentCount: typeof d.commentCount === 'number' ? d.commentCount : (existing.commentCount ?? 0),
-                  likeCount: typeof d.likeCount === 'number' ? d.likeCount : (existing.likeCount ?? 0),
-                });
-              } else {
-                map.set(d.id, {
-                  ...d,
-                  category: normalizeCategory(d.category) || 'Other',
-                });
-              }
-            }
-          });
-          return Array.from(map.values());
+        const next = new Set(discovered.map(pin => pin.id));
+        const previous = discoveryIds.current;
+        discoveryIds.current = next;
+        setPins(pins => {
+          const retained = pins.filter(pin => !next.has(pin.id) && !previous.has(pin.id) && viewportIds.current.has(pin.id));
+          return [...retained, ...discovered.filter(isPublicPin)];
         });
       },
       (err) => {
@@ -489,38 +470,31 @@ function HeyroqMainApp() {
 
       lastBoundsRef.current = bounds;
 
-      try {
-        const viewportPins = await fetchPinsInViewport(bounds);
-        if (viewportPins.length > 0) {
-          // Merge viewport pins with existing state, strictly preserving authoritative commentCount & likeCount
-          setPins((prevPins) => {
-            const map = new Map<string, Pin>();
-            prevPins.forEach((p) => map.set(p.id, p));
-            viewportPins.forEach((vp) => {
-              const existing = map.get(vp.id);
-              if (existing) {
-                map.set(vp.id, {
-                  ...existing,
-                  ...vp,
-                  category: normalizeCategory(vp.category) || 'Other',
-                  commentCount: typeof vp.commentCount === 'number' ? vp.commentCount : (existing.commentCount ?? 0),
-                  likeCount: typeof vp.likeCount === 'number' ? vp.likeCount : (existing.likeCount ?? 0),
-                });
-              } else {
-                map.set(vp.id, {
-                  ...vp,
-                  category: normalizeCategory(vp.category) || 'Other',
-                });
-              }
-            });
-            return Array.from(map.values());
-          });
-        }
-      } catch (e) {
-        console.warn('Viewport fetch notice:', e);
-      }
+      stopViewport.current?.();
+      stopViewport.current = subscribeToViewportPins(bounds, viewportPins => {
+        const previous = viewportIds.current;
+        viewportIds.current = new Set(viewportPins.map(pin => pin.id));
+        setPins(pins => {
+          const retained = pins.filter(pin => !previous.has(pin.id) &&
+            !viewportIds.current.has(pin.id) && discoveryIds.current.has(pin.id));
+          return [...retained, ...viewportPins];
+        });
+      });
     }
   }, [isSearchActive, selectedCategory]);
+
+  useEffect(() => () => {
+    stopViewport.current?.();
+    stopViewport.current = null;
+    lastBoundsRef.current = null;
+  }, [isSearchActive, selectedCategory]);
+
+  useEffect(() => {
+    setSelectedPinId(null);
+    setSelectedPinFallback(null);
+    setDetailPinId(null);
+    setDetailPinFallback(null);
+  }, [user?.uid]);
 
   // Real-time authoritative sync for selectedPin (only active when PinDetailModal is not open)
   const activeFocusPinId = detailPinId || selectedPinId;
@@ -540,7 +514,7 @@ function HeyroqMainApp() {
   // Real-time authoritative sync for pin document (only active when PinDetailModal is not open)
   useEffect(() => {
     // If detailPinId is open, PinDetailModal manages its own listener directly
-    if (activeFocusPinId && !detailPinId) {
+    if (activeFocusPinId) {
       const unsubscribe = subscribeToPinDocument(activeFocusPinId, ({ commentCount, likeCount }) => {
         setPins((prev) =>
           prev.map((p) => {
@@ -568,6 +542,12 @@ function HeyroqMainApp() {
           );
           updateCachedPinCommentCount(activeFocusPinId, commentCount);
         }
+      }, () => {
+        setPins(current => current.filter(pin => pin.id !== activeFocusPinId));
+        setSelectedPinId(null);
+        setSelectedPinFallback(null);
+        setDetailPinId(null);
+        setDetailPinFallback(null);
       });
       return () => {
         unsubscribe();
@@ -787,6 +767,13 @@ function HeyroqMainApp() {
           pins={displayedPins}
           selectedPin={selectedPin}
           onSelectPin={(pin) => {
+            if (!isPublicPin(pin)) {
+              if (pin.userId === user?.uid) {
+                setProfileUserId(null);
+                handleOpenDetails(pin);
+              }
+              return;
+            }
             handleSelectPin(pin);
             setMapCenter({ lat: pin.latitude, lng: pin.longitude });
           }}
@@ -952,6 +939,13 @@ function HeyroqMainApp() {
           userId={profileUserId}
           onClose={() => setProfileUserId(null)}
           onSelectPin={(pin) => {
+            if (!isPublicPin(pin)) {
+              if (pin.userId === user?.uid) {
+                setProfileUserId(null);
+                handleOpenDetails(pin);
+              }
+              return;
+            }
             handleSelectPin(pin);
             setMapCenter({ lat: pin.latitude, lng: pin.longitude });
           }}

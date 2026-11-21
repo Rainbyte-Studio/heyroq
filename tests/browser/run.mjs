@@ -361,6 +361,7 @@ try {
     batch.set(searchPins.doc('aa-search-' + String(i).padStart(3, '0')), { title: 'Unrelated fixture' });
   }
   const fixture = {
+    visibility: 'public', status: 'published', publicAccess: true,
     userId: 'search-fixture', userName: 'Search fixture', latitude: 37, longitude: 23,
     category: 'Food', imageUrls: [], likeCount: 0, commentCount: 0, createdAt: new Date().toISOString(),
   };
@@ -371,7 +372,7 @@ try {
     ...fixture, title: 'Coffee Stand', description: '', tags: [],
   });
   batch.set(searchPins.doc('zz-search-private'), {
-    ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private',
+    ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private', publicAccess: false,
   });
   batch.set(db.collection('users').doc('surname-fixture'), {
     displayName: 'Μαρία Παπαδοπούλου', username: 'explorer_maria', followersCount: 0,
