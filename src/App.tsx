@@ -174,18 +174,22 @@ function HeyroqMainApp() {
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
   const [focusedAchievement, setFocusedAchievement] = useState<string>();
   const [engagementView, setEngagementView] = useState<EngagementView | null>(null);
+  const [engagementListenerAttempt, setEngagementListenerAttempt] = useState(0);
   const [engagementState, setEngagementState] = useState<{ uid: string; unread: number; revision: number; offline: boolean } | null>(null);
   const engagementUid = user && !user.isAnonymous && profile?.id === user.uid && !needsProfile ? user.uid : undefined;
   const unread = engagementState?.uid === engagementUid ? engagementState?.unread ?? 0 : 0;
   const closeEngagement = useCallback(() => setEngagementView(null), []);
+  const retryEngagementListener = useCallback(() => setEngagementListenerAttempt(attempt => attempt + 1), []);
   useEffect(() => {
     setEngagementView(null);
+  }, [engagementUid]);
+  useEffect(() => {
     setEngagementState(null);
     if (!engagementUid) return;
     return subscribeToNotificationState(engagementUid,
       state => setEngagementState({ uid: engagementUid, ...state }),
       () => setEngagementState(null));
-  }, [engagementUid]);
+  }, [engagementUid, engagementListenerAttempt]);
   const openEngagementDestination = useCallback(async (destination: NonNullable<ReturnType<typeof engagementDestination>>, signal: AbortSignal) => {
     const stillOpen = () => !signal.aborted && Boolean(engagementUid) && auth.currentUser?.uid === engagementUid;
     if (!stillOpen()) return false;
@@ -868,6 +872,8 @@ function HeyroqMainApp() {
           <EngagementPanel uid={engagementUid} view={engagementView}
             setView={setEngagementView} close={closeEngagement} unread={unread}
             revision={engagementState?.revision ?? 0} offline={engagementState?.offline ?? false}
+            listenerReady={engagementState?.uid === engagementUid}
+            retryListener={retryEngagementListener}
             openDestination={openEngagementDestination} fallbackFocus={focusMain} />
         </React.Fragment>
       )}
@@ -968,6 +974,7 @@ function HeyroqMainApp() {
             setProfileUserId(uid);
           }}
           onOpenAbout={() => setIsAboutOpen(true)}
+          onOpenEngagementSettings={profileUserId === engagementUid ? () => setEngagementView('settings') : undefined}
           onAvatarUpdated={handleUserAvatarUpdated}
           onAccountDeleted={() => handleAccountDeletedCleanRedirect(profileUserId)}
         />
