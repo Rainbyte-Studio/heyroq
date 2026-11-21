@@ -1316,6 +1316,7 @@ test('the named database applies the pin-image rules to an authenticated client'
   const url = 'http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents:commit';
   const encode = value => {
     if (typeof value === 'string') return { stringValue: value };
+    if (typeof value === 'boolean') return { booleanValue: value };
     if (typeof value === 'number') return { doubleValue: value };
     if (Array.isArray(value)) return { arrayValue: { values: value.map(encode) } };
     return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)])) } };
@@ -1326,6 +1327,7 @@ test('the named database applies the pin-image rules to an authenticated client'
     body: JSON.stringify({ writes }),
   });
   const pin = { userId: uid, title: 'Local spot', latitude: 37, longitude: 23, category: 'Other',
+    publicAccess: true, visibility: 'public', status: 'published',
     createdAt: new Date().toISOString(), imageUrls: claim.imageUrls };
   const pinWrite = write('pins/' + pinId, { ...pin, imageIncarnation: begin.incarnation });
   const claimWrite = write('pinImageClaims/' + begin.incarnation, claim);
@@ -1335,6 +1337,16 @@ test('the named database applies the pin-image rules to an authenticated client'
   assert.equal(published.status, 200, await published.text());
   assert.deepEqual((await pins.doc(pinId).get()).get('imageUrls'), claim.imageUrls);
   assert.equal((await commit([write('pins/' + pins.doc().id, pin)])).status, 403);
+
+  // Emulate a historical restricted pin whose bearer URL was already minted.
+  // Firestore hides its fields, but only revoking the Storage capability can
+  // make a previously copied URL stop working.
+  await pins.doc(pinId).update({ visibility: 'private', publicAccess: false });
+  const hiddenPin = await fetch('http://' + process.env.FIRESTORE_EMULATOR_HOST + '/v1/' + database + '/documents/pins/' + pinId);
+  assert.equal(hiddenPin.status, 403);
+  const retainedCapability = await fetch('http://' + storageHost + download.pathname + download.search);
+  assert.equal(retainedCapability.status, 200);
+  assert.deepEqual(Buffer.from(await retainedCapability.arrayBuffer()), png);
 
   const snapshot = await pins.doc(pinId).get();
   await pins.doc(pinId).delete();
