@@ -550,7 +550,10 @@ try {
   await page.getByRole('menuitem', { name: 'Activity', exact: true }).click();
   const activityPanel = page.getByRole('dialog', { name: 'Activity', exact: true });
   await activityPanel.getByText('No shared activity here yet.').waitFor();
+  const activityResponse = page.waitForResponse(response => response.url().endsWith('/engagementV1') &&
+    response.request().method() === 'POST' && response.request().postDataJSON()?.data?.action === 'mine');
   await activityPanel.getByRole('button', { name: 'My Activity' }).click();
+  const firstActivityPage = (await (await activityResponse).json()).result;
   await activityPanel.getByText(/You published Activity browser fixture/).first().waitFor();
   assert.equal(await activityPanel.getByRole('listitem').count(), 24);
   const moreResponse = page.waitForResponse(response => {
@@ -560,9 +563,12 @@ try {
   });
   await activityPanel.getByRole('button', { name: 'Load more' }).click();
   const payload = await (await moreResponse).json();
-  assert.equal(payload.result?.items?.length, 2, JSON.stringify(payload.error ?? payload.result));
-  await activityPanel.getByRole('listitem').nth(25).waitFor();
-  assert.equal(await activityPanel.getByRole('listitem').count(), 26);
+  assert.ok(payload.result?.items?.length > 0, JSON.stringify(payload.error ?? payload.result));
+  const combined = [...firstActivityPage.items, ...payload.result.items];
+  assert.equal(new Set(combined.map(row => row.id)).size, combined.length);
+  assert.equal(combined.filter(row => row.type === 'pin' && row.pinId === pinRef.id).length, 26);
+  await activityPanel.getByRole('listitem').nth(combined.length - 1).waitFor();
+  assert.equal(await activityPanel.getByRole('listitem').count(), combined.length);
   if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-mobile-dark.png'), animations: 'disabled' });
   await activityPanel.getByRole('button', { name: 'Close Activity' }).click();
   await userMenu.click();
@@ -580,6 +586,28 @@ try {
   assert.equal(await likes.isChecked(), false);
   if (screenshotDir) await page.screenshot({ path: joinPath(screenshotDir, 'activity-settings-mobile-dark.png'), animations: 'disabled' });
   await engagementSettings.getByRole('button', { name: 'Close Notifications & Activity' }).click();
+
+  let releaseRequest;
+  const pendingRequest = new Promise(resolve => { releaseRequest = resolve; });
+  await page.route('**/engagementV1', async route => {
+    await pendingRequest;
+    await route.fulfill({
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'Simulated connection error' } }),
+    });
+  });
+  await bell.click();
+  await inbox.getByText('Loading…', { exact: true }).waitFor();
+  releaseRequest();
+  await inbox.getByText('This view could not load.').waitFor();
+  await page.unroute('**/engagementV1');
+  await inbox.getByRole('button', { name: 'Retry' }).click();
+  await inbox.getByText('Product update 1').waitFor();
+  await context.setOffline(true);
+  await inbox.getByText('You’re offline. Connect to load notifications.').waitFor();
+  await context.setOffline(false);
+  await inbox.getByText('Product update 1').waitFor();
+  await closeInbox.click();
   console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');

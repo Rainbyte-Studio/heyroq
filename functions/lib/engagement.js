@@ -311,7 +311,10 @@ function buildEngagement(db, database, region) {
         return allowedAccount(ownerProfile, deletion) ? pin : undefined;
     }
     const label = (value, fallback = '') => typeof value === 'string' ? value.slice(0, 180) : fallback;
-    const avatar = (profile) => label(profile.get('avatarUrl') || profile.get('photoURL'));
+    const avatar = (profile) => {
+        const value = profile.get('avatarUrl') || profile.get('photoURL');
+        return typeof value === 'string' && value.length <= 1200 ? value : '';
+    };
     async function inboxPage(tx, uid, before) {
         const q = inbox(uid).where('deleted', '==', false).orderBy('sequence', 'desc').limit(PAGE_SIZE);
         const [summary, page, config] = await Promise.all([

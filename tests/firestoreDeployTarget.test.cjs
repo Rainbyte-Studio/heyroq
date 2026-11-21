@@ -35,3 +35,4 @@ test('Heyroq Enterprise indexes avoid unsupported Standard field overrides', () 
       index.queryScope === 'COLLECTION'));
   }
 });
+

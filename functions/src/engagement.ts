@@ -295,7 +295,10 @@ export function buildEngagement(db: Firestore, database: string, region: string)
   }
 
   const label = (value: unknown, fallback = '') => typeof value === 'string' ? value.slice(0, 180) : fallback;
-  const avatar = (profile: DocumentSnapshot) => label(profile.get('avatarUrl') || profile.get('photoURL'));
+  const avatar = (profile: DocumentSnapshot) => {
+    const value = profile.get('avatarUrl') || profile.get('photoURL');
+    return typeof value === 'string' && value.length <= 1200 ? value : '';
+  };
 
   async function inboxPage(tx: Transaction, uid: string, before?: number) {
     const q = inbox(uid).where('deleted', '==', false).orderBy('sequence', 'desc').limit(PAGE_SIZE);
