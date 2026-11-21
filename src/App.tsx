@@ -5,8 +5,11 @@ import { Pin, LatLngBounds, LatLngPoint, PinCategory, DiscoveryFilter } from './
 import { normalizeCategory, matchesCategoryFilter } from './utils/categoryUtils';
 import { createSpotSearchMatcher, hasSpotSearchQuery } from './utils/spotSearch';
 import { Navbar } from './components/Navigation/Navbar';
-import { EngagementPanel } from './components/Navigation/EngagementPanel';
-import { subscribeToNotificationState, type EngagementView } from './services/engagementService';
+import { NotificationsPopover } from './components/Engagement/NotificationsPopover';
+import { NotificationsHistoryWindow } from './components/Engagement/NotificationsHistoryWindow';
+import { ActivityWindow } from './components/Engagement/ActivityWindow';
+import { SettingsWindow } from './components/Settings/SettingsWindow';
+import { subscribeToNotificationState } from './services/engagementService';
 import { getPublicUserProfile } from './services/userService';
 import { engagementDestination } from './utils/engagement';
 import { auth } from './lib/firebase';
@@ -16,7 +19,6 @@ import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
 import { CreatePinModal, CreatePinDraft } from './components/Pin/CreatePinModal';
 import { UserProfileModal } from './components/Profile/UserProfileModal';
-import { AccountSecurityModal } from './components/Profile/AccountSecurityModal';
 import { AchievementsModal } from './components/Profile/AchievementsModal';
 import { AuthModal } from './components/Auth/AuthModal';
 import { ReportModal } from './components/Report/ReportModal';
@@ -29,7 +31,15 @@ import { HelpSupportPage } from './components/Legal/HelpSupportPage';
 import { PinFeedList } from './components/Pin/PinFeedList';
 import { APP_VERSION } from './config/version';
 import { OPERATOR_IDENTITY } from './config/brandConfig';
-import { AppLink, useAppRoute } from './utils/appRoutes';
+import {
+  AppLink,
+  type AppRoute,
+  getSettingsSectionFromRoute,
+  isSettingsRoute,
+  navigateToRoute,
+  type SettingsSection,
+  useAppRoute,
+} from './utils/appRoutes';
 import { MapsProvider } from './components/Map/MapsProvider';
 import {
   subscribeToViewportPins,
@@ -72,8 +82,8 @@ class AdminLoadBoundary extends React.Component<AdminLoadBoundaryProps> {
   }
 }
 
-function HeyroqMainApp() {
-  const { user, profile, needsProfile } = useAuth();
+function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
+  const { user, firebaseUser, profile, needsProfile } = useAuth();
 
   // Scroll and layout reset on auth transition to ensure iOS Safari navbar recovery
   useEffect(() => {
@@ -86,7 +96,6 @@ function HeyroqMainApp() {
     }
     if (!user) {
       setIsProgressionOpen(false);
-      setIsAccountSecurityOpen(false);
     }
   }, [user]);
 
@@ -170,47 +179,123 @@ function HeyroqMainApp() {
   const [createPinDraft, setCreatePinDraft] = useState<CreatePinDraft | null>(null);
   const [newPinLocation, setNewPinLocation] = useState<LatLngPoint | null>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
-  const [isAccountSecurityOpen, setIsAccountSecurityOpen] = useState(false);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
   const [focusedAchievement, setFocusedAchievement] = useState<string>();
-  const [engagementView, setEngagementView] = useState<EngagementView | null>(null);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [engagementListenerAttempt, setEngagementListenerAttempt] = useState(0);
-  const [engagementState, setEngagementState] = useState<{ uid: string; unread: number; revision: number; offline: boolean } | null>(null);
-  const engagementUid = user && !user.isAnonymous && profile?.id === user.uid && !needsProfile ? user.uid : undefined;
+  const [engagementState, setEngagementState] = useState<{
+    uid: string;
+    unread: number;
+    revision: number;
+    offline: boolean;
+  } | null>(null);
+  const engagementUid =
+    firebaseUser && !firebaseUser.isAnonymous && profile?.id === firebaseUser.uid && !needsProfile
+      ? firebaseUser.uid
+      : undefined;
   const unread = engagementState?.uid === engagementUid ? engagementState?.unread ?? 0 : 0;
-  const closeEngagement = useCallback(() => setEngagementView(null), []);
-  const retryEngagementListener = useCallback(() => setEngagementListenerAttempt(attempt => attempt + 1), []);
+  const closeNotifications = useCallback(() => setIsNotificationsOpen(false), []);
+  const toggleNotifications = useCallback(() => setIsNotificationsOpen((open) => !open), []);
+  const retryEngagementListener = useCallback(
+    () => setEngagementListenerAttempt((attempt) => attempt + 1),
+    []
+  );
   useEffect(() => {
-    setEngagementView(null);
+    setIsNotificationsOpen(false);
   }, [engagementUid]);
   useEffect(() => {
     setEngagementState(null);
     if (!engagementUid) return;
-    return subscribeToNotificationState(engagementUid,
-      state => setEngagementState({ uid: engagementUid, ...state }),
-      () => setEngagementState(null));
+    return subscribeToNotificationState(
+      engagementUid,
+      (state) => setEngagementState({ uid: engagementUid, ...state }),
+      () => setEngagementState(null)
+    );
   }, [engagementUid, engagementListenerAttempt]);
-  const openEngagementDestination = useCallback(async (destination: NonNullable<ReturnType<typeof engagementDestination>>, signal: AbortSignal) => {
-    const stillOpen = () => !signal.aborted && Boolean(engagementUid) && auth.currentUser?.uid === engagementUid;
-    if (!stillOpen()) return false;
-    if (destination.type === 'pin') {
-      const pin = await fetchPinById(destination.id);
-      if (!stillOpen() || !pin || !isPublicPin(pin)) return false;
-      setEngagementView(null);
-      handleOpenDetails(pin);
-      return true;
+  const [overlayReturnFocusId, setOverlayReturnFocusId] = useState<string | undefined>(undefined);
+
+  const isSettingsOpen = isSettingsRoute(activeRoute);
+  const settingsSection: SettingsSection = getSettingsSectionFromRoute(activeRoute);
+  const settingsMobileView: 'menu' | 'detail' =
+    activeRoute === '/settings' ? 'menu' : 'detail';
+  const isHistoryWindowOpen = activeRoute === '/notifications';
+  const isActivityWindowOpen = activeRoute === '/activity';
+
+  const openSettingsWindow = useCallback(
+    (
+      target: 'menu' | SettingsSection,
+      options?: { returnFocusId?: string; replace?: boolean }
+    ) => {
+      setIsNotificationsOpen(false);
+      setProfileUserId(null);
+      if (options?.returnFocusId !== undefined) {
+        setOverlayReturnFocusId(options.returnFocusId);
+      }
+      const route =
+        target === 'menu'
+          ? '/settings'
+          : target === 'notifications'
+            ? '/settings/notifications'
+            : '/settings/account';
+      navigateToRoute(route, { replace: options?.replace });
+    },
+    []
+  );
+
+  const openHistoryWindow = useCallback((returnFocusId?: string) => {
+    setIsNotificationsOpen(false);
+    setProfileUserId(null);
+    if (returnFocusId !== undefined) {
+      setOverlayReturnFocusId(returnFocusId);
     }
-    if (destination.type === 'profile') {
-      if (!await getPublicUserProfile(destination.id, true) || !stillOpen()) return false;
-      setEngagementView(null);
-      setProfileUserId(destination.id);
-      return true;
+    navigateToRoute('/notifications');
+  }, []);
+
+  const openActivityWindow = useCallback((returnFocusId?: string) => {
+    setIsNotificationsOpen(false);
+    setProfileUserId(null);
+    if (returnFocusId !== undefined) {
+      setOverlayReturnFocusId(returnFocusId);
     }
-    setEngagementView(null);
-    setFocusedAchievement(destination.id);
-    setIsProgressionOpen(true);
-    return true;
-  }, [engagementUid, handleOpenDetails]);
+    navigateToRoute('/activity');
+  }, []);
+
+  const closeOverlayWindow = useCallback(() => {
+    navigateToRoute('/', { replace: true });
+  }, []);
+
+  const openEngagementDestination = useCallback(
+    async (
+      destination: NonNullable<ReturnType<typeof engagementDestination>>,
+      signal: AbortSignal
+    ) => {
+      const stillOpen = () =>
+        !signal.aborted && Boolean(engagementUid) && auth.currentUser?.uid === engagementUid;
+      if (!stillOpen()) return false;
+      if (destination.type === 'pin') {
+        const pin = await fetchPinById(destination.id);
+        if (!stillOpen() || !pin || !isPublicPin(pin)) return false;
+        setIsNotificationsOpen(false);
+        if (activeRoute !== '/') navigateToRoute('/', { replace: true });
+        handleOpenDetails(pin);
+        return true;
+      }
+      if (destination.type === 'profile') {
+        if (!(await getPublicUserProfile(destination.id, true)) || !stillOpen()) return false;
+        setIsNotificationsOpen(false);
+        if (activeRoute !== '/') navigateToRoute('/', { replace: true });
+        setProfileUserId(destination.id);
+        return true;
+      }
+      setIsNotificationsOpen(false);
+      if (activeRoute !== '/') navigateToRoute('/', { replace: true });
+      setFocusedAchievement(destination.id);
+      setIsProgressionOpen(true);
+      return true;
+    },
+    [engagementUid, activeRoute, handleOpenDetails]
+  );
+
   const mainContentRef = useRef<HTMLElement>(null);
   const focusMain = useCallback(() => mainContentRef.current?.focus(), []);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
@@ -382,7 +467,6 @@ function HeyroqMainApp() {
   // Cleanly reset UI state & purge departed user's in-memory pins after confirmed account deletion
   const handleAccountDeletedCleanRedirect = useCallback((deletedUid?: string) => {
     setProfileUserId(null);
-    setIsAccountSecurityOpen(false);
     setIsProgressionOpen(false);
     setIsCreateOpen(false);
     setIsAdminOpen(false);
@@ -678,14 +762,22 @@ function HeyroqMainApp() {
         onOpenProfile={(uid) => {
           if (uid) setProfileUserId(uid);
         }}
-        onOpenAccountSecurity={() => {
-          if (user) {
-            setIsAccountSecurityOpen(true);
-          }
-        }}
-        onOpenEngagement={engagementUid ? setEngagementView : undefined}
+        onToggleNotifications={engagementUid ? toggleNotifications : undefined}
         notificationUnread={unread}
-        notificationsOpen={engagementView === 'inbox' || engagementView === 'history'}
+        notificationsOpen={isNotificationsOpen}
+        onOpenSettings={
+          user
+            ? () =>
+                openSettingsWindow('menu', {
+                  returnFocusId: 'user-profile-menu-btn',
+                })
+            : undefined
+        }
+        onOpenActivity={
+          engagementUid
+            ? () => openActivityWindow('user-profile-menu-btn')
+            : undefined
+        }
         onOpenProgression={() => {
           if (user) {
             setProfileUserId(null);
@@ -867,14 +959,25 @@ function HeyroqMainApp() {
 
       {/* MODALS */}
 
-      {engagementUid && engagementView && (
+      {engagementUid && isNotificationsOpen && (
         <React.Fragment key={engagementUid}>
-          <EngagementPanel uid={engagementUid} view={engagementView}
-            setView={setEngagementView} close={closeEngagement} unread={unread}
-            revision={engagementState?.revision ?? 0} offline={engagementState?.offline ?? false}
+          <NotificationsPopover
+            uid={engagementUid}
+            close={closeNotifications}
+            unread={unread}
+            revision={engagementState?.revision ?? 0}
+            offline={engagementState?.offline ?? false}
             listenerReady={engagementState?.uid === engagementUid}
             retryListener={retryEngagementListener}
-            openDestination={openEngagementDestination} fallbackFocus={focusMain} />
+            onOpenSettings={() =>
+              openSettingsWindow('notifications', {
+                returnFocusId: 'nav-notifications-btn',
+              })
+            }
+            onOpenHistory={() => openHistoryWindow('nav-notifications-btn')}
+            openDestination={openEngagementDestination}
+            fallbackFocus={focusMain}
+          />
         </React.Fragment>
       )}
 
@@ -974,18 +1077,24 @@ function HeyroqMainApp() {
             setProfileUserId(uid);
           }}
           onOpenAbout={() => setIsAboutOpen(true)}
-          onOpenEngagementSettings={profileUserId === engagementUid ? () => setEngagementView('settings') : undefined}
+          onOpenAccountSettings={
+            profileUserId === engagementUid
+              ? () =>
+                  openSettingsWindow('account', {
+                    returnFocusId: 'user-profile-menu-btn',
+                  })
+              : undefined
+          }
+          onOpenEngagementSettings={
+            profileUserId === engagementUid
+              ? () =>
+                  openSettingsWindow('notifications', {
+                    returnFocusId: 'user-profile-menu-btn',
+                  })
+              : undefined
+          }
           onAvatarUpdated={handleUserAvatarUpdated}
           onAccountDeleted={() => handleAccountDeletedCleanRedirect(profileUserId)}
-        />
-      )}
-
-      {/* 3b. Standalone Account & Security Modal (opened from Navbar menu) */}
-      {isAccountSecurityOpen && user && (
-        <AccountSecurityModal
-          isOpen={isAccountSecurityOpen}
-          onClose={() => setIsAccountSecurityOpen(false)}
-          onAccountDeleted={() => handleAccountDeletedCleanRedirect(user.uid)}
         />
       )}
 
@@ -1056,6 +1165,60 @@ function HeyroqMainApp() {
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
       />
+
+      {/* 10. Unified Settings Window (Account & Security + Notifications & Activity) */}
+      <SettingsWindow
+        isOpen={isSettingsOpen}
+        activeSection={settingsSection}
+        mobileView={settingsMobileView}
+        onSelectSection={(section) => {
+          const isDesktopViewport =
+            typeof window !== 'undefined' && window.innerWidth >= 768;
+          openSettingsWindow(section, { replace: isDesktopViewport });
+        }}
+        onMobileBackToMenu={() => openSettingsWindow('menu', { replace: true })}
+        onClose={closeOverlayWindow}
+        onAccountDeleted={(deletedUid) => handleAccountDeletedCleanRedirect(deletedUid)}
+        onOpenHistory={engagementUid ? () => openHistoryWindow() : undefined}
+        onOpenActivity={engagementUid ? () => openActivityWindow() : undefined}
+        onRequestAuth={() => {
+          setAuthMode('signin');
+          setIsAuthOpen(true);
+        }}
+        returnFocusElementId={overlayReturnFocusId}
+        fallbackFocus={focusMain}
+      />
+
+      {/* 11. Full-Content Notification History Window */}
+      {engagementUid && (
+        <NotificationsHistoryWindow
+          isOpen={isHistoryWindowOpen}
+          uid={engagementUid}
+          unread={unread}
+          revision={engagementState?.revision ?? 0}
+          offline={engagementState?.offline ?? false}
+          listenerReady={engagementState?.uid === engagementUid}
+          retryListener={retryEngagementListener}
+          onClose={closeOverlayWindow}
+          onOpenSettings={() => openSettingsWindow('notifications')}
+          openDestination={openEngagementDestination}
+          returnFocusElementId={overlayReturnFocusId}
+          fallbackFocus={focusMain}
+        />
+      )}
+
+      {/* 12. Full-Content Activity Window */}
+      {engagementUid && (
+        <ActivityWindow
+          isOpen={isActivityWindowOpen}
+          uid={engagementUid}
+          onClose={closeOverlayWindow}
+          onOpenSettings={() => openSettingsWindow('notifications')}
+          openDestination={openEngagementDestination}
+          returnFocusElementId={overlayReturnFocusId}
+          fallbackFocus={focusMain}
+        />
+      )}
     </div>
   );
 }
@@ -1072,9 +1235,14 @@ function AppRouterSwitch() {
       return <TermsOfServicePage />;
     case '/support':
       return <HelpSupportPage />;
+    case '/settings':
+    case '/settings/account':
+    case '/settings/notifications':
+    case '/notifications':
+    case '/activity':
     case '/':
     default:
-      return <HeyroqMainApp />;
+      return <HeyroqMainApp activeRoute={activeRoute} />;
   }
 }
 

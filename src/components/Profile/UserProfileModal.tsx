@@ -38,6 +38,7 @@ import {
   Shield,
   ChevronRight,
   AlertCircle,
+  Bell,
 } from 'lucide-react';
 import { APP_VERSION } from '../../config/version';
 import { OPERATOR_IDENTITY } from '../../config/brandConfig';
@@ -51,6 +52,7 @@ interface UserProfileModalProps {
   onOpenCreatePin?: () => void;
   onOpenOtherProfile?: (userId: string) => void;
   onOpenAbout?: () => void;
+  onOpenAccountSettings?: () => void;
   onOpenEngagementSettings?: () => void;
   onAvatarUpdated?: (userId: string, newAvatarUrl: string) => void;
   onAccountDeleted?: () => void;
@@ -87,6 +89,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onOpenCreatePin,
   onOpenOtherProfile,
   onOpenAbout,
+  onOpenAccountSettings,
   onOpenEngagementSettings,
   onAvatarUpdated,
   onAccountDeleted,
@@ -960,10 +963,29 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   </div>
 
                   {onOpenEngagementSettings && (
-                    <button type="button" onClick={onOpenEngagementSettings} aria-haspopup="dialog"
-                      className="liquid-glass-card heyroq-focus-ring flex min-h-[54px] w-full flex-col justify-center rounded-2xl px-4 py-3 text-left hover:border-[var(--brand-primary)]/50">
-                      <span className="text-sm font-bold">Notifications &amp; Activity</span>
-                      <span className="text-xs text-[var(--heyroq-text-secondary)]">In-app notifications and activity privacy</span>
+                    <button
+                      id="profile-notifications-settings-btn"
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenEngagementSettings();
+                      }}
+                      className="liquid-glass-card w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left hover:border-[var(--brand-primary)]/50 transition cursor-pointer group heyroq-focus-ring min-h-[54px]"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-[var(--brand-primary)]/12 border border-[var(--brand-primary)]/25 flex items-center justify-center text-[var(--brand-primary)] shrink-0">
+                          <Bell className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white group-hover:text-[var(--heyroq-accent-text)] transition-colors">
+                            Notifications &amp; Activity
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-white/55 truncate">
+                            In-app notifications · Activity privacy
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/45 group-hover:text-slate-900 dark:group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0" />
                     </button>
                   )}
 
@@ -971,7 +993,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <button
                     id="profile-account-security-btn"
                     type="button"
-                    onClick={() => setShowAccountSecurityModal(true)}
+                    onClick={() => {
+                      if (onOpenAccountSettings) {
+                        onClose();
+                        onOpenAccountSettings();
+                      } else {
+                        setShowAccountSecurityModal(true);
+                      }
+                    }}
                     className="liquid-glass-card w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left hover:border-[var(--brand-primary)]/50 transition cursor-pointer group heyroq-focus-ring min-h-[54px]"
                   >
                     <div className="flex items-center gap-3 min-w-0">
