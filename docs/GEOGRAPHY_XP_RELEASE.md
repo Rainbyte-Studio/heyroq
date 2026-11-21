@@ -1,5 +1,23 @@
 # Geographic XP rollout and recovery
 
+## Frontend availability and verified badge progress
+
+For a frontend-only release, use the existing Frontend Release Candidate
+workflow with `production_profile=true` after verifying geographic awarding
+on the target backend. Check `COMMIT`, `SHA256SUMS` and
+`BUILD_PROFILE=geography-v11-maps-configured`. This profile builds with
+`VITE_GEOGRAPHY_V11_AVAILABLE=true`. Verify the staged bundle and routing
+before moving traffic. An omitted or false flag keeps locked geographic badges
+in Coming Soon. Earned badges continue to use the saved unlock record.
+
+The signed-in user's achievements modal reads the existing owner/admin-only
+`progressionV11/{uid}/xpEvents` geographic ledger. City and country badge bars
+count the corresponding `geo_v1:city:` and `geo_v1:country:` documents.
+A server-confirmed empty result shows zero. A cached or pending snapshot cannot
+establish a count. Legacy lifetime summary counts are independent. This release
+uses the existing rules and ledger and needs no Functions deployment or data
+backfill.
+
 ## Production observation on 2026-11-21
 
 The manifest's `productionObservation` records the revisions, source generations,

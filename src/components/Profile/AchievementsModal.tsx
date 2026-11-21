@@ -9,12 +9,17 @@ import {
 import {
   subscribeToUserProgression,
   subscribeToUserAchievements,
+  subscribeToVerifiedGeographicCounts,
   fetchUserXpEvents,
   ACHIEVEMENTS_CATALOG,
   EXPLORER_LEVELS,
 } from '../../services/gamificationService';
 import { CloseButton } from '../Common/CloseButton';
-import { getAchievementPresentation } from '../../config/achievementAvailability';
+import {
+  geographyAchievementsAvailable,
+  getAchievementPresentation,
+  type VerifiedGeographicCounts,
+} from '../../config/achievementAvailability';
 import {
   Trophy,
   Compass,
@@ -68,6 +73,10 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<'All' | AchievementCategory>('All');
   const [summary, setSummary] = useState<UserProgressionSummary | null>(null);
   const [achievements, setAchievements] = useState<UserAchievement[]>([]);
+  const [geographicProgress, setGeographicProgress] = useState<{
+    userId: string;
+    counts: VerifiedGeographicCounts | null;
+  } | null>(null);
   const [xpEvents, setXpEvents] = useState<XpEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
@@ -115,6 +124,10 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
       setAchievements(list);
     });
 
+    const unsubGeography = geographyAchievementsAvailable
+      ? subscribeToVerifiedGeographicCounts(userId, (counts) => setGeographicProgress({ userId, counts }))
+      : undefined;
+
     fetchUserXpEvents(userId, 10).then((events) => {
       setXpEvents(events);
     });
@@ -122,6 +135,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     return () => {
       unsubProgression();
       unsubAchievements();
+      unsubGeography?.();
     };
   }, [userId]);
 
@@ -148,10 +162,11 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
   const totalCount = ACHIEVEMENTS_CATALOG.length;
   const completionPercent = Math.round((unlockedCount / Math.max(1, totalCount)) * 100);
 
+  const verifiedGeography = geographicProgress?.userId === userId ? geographicProgress.counts : null;
   const filteredAchievements = achievements.filter((a) => {
     if (selectedCategory === 'All') return true;
     return a.category === selectedCategory;
-  }).map((achievement) => ({ achievement, ...getAchievementPresentation(achievement) }));
+  }).map((achievement) => ({ achievement, ...getAchievementPresentation(achievement, { verifiedGeography }) }));
   const showGeographyNotice = selectedCategory === 'Geography'
     && filteredAchievements.length > 0
     && filteredAchievements.every(({ state }) => state !== 'available')

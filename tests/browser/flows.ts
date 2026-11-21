@@ -17,6 +17,10 @@ import { uploadProfileImage } from '../../src/services/storageService';
 Object.assign(window, {
   heyroqTest: {
     signOut: () => signOut(auth),
+    async currentUserId() {
+      await auth.authStateReady();
+      return auth.currentUser?.uid;
+    },
     async readablePin(id: string) {
       return Boolean(await fetchPinById(id));
     },

@@ -768,6 +768,89 @@ try {
   await page.locator('#nav-notifications-btn[aria-label="Notifications, 1 unread"]').waitFor({ state: 'attached' });
   await closeInbox.click();
   console.log('Engagement browser passed: desktop, tablet and mobile inbox, focus, activity pagination and persisted preferences.');
+
+  // Exercise the same modal with the real build-time availability gate enabled.
+  await context.close();
+  await new Promise(resolve => server.httpServer.close(resolve));
+  server = undefined;
+  const previousGeographyFlag = process.env.VITE_GEOGRAPHY_V11_AVAILABLE;
+  try {
+    process.env.VITE_GEOGRAPHY_V11_AVAILABLE = 'true';
+    await build({
+      mode: 'browser-emulator',
+      build: { outDir, emptyOutDir: true, rollupOptions: { input: 'tests/browser/index.html' } },
+    });
+  } finally {
+    if (previousGeographyFlag === undefined) delete process.env.VITE_GEOGRAPHY_V11_AVAILABLE;
+    else process.env.VITE_GEOGRAPHY_V11_AVAILABLE = previousGeographyFlag;
+  }
+  server = await preview({ mode: 'browser-emulator', build: { outDir }, preview: {
+    host: '127.0.0.1', port: 4173, strictPort: true,
+  } });
+  const activeContext = await isolatedContext();
+  const activePage = await activeContext.newPage();
+  const fixtureUrl = origin + '/tests/browser/index.html';
+  await activePage.goto(fixtureUrl);
+  await activePage.waitForFunction(() => Boolean(window.heyroqTest));
+  const activeUid = await activePage.evaluate(id => window.heyroqTest.signUp(id + '@example.test', id), randomUUID());
+  await db.doc('users/' + activeUid).set({ displayName: 'Geography browser fixture' });
+  const activeProgression = db.collection('progressionV11').doc(activeUid);
+  await activeProgression.collection('state').doc('summary').set({ citiesCount: 99, countriesCount: 99 });
+  const activeLedger = activeProgression.collection('xpEvents');
+  await activeLedger.doc('city_first:legacy').set({ action: 'UNIQUE_CITY', xpEarned: 1 });
+
+  const activeModal = activePage.getByRole('dialog', { name: 'Explorer Progression' });
+  const activeCard = name => activeModal.getByRole('article', { name, exact: true });
+  const openProfileGeography = async () => {
+    await activePage.getByRole('button', { name: 'Open Profile Achievements' }).press('Enter');
+    await activeModal.getByRole('button', { name: /^Geography/ }).click();
+    await activeCard('City Pathfinder').waitFor();
+    assert.equal(await activeModal.getByRole('article').count(), 7);
+    assert.equal(await activeModal.getByText(/Coming Soon/i).count(), 0);
+  };
+
+  await activePage.evaluate(uid => window.heyroqTest.mountAchievementsTrigger(uid, true), activeUid);
+  await openProfileGeography();
+  await activeCard('City Pathfinder').getByText('0 / 10', { exact: true }).waitFor();
+  await activeCard('World Citizen').getByText('0 / 4', { exact: true }).waitFor();
+
+  const completed = activeProgression.collection('achievements').doc('local_explorer');
+  await db.batch()
+    .set(activeLedger.doc('geo_v1:city:GR:264371'), { action: 'UNIQUE_CITY', xpEarned: 25 })
+    .set(activeLedger.doc('geo_v1:city:GR:734077'), { action: 'UNIQUE_CITY', xpEarned: 25 })
+    .set(activeLedger.doc('geo_v1:country:GR'), { action: 'UNIQUE_COUNTRY', xpEarned: 100 })
+    .set(completed, { ...history, id: 'local_explorer', title: 'Local Explorer', progress: 1, target: 1 })
+    .commit();
+
+  const checkActiveProgress = async () => {
+    await activeCard('City Pathfinder').getByText('2 / 10', { exact: true }).waitFor();
+    await activeCard('World Citizen').getByText('1 / 4', { exact: true }).waitFor();
+    await activeCard('Local Explorer').getByText('Completed', { exact: true }).waitFor();
+    assert.equal(await activeCard('Local Explorer').locator('time').getAttribute('datetime'), history.unlockedAt);
+    assert.equal(await activeModal.getByText('Completed', { exact: true }).count(), 1);
+  };
+  for (const [width, height, dark] of [[375, 667, false], [1280, 800, true]]) {
+    await activePage.setViewportSize({ width, height });
+    await activePage.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+    await checkActiveProgress();
+    const cards = await activeModal.getByRole('article').evaluateAll(items =>
+      items.map(item => ({ x: item.getBoundingClientRect().x, overflow: item.scrollWidth > item.clientWidth })));
+    assert.ok(cards.every(card => !card.overflow));
+    assert.equal(new Set(cards.map(card => card.x)).size, width < 640 ? 1 : 2);
+  }
+  await activeModal.getByRole('button', { name: 'Close Explorer Progression' }).click();
+  await openProfileGeography();
+  await checkActiveProgress();
+  await activePage.reload();
+  await activePage.waitForFunction(() => Boolean(window.heyroqTest));
+  assert.equal(await activePage.evaluate(() => window.heyroqTest.currentUserId()), activeUid);
+  await activePage.evaluate(uid => window.heyroqTest.mountAchievementsTrigger(uid, true), activeUid);
+  await openProfileGeography();
+  await checkActiveProgress();
+  await activeModal.getByRole('button', { name: /^All Badges/ }).click();
+  assert.equal(await activeModal.getByRole('article').count(), 26);
+  await activeContext.close();
+  console.log('Active Geography browser passed: verified zero, distinct dimensions, completed badge, refresh, profile reopening and both layouts.');
   assert.deepEqual([...unexpected], [], 'Unexpected browser network origins');
   console.log('Browser passed: legacy/managed delivery, token checks, publish and delete retries, avatar cleanup, account deletion intake.');
 } finally {
