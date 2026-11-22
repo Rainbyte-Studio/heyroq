@@ -40,11 +40,20 @@ exports.onActivityPinPublished = engagement.pin;
 exports.onNotificationLike = engagement.like;
 exports.onNotificationComment = engagement.comment;
 exports.onNotificationFollow = engagement.follow;
-// The Gen 2 build sets a legacy event default. Firebase v2 needs the complete CloudEvent.
-(0, functions_framework_1.cloudEvent)('onNotificationFollow', (event) => (0, exports.onNotificationFollow)(event));
 exports.onActivityProgressionV11Xp = engagement.xp;
 exports.onActivityProgressionV11Level = engagement.level;
 exports.onNotificationCommand = engagement.system;
+// These Gen 2 builds default to legacy events. Firebase v2 needs the complete CloudEvent.
+function registerEngagementTrigger(name, handler) {
+    (0, functions_framework_1.cloudEvent)(name, (event) => handler(event));
+}
+registerEngagementTrigger('onActivityPinPublished', exports.onActivityPinPublished);
+registerEngagementTrigger('onNotificationLike', exports.onNotificationLike);
+registerEngagementTrigger('onNotificationComment', exports.onNotificationComment);
+registerEngagementTrigger('onNotificationFollow', exports.onNotificationFollow);
+registerEngagementTrigger('onActivityProgressionV11Xp', exports.onActivityProgressionV11Xp);
+registerEngagementTrigger('onActivityProgressionV11Level', exports.onActivityProgressionV11Level);
+registerEngagementTrigger('onNotificationCommand', exports.onNotificationCommand);
 exports.pruneEngagementHistory = scheduledWorker(120, engagement.prune);
 exports.engagementV1 = engagement.api;
 const avatarBucketName = 'rainbyte-studio.firebasestorage.app';

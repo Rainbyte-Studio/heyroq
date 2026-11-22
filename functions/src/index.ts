@@ -57,12 +57,23 @@ export const onActivityPinPublished = engagement.pin;
 export const onNotificationLike = engagement.like;
 export const onNotificationComment = engagement.comment;
 export const onNotificationFollow = engagement.follow;
-// The Gen 2 build sets a legacy event default. Firebase v2 needs the complete CloudEvent.
-cloudEvent('onNotificationFollow', (event: unknown) =>
-  onNotificationFollow(event as Parameters<typeof onNotificationFollow>[0]));
 export const onActivityProgressionV11Xp = engagement.xp;
 export const onActivityProgressionV11Level = engagement.level;
 export const onNotificationCommand = engagement.system;
+
+// These Gen 2 builds default to legacy events. Firebase v2 needs the complete CloudEvent.
+function registerEngagementTrigger<Event>(name: string, handler: (event: Event) => void | Promise<unknown>) {
+  cloudEvent(name, (event: unknown) => handler(event as Event));
+}
+
+registerEngagementTrigger('onActivityPinPublished', onActivityPinPublished);
+registerEngagementTrigger('onNotificationLike', onNotificationLike);
+registerEngagementTrigger('onNotificationComment', onNotificationComment);
+registerEngagementTrigger('onNotificationFollow', onNotificationFollow);
+registerEngagementTrigger('onActivityProgressionV11Xp', onActivityProgressionV11Xp);
+registerEngagementTrigger('onActivityProgressionV11Level', onActivityProgressionV11Level);
+registerEngagementTrigger('onNotificationCommand', onNotificationCommand);
+
 export const pruneEngagementHistory = scheduledWorker(120, engagement.prune);
 export const engagementV1 = engagement.api;
 
