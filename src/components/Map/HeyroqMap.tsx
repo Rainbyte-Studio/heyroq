@@ -1,3 +1,4 @@
+import type { PinLocation } from '../../services/pinLocation';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Map,
@@ -36,8 +37,10 @@ interface HeyroqMapProps {
   onBoundsChange: (bounds: LatLngBounds) => void;
   isCreating: boolean;
   createLocation: LatLngPoint | null;
-  onSelectCreateLocation: (loc: LatLngPoint) => void;
-  onCancelCreateLocation?: () => void;
+  mapCandidate: { location: PinLocation; loading: boolean } | null;
+  onConfirmCreateLocation: () => void;
+  onSelectCreateLocation: (loc: LatLngPoint, placeId?: string) => void;
+  onCancelCreateLocation: () => void;
   center?: LatLngPoint;
   isDesktop?: boolean;
   onToggleDrawer?: () => void;
@@ -55,14 +58,12 @@ interface HeyroqMapProps {
 const MapController: React.FC<{
   center?: LatLngPoint;
   onBoundsChange: (bounds: LatLngBounds) => void;
-  isCreating: boolean;
-  onSelectCreateLocation: (loc: LatLngPoint) => void;
+  onSelectCreateLocation: (loc: LatLngPoint, placeId?: string) => void;
   onMapInstance?: (map: google.maps.Map | null) => void;
   mapStyle: 'standard' | 'satellite';
 }> = ({
   center,
   onBoundsChange,
-  isCreating,
   onSelectCreateLocation,
   onMapInstance,
   mapStyle,
@@ -225,20 +226,17 @@ const MapController: React.FC<{
       }, 300);
     });
 
-    const clickListener = map.addListener('click', (e: google.maps.MapMouseEvent) => {
-      if (isCreating && e.latLng) {
-        onSelectCreateLocation({
-          lat: e.latLng.lat(),
-          lng: e.latLng.lng(),
-        });
-      }
+    const clickListener = map.addListener('click', (event: google.maps.IconMouseEvent) => {
+      if (!event.latLng || (event.domEvent instanceof MouseEvent && event.domEvent.button !== 0)) return;
+      if (event.placeId) event.stop();
+      onSelectCreateLocation(event.latLng.toJSON(), event.placeId);
     });
 
     return () => {
       google.maps.event.removeListener(listener);
       google.maps.event.removeListener(clickListener);
     };
-  }, [map, onBoundsChange, isCreating, onSelectCreateLocation]);
+  }, [map, onBoundsChange, onSelectCreateLocation]);
 
   return null;
 };
@@ -259,6 +257,8 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   onBoundsChange,
   isCreating,
   createLocation,
+  mapCandidate,
+  onConfirmCreateLocation,
   onSelectCreateLocation,
   onCancelCreateLocation,
   center = { lat: 37.7749, lng: -122.4194 },
@@ -367,13 +367,6 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   }, [locationNotice]);
 
   const handleMarkerClick = (pin: Pin) => {
-    if (isCreating) {
-      onSelectCreateLocation({
-        lat: pin.latitude,
-        lng: pin.longitude,
-      });
-      return;
-    }
     if (!isDesktop && onOpenDetails) {
       onOpenDetails(pin);
     } else {
@@ -388,7 +381,6 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   const dragStart = useRef({ x: 0, y: 0 });
 
   const handleFallbackMouseDown = (e: React.MouseEvent) => {
-    if (isCreating) return;
     setIsDragging(true);
     dragStart.current = { x: e.clientX - fallbackPan.x, y: e.clientY - fallbackPan.y };
   };
@@ -408,19 +400,6 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   const handleFallbackWheel = (e: React.WheelEvent) => {
     const zoomDelta = e.deltaY > 0 ? -0.15 : 0.15;
     setFallbackZoom((z) => Math.min(Math.max(Number((z + zoomDelta).toFixed(2)), 0.7), 3));
-  };
-
-  const handleFallbackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isCreating) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left - fallbackPan.x;
-    const y = e.clientY - rect.top - fallbackPan.y;
-    const lat = 90 - (y / (rect.height * fallbackZoom)) * 180;
-    const lng = (x / (rect.width * fallbackZoom)) * 360 - 180;
-    onSelectCreateLocation({
-      lat: Math.max(-85, Math.min(85, lat)),
-      lng: Math.max(-180, Math.min(180, lng)),
-    });
   };
 
   const latLngToPercent = (lat: number, lng: number) => {
@@ -666,6 +645,7 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
             }}
             className="heyroq-btn-primary flex md:hidden w-11 h-11 min-h-[44px] min-w-[44px] rounded-xl items-center justify-center active:scale-95 transition-transform cursor-pointer shrink-0 heyroq-focus-ring"
             title="Drop Pin"
+            data-drop-pin-trigger
             aria-label="Drop a Pin"
           >
             <Plus className="w-5 h-5 stroke-[2.5]" />
@@ -676,37 +656,51 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   );
 
   const renderCreateModeBanner = () => {
-    if (!isCreating) return null;
+    if (!isCreating && !mapCandidate) return null;
+    const location = mapCandidate?.location;
+    const unavailable = mapsStatus === APILoadingStatus.FAILED || mapsStatus === APILoadingStatus.AUTH_FAILURE;
+    const prompt = unavailable ? 'Google Maps is unavailable. Cancel to choose another option.'
+      : mapsStatus === APILoadingStatus.LOADED ? 'Tap or click the map to select a location' : 'Loading Google Maps…';
     return (
-      <div
-        id="map-pick-instruction-banner"
-        className="liquid-glass-floating absolute bottom-20 left-4 right-4 sm:right-auto sm:left-6 z-30 text-[var(--heyroq-text-primary)] px-4 py-2.5 rounded-xl ring-2 ring-[var(--brand-primary)]/40 flex items-center justify-between sm:justify-start gap-3 animate-in fade-in"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <MapPin className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
-          <span className="font-semibold text-xs truncate">
-            Click map to select location
-          </span>
+      <section id="map-location-selection" aria-label="Map location selection"
+        className="liquid-glass-floating absolute bottom-[calc(8.25rem+env(safe-area-inset-bottom,0px))] left-3 right-3 z-30 max-w-sm rounded-2xl p-3 text-[var(--heyroq-text-primary)] sm:left-6 sm:bottom-32">
+        <div role="status" className="break-words">
+          <p className="text-sm font-semibold">
+            {location ? location.locationName || 'Selected location' : prompt}
+          </p>
+          {mapCandidate?.loading ? <p className="text-xs">Looking up location…</p>
+            : location?.address ? <p className="text-xs">{location.address} · Google Maps</p>
+            : location && <p className="text-xs">No address available</p>}
+          {location?.locationName && !location.address && <p className="text-xs">Google Maps</p>}
         </div>
-        {onCancelCreateLocation && (
-          <button
-            id="cancel-map-pick-btn"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancelCreateLocation();
-            }}
-            className="px-3 py-1 bg-slate-900/[0.06] dark:bg-white/10 hover:bg-slate-900/[0.12] dark:hover:bg-white/20 text-[var(--heyroq-text-primary)] rounded-lg text-xs font-semibold transition cursor-pointer border border-[var(--heyroq-border-subtle)] shrink-0"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
+        <div className="mt-1 flex flex-wrap justify-end gap-2">
+          <button id="cancel-map-pick-btn" type="button" onClick={onCancelCreateLocation}
+            className="min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring">Cancel</button>
+          {isCreating && !location && mapInstance && (
+            <button type="button" className="min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring"
+              onClick={() => {
+                const point = mapInstance.getCenter();
+                if (point) onSelectCreateLocation(point.toJSON());
+              }}>Select map center</button>
+          )}
+          {location && (
+            <button type="button" onClick={onConfirmCreateLocation} disabled={mapCandidate?.loading}
+              className="heyroq-btn-primary min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring disabled:opacity-60">
+              Create Pin Here
+            </button>
+          )}
+        </div>
+      </section>
     );
   };
 
   if (mapsStatus === APILoadingStatus.NOT_LOADED || mapsStatus === APILoadingStatus.LOADING) {
-    return <p role="status" className="absolute inset-0 grid place-items-center">Loading Google Maps…</p>;
+    return (
+      <>
+        <p role="status" className="absolute inset-0 grid place-items-center">Loading Google Maps…</p>
+        {renderCreateModeBanner()}
+      </>
+    );
   }
 
   if (mapsStatus === APILoadingStatus.LOADED) {
@@ -755,7 +749,6 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
           <MapController
             center={center}
             onBoundsChange={onBoundsChange}
-            isCreating={isCreating}
             onSelectCreateLocation={onSelectCreateLocation}
             onMapInstance={setMapInstance}
             mapStyle={mapStyle}
@@ -767,18 +760,15 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
             onPinClick={handleMarkerClick}
           />
 
-          {isCreating && createLocation && (
+          {createLocation && (
             <AdvancedMarker
               position={{ lat: createLocation.lat, lng: createLocation.lng }}
               title="New Pin Location"
             >
-              <div className="flex flex-col items-center transition-transform duration-200 ease-out">
+              <div className="pointer-events-none flex flex-col items-center transition-transform duration-200 ease-out">
                 <div className="bg-[var(--brand-cta-bg)] text-white p-2 rounded-full shadow-lg border-2 border-[#FAF9F6]">
                   <MapPin className="w-6 h-6" strokeWidth={1.75} />
                 </div>
-                <span className="liquid-glass-floating text-[var(--heyroq-text-primary)] text-[11px] font-semibold px-2.5 py-0.5 rounded-full mt-1">
-                  Drop Pin Here
-                </span>
               </div>
             </AdvancedMarker>
           )}
@@ -799,7 +789,6 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
       onMouseMove={handleFallbackMouseMove}
       onMouseUp={handleFallbackMouseUp}
       onWheel={handleFallbackWheel}
-      onClick={handleFallbackClick}
     >
       <div className="liquid-glass-floating absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl text-[var(--heyroq-text-primary)] px-5 py-3.5 rounded-2xl flex items-start gap-3">
         <Info className="w-5 h-5 text-[var(--brand-primary)] shrink-0 mt-0.5" />
@@ -865,7 +854,7 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
           );
         })}
 
-        {isCreating && createLocation && (
+        {createLocation && (
           <div
             style={{
               left: `${latLngToPercent(createLocation.lat, createLocation.lng).x}%`,

@@ -321,6 +321,7 @@ try {
   ), [37.98376, 23.72784]);
   assert.ok(await page.getByText('Geography rewards are paused.', { exact: false }).isVisible());
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
 
   const legacyPath = 'pins/' + uid + '/legacy.png';
   await bucket.file(legacyPath).save(Buffer.from(png), { resumable: false, contentType: 'image/png' });
