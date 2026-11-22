@@ -4,6 +4,7 @@ exports.deleteUserAccount = exports.reconcileAccountDeletion = exports.recalcula
 exports.updateUserProgressionServer = updateUserProgressionServer;
 exports.updateProgressionForCreatedPin = updateProgressionForCreatedPin;
 exports.cleanAccountReports = cleanAccountReports;
+const functions_framework_1 = require("@google-cloud/functions-framework");
 const progressionEvidence_1 = require("./progressionEvidence");
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -39,6 +40,8 @@ exports.onActivityPinPublished = engagement.pin;
 exports.onNotificationLike = engagement.like;
 exports.onNotificationComment = engagement.comment;
 exports.onNotificationFollow = engagement.follow;
+// The Gen 2 build sets a legacy event default. Firebase v2 needs the complete CloudEvent.
+(0, functions_framework_1.cloudEvent)('onNotificationFollow', (event) => (0, exports.onNotificationFollow)(event));
 exports.onActivityProgressionV11Xp = engagement.xp;
 exports.onActivityProgressionV11Level = engagement.level;
 exports.onNotificationCommand = engagement.system;
