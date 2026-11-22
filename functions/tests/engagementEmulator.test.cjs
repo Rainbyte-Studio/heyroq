@@ -248,3 +248,38 @@ test('Following honors the recent 90 relationships and rechecks privacy on curso
   assert.deepEqual(await call(viewer, 'following', { before: '9'.repeat(16) + ':' + 'f'.repeat(64) }),
     { items: [], next: null, limited: false });
 });
+
+test('reciprocal production-shaped CloudEvents deliver once in each direction', async () => {
+  const { join } = require('node:path');
+  const sdkRoot = join(require.resolve('firebase-functions/logger'), '..', '..', '..');
+  const { DocumentEventData } = require(join(sdkRoot, 'protos/compiledFirestore')).google.events.cloud.firestore.v1;
+  const accounts = await Promise.all([profile(), profile()]);
+  const clientTimes = ['2026-11-22T09:20:14.051Z', '2026-11-22T09:20:59.774Z'];
+  for (const [index, actor] of accounts.entries()) {
+    const recipient = accounts[1 - index];
+    const createdAt = clientTimes[index];
+    const follower = db.doc(`users/${recipient}/followers/${actor}`);
+    const following = db.doc(`users/${actor}/following/${recipient}`);
+    await db.batch().set(follower, { followerId: actor, createdAt })
+      .set(following, { targetUserId: recipient, createdAt }).commit();
+
+    const { createTime } = await follower.get();
+    const document = follower.path;
+    const source = `//firestore.googleapis.com/projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}`;
+    const time = { seconds: createTime.seconds, nanos: createTime.nanoseconds };
+    const event = {
+      id: randomUUID(), source, project: 'demo-heyroq', database: FIRESTORE_DATABASE_ID,
+      document, datacontenttype: 'application/protobuf',
+      data: Buffer.from(DocumentEventData.encode({ value: {
+        name: `projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}/documents/${document}`,
+        createTime: time, updateTime: time,
+        fields: { followerId: { stringValue: actor }, createdAt: { stringValue: createdAt } },
+      } }).finish()),
+    };
+    await onNotificationFollow(event);
+    await onNotificationFollow(event);
+    const inbox = await call(recipient, 'inbox');
+    assert.deepEqual(inbox.items.map(({ type, actorId }) => ({ type, actorId })), [{ type: 'follow', actorId: actor }]);
+    assert.equal((await noticeState(recipient)).get('unread'), 1);
+  }
+});

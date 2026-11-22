@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Timestamp, type DocumentReference, type DocumentSnapshot, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { info } from 'firebase-functions/logger';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { formatGeographicDiscovery } from './geographicProgression';
@@ -132,7 +133,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
       notice ? tx.getAll(prefs(uid), noticeRef, stateRef) : undefined,
       item ? tx.get(activityRef) : undefined,
     ]);
-    if (!allowedAccount(profile, deletion)) return;
+    if (!allowedAccount(profile, deletion)) return 'recipient_ineligible';
 
     if (item && !previousActivity?.exists) {
       tx.create(activityRef, {
@@ -141,15 +142,16 @@ export function buildEngagement(db: Firestore, database: string, region: string)
         expiresAt: Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY),
       });
     }
-    if (!notice || !noticeReads || notice.actorId === uid) return;
+    if (!notice || !noticeReads) return;
+    if (notice.actorId === uid) return 'self_follow';
     const [settings, previousNotice, inboxState] = noticeReads;
-    if (previousNotice.exists) return;
+    if (previousNotice.exists) return 'duplicate_or_tombstone';
     const preference = noticePreference[notice.type];
     // A suppressed event gets a tombstone, so replay after a preference change cannot deliver it.
     const expiresAt = Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY);
     if (preference && !preferenceEnabled(settings.data(), preference)) {
       tx.create(noticeRef, { expiresAt, deleted: true });
-      return;
+      return 'preference_disabled';
     }
     const sequence = safeCount(inboxState.get('sequence')) + 1;
     const { noticeId: _noticeId, ...fields } = notice;
@@ -161,6 +163,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     });
     tx.set(stateRef, { sequence, unread: safeCount(inboxState.get('unread')) + 1,
       revision: safeCount(inboxState.get('revision')) + 1 }, { merge: true });
+    return 'delivered';
   }
 
   function fresh(at: Timestamp) {
@@ -184,21 +187,23 @@ export function buildEngagement(db: Firestore, database: string, region: string)
 
   async function social(event: DocumentSnapshot, type: 'like' | 'comment' | 'follow', parentId: string) {
     const at = event.createTime;
-    if (!at || !fresh(at)) return;
-    await db.runTransaction(async tx => {
+    if (!at) return 'missing_create_time';
+    if (!fresh(at)) return 'expired_event';
+    return db.runTransaction(async tx => {
       const current = await tx.get(event.ref);
-      if (!current.createTime?.isEqual(at)) return;
+      if (!current.exists) return 'follow_document_missing';
+      if (!current.createTime?.isEqual(at)) return 'create_time_mismatch';
       const actorId = type === 'comment' ? current.get('userId') : current.id;
-      if (!validDocumentId(actorId)) return;
+      if (!validDocumentId(actorId)) return 'invalid_actor';
       const [actor, actorLock] = await tx.getAll(user(actorId), lock(actorId));
-      if (!allowedAccount(actor, actorLock)) return;
+      if (!allowedAccount(actor, actorLock)) return 'actor_ineligible';
       const eventKey = type + ':' + event.ref.path + ':' + incarnation(at);
       if (type === 'follow') {
         const following = await tx.get(user(actorId).collection('following').doc(parentId));
-        if (following.exists) await project(tx, parentId, eventKey, at, undefined, {
+        if (!following.exists) return 'reciprocal_document_missing';
+        return project(tx, parentId, eventKey, at, undefined, {
           type, actorId, noticeId: 'follow:' + event.ref.path + ':' + Math.floor(at.toMillis() / DAY),
         });
-        return;
       }
       const pin = await tx.get(pins.doc(parentId));
       if (!isPublicPin(pin) || !pin.createTime || pin.createTime.valueOf() > at.valueOf()) return;
@@ -216,6 +221,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
         } : { commentId: current.id, commentCreatedAt: at }),
         ...(parent?.createTime ? { parentCommentId: parent.id, parentCommentCreatedAt: parent.createTime } : {}),
       });
+      return undefined;
     });
   }
 
@@ -479,7 +485,14 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     pin: onDocumentCreated(trigger('pins/{pinId}'), e => e.data && pinEvent(e.data)),
     like: onDocumentCreated(trigger('pins/{pinId}/likes/{actorId}'), e => e.data && social(e.data, 'like', e.params.pinId)),
     comment: onDocumentCreated(trigger('pins/{pinId}/comments/{commentId}'), e => e.data && social(e.data, 'comment', e.params.pinId)),
-    follow: onDocumentCreated(trigger('users/{uid}/followers/{followerId}'), e => e.data && social(e.data, 'follow', e.params.uid)),
+    follow: onDocumentCreated(trigger('users/{uid}/followers/{followerId}'), async event => {
+      const reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+      // Log once after the transaction settles, including when Firestore retries the callback.
+      info('Follow notification outcome', {
+        reason,
+        eventKey: event.id ? hash(event.id) : undefined,
+      });
+    }),
     xp: onDocumentCreated(trigger('progressionV11/{uid}/xpEvents/{eventId}'), e => e.data && xpEvent(e.data, e.params.uid)),
     level: onDocumentWritten(trigger('progressionV11/{uid}/state/summary'), e =>
       e.data?.after.exists && levelEvent(e.data.before, e.data.after, e.params.uid)),
