@@ -14,6 +14,7 @@ import { CATEGORY_CONFIG } from './CategoryBadge';
 import { LikeIndicator } from '../Pin/LikeButton';
 import { useTheme } from '../../context/ThemeContext';
 import { CloseButton } from '../Common/CloseButton';
+import { MapLocationOverlay } from './MapLocationOverlay';
 import {
   MapPin,
   Crosshair,
@@ -279,6 +280,7 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const layersRef = useRef<HTMLDivElement>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Close layers popover on outside click or Escape key
   useEffect(() => {
@@ -411,13 +413,17 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   // Deliberate Heyroq Lower-Right Liquid Glass Control Hierarchy:
   // UTILITY CONTROLS: [ My Location ] [ Map Layers ]
   // ACTIONS:          [ Hide / Show ] [ Spots (if drawer closed) ] [ Mobile Add Pin (+) ]
+  const hasMobileSelectionSheet = !isDesktop && Boolean(mapCandidate);
+
   const renderHeyroqControls = () => (
     <div
       id="heyroq-bottom-right-controls"
       className={`absolute right-3.5 sm:right-5 z-20 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all duration-200 ${
-        isDrawerOpen
-          ? 'bottom-6 sm:bottom-7'
-          : 'bottom-[calc(1.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
+        hasMobileSelectionSheet
+          ? 'bottom-[calc(11.25rem+env(safe-area-inset-bottom,0px))]'
+          : isDrawerOpen
+            ? 'bottom-6 sm:bottom-7'
+            : 'bottom-[calc(1.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
       }`}
     >
       {/* Location Feedback Notice */}
@@ -655,57 +661,38 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
     </div>
   );
 
-  const renderCreateModeBanner = () => {
-    if (!isCreating && !mapCandidate) return null;
-    const location = mapCandidate?.location;
-    const unavailable = mapsStatus === APILoadingStatus.FAILED || mapsStatus === APILoadingStatus.AUTH_FAILURE;
-    const prompt = unavailable ? 'Google Maps is unavailable. Cancel to choose another option.'
-      : mapsStatus === APILoadingStatus.LOADED ? 'Tap or click the map to select a location' : 'Loading Google Maps…';
-    return (
-      <section id="map-location-selection" aria-label="Map location selection"
-        className="liquid-glass-floating absolute bottom-[calc(8.25rem+env(safe-area-inset-bottom,0px))] left-3 right-3 z-30 max-w-sm rounded-2xl p-3 text-[var(--heyroq-text-primary)] sm:left-6 sm:bottom-32">
-        <div role="status" className="break-words">
-          <p className="text-sm font-semibold">
-            {location ? location.locationName || 'Selected location' : prompt}
-          </p>
-          {mapCandidate?.loading ? <p className="text-xs">Looking up location…</p>
-            : location?.address ? <p className="text-xs">{location.address} · Google Maps</p>
-            : location && <p className="text-xs">No address available</p>}
-          {location?.locationName && !location.address && <p className="text-xs">Google Maps</p>}
-        </div>
-        <div className="mt-1 flex flex-wrap justify-end gap-2">
-          <button id="cancel-map-pick-btn" type="button" onClick={onCancelCreateLocation}
-            className="min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring">Cancel</button>
-          {isCreating && !location && mapInstance && (
-            <button type="button" className="min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring"
-              onClick={() => {
-                const point = mapInstance.getCenter();
-                if (point) onSelectCreateLocation(point.toJSON());
-              }}>Select map center</button>
-          )}
-          {location && (
-            <button type="button" onClick={onConfirmCreateLocation} disabled={mapCandidate?.loading}
-              className="heyroq-btn-primary min-h-11 rounded-xl px-3 text-xs font-semibold heyroq-focus-ring disabled:opacity-60">
-              Create Pin Here
-            </button>
-          )}
-        </div>
-      </section>
-    );
-  };
+  const renderCreateModeBanner = () => (
+    <MapLocationOverlay
+      isDesktop={isDesktop}
+      isCreating={isCreating}
+      mapCandidate={mapCandidate}
+      mapsStatus={mapsStatus}
+      mapInstance={mapInstance}
+      containerRef={mapContainerRef}
+      onConfirmCreateLocation={onConfirmCreateLocation}
+      onSelectCreateLocation={onSelectCreateLocation}
+      onCancelCreateLocation={onCancelCreateLocation}
+    />
+  );
 
   if (mapsStatus === APILoadingStatus.NOT_LOADED || mapsStatus === APILoadingStatus.LOADING) {
     return (
-      <>
-        <p role="status" className="absolute inset-0 grid place-items-center">Loading Google Maps…</p>
+      <div ref={mapContainerRef} className="absolute inset-0 w-full h-full">
+        <p role="status" className="absolute inset-0 grid place-items-center text-sm text-[var(--heyroq-text-secondary)]">
+          Loading Google Maps…
+        </p>
         {renderCreateModeBanner()}
-      </>
+      </div>
     );
   }
 
   if (mapsStatus === APILoadingStatus.LOADED) {
     return (
-      <div id="heyroq-google-map-container" className="absolute inset-0 w-full h-full">
+      <div
+        ref={mapContainerRef}
+        id="heyroq-google-map-container"
+        className="absolute inset-0 w-full h-full"
+      >
         {/*
           Google Maps ColorScheme synchronization:
           `DEMO_MAP_ID` supports runtime Light/Dark switching via `colorScheme` (`ColorScheme.LIGHT` / `ColorScheme.DARK`).
@@ -766,9 +753,23 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
               title="New Pin Location"
             >
               <div className="pointer-events-none flex flex-col items-center transition-transform duration-200 ease-out">
-                <div className="bg-[var(--brand-cta-bg)] text-white p-2 rounded-full shadow-lg border-2 border-[#FAF9F6]">
-                  <MapPin className="w-6 h-6" strokeWidth={1.75} />
+                <div className="relative flex items-center justify-center">
+                  <span
+                    aria-hidden="true"
+                    className="absolute -inset-1.5 rounded-full bg-[var(--brand-primary)]/25"
+                  />
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[var(--brand-cta-bg)] text-white shadow-[0_6px_18px_rgba(185,83,24,0.45)] ring-2 ring-[#FAF9F6]">
+                    <MapPin className="w-5 h-5" strokeWidth={2} />
+                  </div>
                 </div>
+                <span
+                  aria-hidden="true"
+                  className="-mt-0.5 h-2 w-2 rotate-45 bg-[var(--brand-cta-bg)] shadow-sm"
+                />
+                <span
+                  aria-hidden="true"
+                  className="mt-0.5 h-1.5 w-3.5 rounded-full bg-black/25 blur-[1px]"
+                />
               </div>
             </AdvancedMarker>
           )}
@@ -783,6 +784,7 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   // Keep the interactive fallback available when Google Maps cannot load.
   return (
     <div
+      ref={mapContainerRef}
       id="heyroq-fallback-map"
       className="absolute inset-0 w-full h-full bg-[var(--heyroq-bg-canvas)] overflow-hidden select-none cursor-grab active:cursor-grabbing"
       onMouseDown={handleFallbackMouseDown}

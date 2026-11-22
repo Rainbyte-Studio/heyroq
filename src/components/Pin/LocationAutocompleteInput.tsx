@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { APILoadingStatus, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { Loader2, MapPin, Search } from 'lucide-react';
 import { useHeyroqMapsStatus } from '../Map/MapsProvider';
 import {
   fetchPlaceSuggestions,
@@ -37,6 +38,7 @@ export function LocationAutocompleteInput({
   const optionRefs = useRef<(HTMLLIElement | null)[]>([]);
   const open = !disabled && query.trim().length >= 2 && query === value;
   const expanded = open && !unavailable && suggestions.length > 0;
+  const isBusy = selecting || (open && !unavailable && (message === 'Searching places…' || message === 'Loading place search…'));
 
   useEffect(() => {
     mounted.current = true;
@@ -111,70 +113,118 @@ export function LocationAutocompleteInput({
         session.current.reset();
       }
     }}>
-      <input
-        id={id}
-        type="text"
-        role="combobox"
-        aria-label={ariaLabel}
-        autoFocus={autoFocus}
-        aria-autocomplete="list"
-        aria-expanded={expanded}
-        aria-controls={expanded ? listId : undefined}
-        aria-activedescendant={expanded && activeIndex >= 0 ? listId + '-' + activeIndex : undefined}
-        value={value}
-        disabled={disabled}
-        readOnly={selecting}
-        placeholder="Search for a place or enter a name"
-        autoComplete="off"
-        onChange={event => {
-          closeSuggestions();
-          onChange(event.target.value);
-          setQuery(event.target.value);
-          if (!event.target.value.trim()) session.current.reset();
-        }}
-        onKeyDown={event => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === 'Escape' && open) {
-            event.stopPropagation();
+      <div className="relative">
+        <Search
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--heyroq-text-muted)]"
+        />
+        <input
+          id={id}
+          type="text"
+          role="combobox"
+          aria-label={ariaLabel}
+          autoFocus={autoFocus}
+          aria-autocomplete="list"
+          aria-expanded={expanded}
+          aria-controls={expanded ? listId : undefined}
+          aria-activedescendant={expanded && activeIndex >= 0 ? listId + '-' + activeIndex : undefined}
+          value={value}
+          disabled={disabled}
+          readOnly={selecting}
+          placeholder="Search for a place or enter a name"
+          autoComplete="off"
+          onChange={event => {
             closeSuggestions();
-          } else if (expanded && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-            event.preventDefault();
-            const step = event.key === 'ArrowDown' ? 1 : -1;
-            setActiveIndex(index => index < 0 && step < 0
-              ? suggestions.length - 1
-              : (index + step + suggestions.length) % suggestions.length);
-          } else if (event.key === 'Enter') {
-            event.preventDefault();
-            if (expanded && activeIndex >= 0) void select(suggestions[activeIndex]);
-          }
-        }}
-        className="liquid-glass-input w-full px-3 py-2 rounded-xl text-base sm:text-xs"
-      />
-      <div role="status" className={expanded || (!selecting && !message) ? 'sr-only' : 'mt-1 text-xs'}>
+            onChange(event.target.value);
+            setQuery(event.target.value);
+            if (!event.target.value.trim()) session.current.reset();
+          }}
+          onKeyDown={event => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === 'Escape' && open) {
+              event.stopPropagation();
+              closeSuggestions();
+            } else if (expanded && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+              event.preventDefault();
+              const step = event.key === 'ArrowDown' ? 1 : -1;
+              setActiveIndex(index => index < 0 && step < 0
+                ? suggestions.length - 1
+                : (index + step + suggestions.length) % suggestions.length);
+            } else if (event.key === 'Enter') {
+              event.preventDefault();
+              if (expanded && activeIndex >= 0) void select(suggestions[activeIndex]);
+            }
+          }}
+          className="liquid-glass-input w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-9 py-2 rounded-xl text-base sm:text-sm text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] heyroq-focus-ring"
+        />
+        {isBusy && (
+          <Loader2
+            aria-hidden="true"
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-[var(--brand-primary)]"
+          />
+        )}
+      </div>
+      <div
+        role="status"
+        className={
+          expanded || (!selecting && !message)
+            ? 'sr-only'
+            : 'mt-1.5 px-0.5 text-xs text-[var(--heyroq-text-secondary)]'
+        }
+      >
         {selecting ? 'Loading place details…' : message}
       </div>
       {expanded && (
-        <div className="liquid-glass-popover mt-1 rounded-xl border border-[var(--heyroq-divider)]">
-          <ul id={listId} role="listbox" aria-label="Suggested places"
-            className="max-h-40 overflow-y-auto overscroll-contain touch-pan-y divide-y divide-[var(--heyroq-divider)]">
-            {suggestions.map((suggestion, index) => (
-              <li
-                key={suggestion.placeId}
-                id={listId + '-' + index}
-                ref={node => { optionRefs.current[index] = node; }}
-                role="option"
-                aria-selected={index === activeIndex}
-                onMouseDown={event => event.preventDefault()}
-                onClick={() => void select(suggestion)}
-                className={'min-h-[44px] cursor-pointer px-3 py-2 break-words ' +
-                  (index === activeIndex ? 'bg-[var(--brand-primary)]/15' : 'hover:bg-slate-500/10')}
-              >
-                <div className="font-semibold">{suggestion.mainText}</div>
-                {suggestion.secondaryText && <div className="text-[var(--heyroq-text-muted)]">{suggestion.secondaryText}</div>}
-              </li>
-            ))}
+        <div className="liquid-glass-popover mt-1.5 overflow-hidden rounded-2xl border border-[var(--glass-border-strong)]">
+          <ul
+            id={listId}
+            role="listbox"
+            aria-label="Suggested places"
+            className="max-h-40 overflow-y-auto overscroll-contain touch-pan-y divide-y divide-[var(--heyroq-divider)]"
+          >
+            {suggestions.map((suggestion, index) => {
+              const isActive = index === activeIndex;
+              return (
+                <li
+                  key={suggestion.placeId}
+                  id={listId + '-' + index}
+                  ref={node => { optionRefs.current[index] = node; }}
+                  role="option"
+                  aria-selected={isActive}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => void select(suggestion)}
+                  className={
+                    'min-h-[44px] flex items-start gap-2.5 cursor-pointer px-3 py-2.5 transition-colors break-words ' +
+                    (isActive
+                      ? 'bg-[var(--brand-primary)]/14 text-[var(--heyroq-text-primary)]'
+                      : 'hover:bg-[var(--heyroq-bg-subtle)] text-[var(--heyroq-text-primary)]')
+                  }
+                >
+                  <MapPin
+                    aria-hidden="true"
+                    strokeWidth={1.9}
+                    className={
+                      'w-4 h-4 mt-0.5 shrink-0 ' +
+                      (isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--heyroq-text-muted)]')
+                    }
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm sm:text-xs font-semibold leading-snug">
+                      {suggestion.mainText}
+                    </div>
+                    {suggestion.secondaryText && (
+                      <div className="mt-0.5 text-xs sm:text-[11px] text-[var(--heyroq-text-muted)] leading-snug">
+                        {suggestion.secondaryText}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
-          <p className="px-3 py-1 text-right text-xs font-medium">Google Maps</p>
+          <p className="border-t border-[var(--heyroq-divider)] bg-[var(--heyroq-bg-subtle)] px-3 py-1.5 text-right text-[11px] font-medium text-[var(--heyroq-text-muted)]">
+            Google Maps
+          </p>
         </div>
       )}
     </div>

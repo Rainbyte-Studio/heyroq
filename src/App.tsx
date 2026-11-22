@@ -350,7 +350,11 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
   // On mobile/stacked viewports (!isDesktop), Pin Detail and the expanded Nearby Spots
   // drawer are strictly mutually exclusive foreground layers.
   // Nearby Spots expanded UI is architecturally impossible to render when Pin Detail is active or map location is being picked.
-  const shouldRenderNearbySpots = isDrawerOpen && (!isPinDetailActive || isDesktop) && !isPickingLocationOnMap;
+  const shouldRenderNearbySpots =
+    isDrawerOpen &&
+    (!isPinDetailActive || isDesktop) &&
+    !isPickingLocationOnMap &&
+    (!mapCandidate || isDesktop);
 
   function handleSearchChange(query: string) {
     setSearchQuery(query);
