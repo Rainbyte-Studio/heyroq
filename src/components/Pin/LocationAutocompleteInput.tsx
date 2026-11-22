@@ -15,10 +15,12 @@ interface LocationAutocompleteInputProps {
   onChange: (value: string) => void;
   onLocationSelect: (location: PlaceDetailsResult) => void;
   disabled?: boolean;
+  ariaLabel?: string;
+  autoFocus?: boolean;
 }
 
 export function LocationAutocompleteInput({
-  id, value, onChange, onLocationSelect, disabled = false,
+  id, value, onChange, onLocationSelect, disabled = false, ariaLabel, autoFocus,
 }: LocationAutocompleteInputProps) {
   const places = useMapsLibrary('places');
   const mapsStatus = useHeyroqMapsStatus();
@@ -113,6 +115,8 @@ export function LocationAutocompleteInput({
         id={id}
         type="text"
         role="combobox"
+        aria-label={ariaLabel}
+        autoFocus={autoFocus}
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={expanded ? listId : undefined}
@@ -152,7 +156,7 @@ export function LocationAutocompleteInput({
       {expanded && (
         <div className="liquid-glass-popover mt-1 rounded-xl border border-[var(--heyroq-divider)]">
           <ul id={listId} role="listbox" aria-label="Suggested places"
-            className="max-h-40 overflow-y-auto overscroll-contain divide-y divide-[var(--heyroq-divider)]">
+            className="max-h-40 overflow-y-auto overscroll-contain touch-pan-y divide-y divide-[var(--heyroq-divider)]">
             {suggestions.map((suggestion, index) => (
               <li
                 key={suggestion.placeId}

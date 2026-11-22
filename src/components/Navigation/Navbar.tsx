@@ -573,7 +573,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Create Pin Button (Desktop & Tablet primary action; paired with thumb-zone FAB on mobile < md) */}
           <button
             id="nav-create-pin-btn"
-            type="button"
+            type="button" data-drop-pin-trigger
             onClick={() => {
               if (!user) {
                 onOpenAuth('signin');
@@ -759,7 +759,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                     <button
                       type="button"
-                      role="menuitem"
+                      role="menuitem" data-drop-pin-trigger
                       onClick={() => {
                         onOpenCreatePin();
                         setUserDropdownOpen(false);

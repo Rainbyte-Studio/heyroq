@@ -1,3 +1,4 @@
+import { pinPositionDiffers, type PinLocation } from '../../services/pinLocation';
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { LatLngPoint, PinCategory, Pin } from '../../types';
@@ -39,8 +40,8 @@ export interface CreatePinDraft {
 
 interface CreatePinModalProps {
   onClose: () => void;
-  selectedLocation: LatLngPoint | null;
-  onActivateMapPick: (currentDraft?: CreatePinDraft) => void;
+  selectedLocation: PinLocation | null;
+  onActivateMapPick: () => void;
   onPinCreated: (newPinId: string) => void;
   onLocationSelect?: (loc: LatLngPoint) => void;
   isPickingLocation?: boolean;
@@ -72,8 +73,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const [title, setTitle] = useState(initialDraft?.title || '');
   const [description, setDescription] = useState(initialDraft?.description || '');
   const [category, setCategory] = useState<PinCategory>(initialDraft?.category || 'Hidden Gems');
-  const [locationName, setLocationName] = useState(initialDraft?.locationName ?? '');
-  const [placeAddress, setPlaceAddress] = useState<string>();
+  const [locationName, setLocationName] = useState(selectedLocation?.locationName ?? initialDraft?.locationName ?? '');
+  const [placeAddress, setPlaceAddress] = useState(selectedLocation?.address);
   const [pendingPlace, setPendingPlace] = useState<PlaceDetailsResult | null>(null);
   const hasPosition = useRef(Boolean(selectedLocation));
   const [geographySelection, setGeographySelection] = useState<GeographySelection>(
@@ -101,6 +102,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       hasPosition.current = true;
       setCustomLat(selectedLocation.lat);
       setCustomLng(selectedLocation.lng);
+      if (selectedLocation.locationName !== undefined) {
+        setLocationName(selectedLocation.locationName);
+        setPlaceAddress(selectedLocation.address);
+        setPendingPlace(null);
+      }
     }
   }, [selectedLocation]);
 
@@ -123,7 +129,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   function applyPlace(place: PlaceDetailsResult, movePin: boolean) {
     setPendingPlace(null);
     setLocationName(place.locationName);
-    setPlaceAddress(movePin ? place.formattedAddress : undefined);
+    if (movePin) setPlaceAddress(place.formattedAddress);
     if (movePin) {
       const { latitude: lat, longitude: lng } = place;
       hasPosition.current = true;
@@ -188,6 +194,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       return;
     }
 
+    if (pendingPlace) {
+      setErrorMsg('Choose whether to move the pin or keep its current position.');
+      return;
+    }
+
     if (files.length && geographySelection.countryCode && !geographySelection.cityId) {
       setErrorMsg('Choose a city or clear the country selection.');
       return;
@@ -229,7 +240,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
   const hasUnsavedChanges = Boolean(
     title.trim() ||
-    description.trim() ||
+    description.trim() || tags.length > 0 ||
     files.length > 0 ||
     geographySelection.countryCode ||
     (locationName && locationName.trim())
@@ -250,7 +261,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       if (isPickingLocation || e.defaultPrevented) return;
       if (e.key === 'Escape') {
         if (showDiscardConfirm) {
-          setShowDiscardConfirm(false);
+          keepEditing();
         } else {
           handleAttemptClose();
         }
@@ -259,6 +270,37 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showDiscardConfirm, hasUnsavedChanges, isSubmitting, onClose, isPickingLocation]);
+
+  const modalRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isPickingLocation) modalRef.current?.focus({ preventScroll: true });
+  }, [isPickingLocation]);
+
+  const discardActionsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (showDiscardConfirm) discardActionsRef.current?.querySelector('button')?.focus({ preventScroll: true });
+  }, [showDiscardConfirm]);
+
+  function keepEditing() {
+    setShowDiscardConfirm(false);
+    modalRef.current?.focus({ preventScroll: true });
+  }
+
+  function trapFocus(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Tab' || !modalRef.current) return;
+    const container = discardActionsRef.current ?? modalRef.current;
+    const controls = [...container.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href], [tabindex="0"]',
+    )].filter(element => !element.matches(':disabled') && element.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (!controls.includes(document.activeElement as HTMLElement)
+      || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  }
 
   if (isPickingLocation) {
     return null;
@@ -271,6 +313,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     >
       <div
         id="create-pin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Drop Pin"
+        tabIndex={-1}
+        ref={modalRef}
+        onKeyDown={trapFocus}
         onClick={(e) => e.stopPropagation()}
         className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative"
       >
@@ -288,10 +336,10 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                 ? 'This draft may have been published. Retry it here to check, or check your profile before creating it again.'
                 : 'You have unsaved details that will be lost if you leave now.'}
             </p>
-            <div className="flex items-center gap-3">
+            <div ref={discardActionsRef} className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setShowDiscardConfirm(false)}
+                onClick={keepEditing}
                 className="px-5 py-2.5 rounded-full text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/15 transition cursor-pointer min-h-[40px]"
               >
                 Keep Editing
@@ -400,24 +448,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       e.preventDefault();
                       e.stopPropagation();
                       if (submitInFlight.current) return;
-                      clearPlaceDetails();
-                      onActivateMapPick({
-                        title,
-                        description,
-                        category,
-                        locationName,
-                        geographySelection,
-                        tags,
-                        files,
-                        previewUrls,
-                        customLat,
-                        customLng,
-                        publishAttempt: publishAttempt.current,
-                      });
+                      onActivateMapPick();
                     }}
                     className="text-xs text-[var(--heyroq-accent-text)] hover:underline font-semibold cursor-pointer"
                   >
-                    Click on Map to Pick
+                    Change location on map
                   </button>
                 </div>
 
@@ -432,12 +467,16 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                         value={locationName}
                         disabled={isSubmitting}
                         onChange={name => {
-                          clearPlaceDetails();
+                          setPendingPlace(null);
                           setLocationName(name);
                         }}
                         onLocationSelect={place => {
-                          if (hasPosition.current) setPendingPlace(place);
-                          else applyPlace(place, true);
+                          const position = { lat: customLat, lng: customLng };
+                          if (hasPosition.current && pinPositionDiffers(position, { lat: place.latitude, lng: place.longitude })) {
+                            setPendingPlace(place);
+                          } else {
+                            applyPlace(place, true);
+                          }
                         }}
                       />
                       {placeAddress && <p className="mt-1 text-[var(--heyroq-text-muted)]">{placeAddress} · Google Maps</p>}
@@ -659,7 +698,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-[var(--heyroq-divider)] flex items-center justify-end gap-2 sm:gap-3 bg-slate-900/[0.02] dark:bg-white/[0.02] pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-4">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleAttemptClose}
+            disabled={isSubmitting}
             className="px-4 sm:px-5 py-2 text-xs font-semibold text-slate-600 dark:text-white/65 hover:text-slate-950 dark:hover:text-white cursor-pointer min-h-[40px]"
           >
             Cancel

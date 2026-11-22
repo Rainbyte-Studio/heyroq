@@ -17,7 +17,7 @@ import { isPublicPin } from './services/pinVisibility';
 import { HeyroqMap } from './components/Map/HeyroqMap';
 import { PinPreviewCard } from './components/Pin/PinPreviewCard';
 import { PinDetailModal } from './components/Pin/PinDetailModal';
-import { CreatePinModal, CreatePinDraft } from './components/Pin/CreatePinModal';
+import { CreatePinModal } from './components/Pin/CreatePinModal';
 import { UserProfileModal } from './components/Profile/UserProfileModal';
 import { AchievementsModal } from './components/Profile/AchievementsModal';
 import { AuthModal } from './components/Auth/AuthModal';
@@ -40,6 +40,8 @@ import {
   type SettingsSection,
   useAppRoute,
 } from './utils/appRoutes';
+import { DropPinLocationDialog } from './components/Pin/DropPinLocationDialog';
+import { identifyPinLocation, type PinLocation } from './services/pinLocation';
 import { MapsProvider } from './components/Map/MapsProvider';
 import {
   subscribeToViewportPins,
@@ -176,8 +178,10 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
   const [pendingAuthAction, setPendingAuthAction] = useState<{ type: 'like'; pinId: string } | { type: 'create' } | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isPickingLocationOnMap, setIsPickingLocationOnMap] = useState(false);
-  const [createPinDraft, setCreatePinDraft] = useState<CreatePinDraft | null>(null);
-  const [newPinLocation, setNewPinLocation] = useState<LatLngPoint | null>(null);
+  const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
+  const [mapCandidate, setMapCandidate] = useState<{ location: PinLocation; loading: boolean } | null>(null);
+  const mapLookup = useRef(0);
+  const [newPinLocation, setNewPinLocation] = useState<PinLocation | null>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
   const [focusedAchievement, setFocusedAchievement] = useState<string>();
@@ -469,6 +473,11 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
     setProfileUserId(null);
     setIsProgressionOpen(false);
     setIsCreateOpen(false);
+    setIsLocationDialogOpen(false);
+    setIsPickingLocationOnMap(false);
+    mapLookup.current++;
+    setMapCandidate(null);
+    setNewPinLocation(null);
     setIsAdminOpen(false);
     setIsDiscoverPeopleOpen(false);
     setSelectedPinId(null);
@@ -680,36 +689,72 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
     }
   };
 
-  // Resume a guest's explicit action once after successful authentication.
-  // A create request opens the editor, never publishes automatically.
+  const clearMapCandidate = useCallback(() => {
+    mapLookup.current++;
+    setMapCandidate(null);
+  }, []);
+
+  const finishLocationChoice = (location?: PinLocation) => {
+    clearMapCandidate();
+    setIsPickingLocationOnMap(false);
+    setIsLocationDialogOpen(false);
+    setNewPinLocation(location ?? null);
+    if (location) setMapCenter(location);
+    setIsCreateOpen(true);
+  };
+
+  const openDropPin = () => {
+    if (!user) {
+      setPendingAuthAction({ type: 'create' });
+      setAuthMode('signin');
+      setIsAuthOpen(true);
+    } else if (mapCandidate) {
+      if (!mapCandidate.loading) finishLocationChoice(mapCandidate.location);
+    } else {
+      setIsLocationDialogOpen(true);
+    }
+  };
+
+  // Resume the explicit request after authentication.
   useEffect(() => {
     if (!user || !pendingAuthAction) return;
     const action = pendingAuthAction;
     setPendingAuthAction(null);
-    if (action.type === 'create') {
-      setIsCreateOpen(true);
-    } else {
-      void handleToggleLikePin(action.pinId);
-    }
+    if (action.type === 'create') openDropPin();
+    else void handleToggleLikePin(action.pinId);
   }, [user, pendingAuthAction]);
 
-  // Map pin picked during creation flow
-  const handleSelectCreateLocation = useCallback((loc: LatLngPoint) => {
-    setNewPinLocation(loc);
-    setMapCenter(loc);
-    setCreatePinDraft((prev) =>
-      prev
-        ? {
-            ...prev,
-            customLat: loc.lat,
-            customLng: loc.lng,
-          }
-        : null
-    );
-    if (isPickingLocationOnMap) {
-      setIsPickingLocationOnMap(false);
+  const handleSelectCreateLocation = useCallback((point: LatLngPoint, placeId?: string) => {
+    const current = ++mapLookup.current;
+    handleSelectPin(null);
+    setMapCandidate({ location: { ...point, locationName: '' }, loading: true });
+    void identifyPinLocation(point, placeId).then(location => {
+      if (current === mapLookup.current) setMapCandidate({ location, loading: false });
+    });
+  }, [handleSelectPin]);
+
+  const beginMapPick = () => {
+    clearMapCandidate();
+    setIsLocationDialogOpen(false);
+    setIsPickingLocationOnMap(true);
+  };
+
+  const cancelMapPick = useCallback(() => {
+    clearMapCandidate();
+    setIsPickingLocationOnMap(false);
+    if (isPickingLocationOnMap && !isCreateOpen) setIsLocationDialogOpen(true);
+  }, [clearMapCandidate, isPickingLocationOnMap, isCreateOpen]);
+
+  useEffect(() => {
+    if (!mapCandidate || isAuthOpen) return;
+    function dismissOutside(event: PointerEvent) {
+      if (event.target instanceof Element && !event.target.closest(
+        '#heyroq-main-map, [data-drop-pin-trigger], #map-location-selection',
+      )) clearMapCandidate();
     }
-  }, [isPickingLocationOnMap]);
+    document.addEventListener('pointerdown', dismissOutside);
+    return () => document.removeEventListener('pointerdown', dismissOutside);
+  }, [mapCandidate, isAuthOpen, clearMapCandidate]);
 
   const handleFlyToPin = (pin: Pin) => {
     setMapCenter({ lat: pin.latitude, lng: pin.longitude });
@@ -719,9 +764,9 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
   // Keyboard navigation & Escape key dismiss for map selection & pin creation pick
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
-        if (isPickingLocationOnMap) {
-          setIsPickingLocationOnMap(false);
+      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
+        if (!isAuthOpen && (isPickingLocationOnMap || mapCandidate)) {
+          cancelMapPick();
         } else if (selectedPinId) {
           setSelectedPinId(null);
           setSelectedPinFallback(null);
@@ -730,7 +775,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPickingLocationOnMap, selectedPinId]);
+  }, [isPickingLocationOnMap, mapCandidate, isAuthOpen, selectedPinId, cancelMapPick]);
 
   return (
     <div id="heyroq-app-root" className="h-screen h-[100dvh] w-full flex flex-col bg-[var(--heyroq-bg-canvas)] text-[var(--heyroq-text-primary)] font-sans selection:bg-[var(--brand-primary)] selection:text-white overflow-hidden">
@@ -745,15 +790,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
         }}
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
-        onOpenCreatePin={() => {
-          if (!user) {
-            setPendingAuthAction({ type: 'create' });
-            setAuthMode('signin');
-            setIsAuthOpen(true);
-          } else {
-            setIsCreateOpen(true);
-          }
-        }}
+        onOpenCreatePin={openDropPin}
         onOpenAuth={(mode) => {
           setPendingAuthAction(null);
           setAuthMode(mode || 'signin');
@@ -811,6 +848,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
             selectedPin={selectedPin}
             isDesktop={isDesktop}
             onSelectPin={(pin) => {
+              clearMapCandidate();
               if (pin) {
                 handleSelectPin(pin);
                 if (!isDesktop) {
@@ -821,12 +859,15 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
               }
             }}
             onOpenDetails={(pin) => {
+              clearMapCandidate();
               handleSelectPin(pin);
               handleOpenDetails(pin);
             }}
             onBoundsChange={handleBoundsChange}
             isCreating={isPickingLocationOnMap}
-            createLocation={newPinLocation}
+            createLocation={mapCandidate?.location ?? (isCreateOpen && !isPickingLocationOnMap ? newPinLocation : null)}
+            mapCandidate={mapCandidate}
+            onConfirmCreateLocation={openDropPin}
             onSelectCreateLocation={handleSelectCreateLocation}
             center={mapCenter}
             onToggleDrawer={() => setIsDrawerOpen(!isDrawerOpen)}
@@ -834,18 +875,8 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
             displayedPinsCount={displayedPins.length}
             showPinMarkers={showPinMarkers}
             onTogglePinMarkers={handleTogglePinMarkers}
-            onCancelCreateLocation={() => {
-              setIsPickingLocationOnMap(false);
-            }}
-            onDropPin={() => {
-              if (!user) {
-                setPendingAuthAction({ type: 'create' });
-                setAuthMode('signin');
-                setIsAuthOpen(true);
-              } else {
-                setIsCreateOpen(true);
-              }
-            }}
+            onCancelCreateLocation={cancelMapPick}
+            onDropPin={openDropPin}
           />
 
           {/* Floating Pin Preview Card on Map - Desktop only (bypassed on mobile below 768px, and dismissed when markers hidden) */}
@@ -1015,24 +1046,25 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
         />
       )}
 
+      {isLocationDialogOpen && (
+        <DropPinLocationDialog
+          onCancel={() => setIsLocationDialogOpen(false)}
+          onPickOnMap={beginMapPick}
+          onContinue={finishLocationChoice}
+        />
+      )}
+
       {/* 2. Create Location Pin Modal */}
       {isCreateOpen && (
         <CreatePinModal
           isPickingLocation={isPickingLocationOnMap}
-          initialDraft={createPinDraft}
           onClose={() => {
             setIsPickingLocationOnMap(false);
             setIsCreateOpen(false);
-            setCreatePinDraft(null);
             setNewPinLocation(null);
           }}
           selectedLocation={newPinLocation}
-          onActivateMapPick={(draft) => {
-            if (draft) {
-              setCreatePinDraft(draft);
-            }
-            setIsPickingLocationOnMap(true);
-          }}
+          onActivateMapPick={beginMapPick}
           onLocationSelect={(loc) => {
             setNewPinLocation(loc);
             setMapCenter(loc);
@@ -1040,7 +1072,6 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
           onPinCreated={async () => {
             setIsPickingLocationOnMap(false);
             setIsCreateOpen(false);
-            setCreatePinDraft(null);
             setNewPinLocation(null);
             if (isSearchActive) {
               setDiscoveryRetryCount(count => count + 1);
@@ -1072,7 +1103,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
             setAuthMode('signin');
             setIsAuthOpen(true);
           }}
-          onOpenCreatePin={() => setIsCreateOpen(true)}
+          onOpenCreatePin={openDropPin}
           onOpenOtherProfile={(uid) => {
             setProfileUserId(uid);
           }}
