@@ -1,11 +1,16 @@
-const { after, test } = require('node:test');
+const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { randomUUID } = require('node:crypto');
+const { once } = require('node:events');
+const { join } = require('node:path');
+const sdkRoot = join(require.resolve('firebase-functions/logger'), '..', '..', '..');
+const { DocumentEventData } = require(join(sdkRoot, 'protos/compiledFirestore')).google.events.cloud.firestore.v1;
+const framework = join(require.resolve('@google-cloud/functions-framework'), '..');
+const { getUserFunction } = require(join(framework, 'loader'));
+const { getServer } = require(join(framework, 'server'));
 const {
-  FIRESTORE_DATABASE_ID, onActivityPinPublished, onNotificationLike, onNotificationComment,
-  onNotificationFollow, onActivityProgressionV11Xp, onActivityProgressionV11Level,
-  onNotificationCommand, engagementV1, pruneEngagementHistory,
+  FIRESTORE_DATABASE_ID, onNotificationFollow, onActivityProgressionV11Xp, engagementV1, pruneEngagementHistory,
 } = require('../lib/index.js');
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(127\.0\.0\.1|localhost):\d+$/);
@@ -24,6 +29,44 @@ const link = (viewer, author) => db.batch()
   .set(db.doc('users/' + viewer + '/following/' + author), { createdAt: Timestamp.now() })
   .set(db.doc('users/' + author + '/followers/' + viewer), { createdAt: Timestamp.now() }).commit();
 const emit = async (handler, ref, params) => handler.run({ data: await ref.get(), params });
+
+const transport = new Map();
+
+before(async () => {
+  for (const target of [
+    'onNotificationLike', 'onNotificationComment', 'onNotificationCommand',
+    'onActivityPinPublished', 'onActivityProgressionV11Xp', 'onActivityProgressionV11Level',
+  ]) {
+    const { userFunction, signatureType } = await getUserFunction(join(__dirname, '..'), target, 'event');
+    const server = getServer(userFunction, { signatureType, ignoredRoutes: null });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    transport.set(target, server);
+  }
+});
+
+async function deliver(target, snapshot, previous) {
+  const server = transport.get(target);
+  const document = snapshot.ref.path;
+  const source = `//firestore.googleapis.com/projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}`;
+  const payload = DocumentEventData.encode({
+    value: snapshot.toDocumentProto(),
+    ...(previous?.exists ? { oldValue: previous.toDocumentProto() } : {}),
+  }).finish();
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/?__GCP_CloudEventsMode=CE_PUBSUB_BINDING`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/protobuf', 'ce-specversion': '1.0', 'ce-id': randomUUID(),
+      'ce-type': `google.cloud.firestore.document.v1.${previous ? 'written' : 'created'}`,
+      'ce-source': source, 'ce-subject': `documents/${document}`, 'ce-project': 'demo-heyroq',
+      'ce-database': FIRESTORE_DATABASE_ID, 'ce-document': document,
+      'ce-time': snapshot.updateTime.toDate().toISOString(),
+    },
+    body: payload,
+  });
+  assert.ok(response.ok, `${target} returned HTTP ${response.status}`);
+}
+
 
 async function profile() {
   const uid = randomUUID();
@@ -52,6 +95,8 @@ async function runPrune() {
 }
 
 after(async () => {
+  await Promise.all(Array.from(transport.values(), server => new Promise((resolve, reject) =>
+    server.close(error => error ? reject(error) : resolve()))));
   for (const uid of actors) {
     await db.recursiveDelete(db.doc('users/' + uid));
     await db.recursiveDelete(db.doc('progressionV11/' + uid));
@@ -73,10 +118,10 @@ test('social and system delivery, replay, preferences, exact unread count and de
     .create(comment, { userId: actor }).create(reply, { userId: owner, parentCommentId: comment.id }).commit();
   await link(actor, owner);
   const follower = db.doc('users/' + owner + '/followers/' + actor);
-  const emitLike = () => emit(onNotificationLike, like, { pinId: pin.id, actorId: actor });
-  await Promise.all([emitLike(), emitLike(), emit(onNotificationLike, ownLike, { pinId: pin.id, actorId: owner }),
-    emit(onNotificationComment, comment, { pinId: pin.id, commentId: comment.id }),
-    emit(onNotificationComment, reply, { pinId: pin.id, commentId: reply.id }),
+  const emitLike = async () => deliver('onNotificationLike', await like.get());
+  await Promise.all([emitLike(), emitLike(), deliver('onNotificationLike', await ownLike.get()),
+    deliver('onNotificationComment', await comment.get()),
+    deliver('onNotificationComment', await reply.get()),
     emit(onNotificationFollow, follower, { uid: owner, followerId: actor })]);
   const inbox = await call(owner, 'inbox');
   assert.deepEqual(inbox.items.map(row => row.type).sort(), ['comment', 'follow', 'like']);
@@ -91,7 +136,7 @@ test('social and system delivery, replay, preferences, exact unread count and de
   await like.delete();
   await like.create({ userId: actor });
   await emitLike();
-  await onNotificationLike.run({ data: staleLike, params: { pinId: pin.id, actorId: actor } });
+  await deliver('onNotificationLike', staleLike);
   assert.equal((await noticeState(owner)).get('unread'), 3);
   const likeRow = inbox.items.find(row => row.type === 'like');
   await Promise.all([call(owner, 'read', { id: likeRow.id }), call(owner, 'read', { id: likeRow.id })]);
@@ -103,32 +148,12 @@ test('social and system delivery, replay, preferences, exact unread count and de
   await prefs(owner).set({ comments: false });
   const muted = pin.collection('comments').doc();
   await muted.create({ userId: actor });
-  await emit(onNotificationComment, muted, { pinId: pin.id, commentId: muted.id });
+  await deliver('onNotificationComment', await muted.get());
   await prefs(owner).set({ comments: true });
-  await emit(onNotificationComment, muted, { pinId: pin.id, commentId: muted.id });
+  await deliver('onNotificationComment', await muted.get());
   await call(owner, 'readAll');
   assert.equal((await noticeState(owner)).get('unread'), 0);
   assert.ok((await call(owner, 'inbox')).items.every(row => row.read));
-
-  const concurrent = db.doc('users/' + owner + '/notificationCommands/concurrent');
-  await concurrent.create({ type: 'account', title: 'Account notice' });
-  const event = { data: await concurrent.get(), params: { uid: owner, id: concurrent.id } };
-  await Promise.all([onNotificationCommand.run(event), call(owner, 'readAll'), onNotificationCommand.run(event)]);
-  const concurrentInbox = await call(owner, 'inbox');
-  assert.equal(concurrentInbox.items.filter(row => row.type === 'account').length, 1);
-  assert.equal((await noticeState(owner)).get('unread'), concurrentInbox.items.filter(row => !row.read).length);
-  await call(owner, 'readAll');
-
-  const command = db.doc('users/' + owner + '/notificationCommands/release');
-  await command.create({ type: 'announcement', title: 'What’s new' });
-  await emit(onNotificationCommand, command, { uid: owner, id: command.id });
-  assert.equal((await noticeState(owner)).get('unread'), 1);
-  const accountNotice = (await call(owner, 'inbox')).items.find(row => row.type === 'announcement');
-  assert.equal(accountNotice.title, 'What’s new');
-  await db.doc('users/' + owner + '/notifications/' + accountNotice.id)
-    .update({ expiresAt: Timestamp.fromMillis(Date.now() - 100) });
-  await runPrune();
-  assert.equal((await noticeState(owner)).get('unread'), 0);
 
   await pin.update({ visibility: 'private' });
   const hidden = (await call(owner, 'inbox')).items.find(row => row.type === 'comment');
@@ -147,6 +172,40 @@ test('social and system delivery, replay, preferences, exact unread count and de
   await assert.rejects(call(actor, 'inbox'), { code: 'permission-denied' });
 });
 
+test('system command delivery consumes the command and keeps unread accurate on replay', async () => {
+  const owner = await profile();
+  const concurrent = db.doc('users/' + owner + '/notificationCommands/concurrent');
+  await concurrent.create({ type: 'account', title: 'Account notice' });
+  const commandSnapshot = await concurrent.get();
+  const deliverCommand = () => deliver('onNotificationCommand', commandSnapshot);
+  await Promise.all([deliverCommand(), call(owner, 'readAll'), deliverCommand()]);
+  assert.equal((await concurrent.get()).exists, false);
+  const concurrentInbox = await call(owner, 'inbox');
+  assert.equal(concurrentInbox.items.filter(row => row.type === 'account').length, 1);
+  assert.equal((await noticeState(owner)).get('unread'), concurrentInbox.items.filter(row => !row.read).length);
+  await call(owner, 'readAll');
+
+  await prefs(owner).set({ announcements: false });
+  const muted = db.doc('users/' + owner + '/notificationCommands/muted');
+  await muted.create({ type: 'announcement', title: 'Muted' });
+  const mutedSnapshot = await muted.get();
+  await deliver('onNotificationCommand', mutedSnapshot);
+  await prefs(owner).update({ announcements: true });
+  await deliver('onNotificationCommand', mutedSnapshot);
+  assert.equal((await noticeState(owner)).get('unread'), 0);
+
+  const command = db.doc('users/' + owner + '/notificationCommands/release');
+  await command.create({ type: 'announcement', title: 'What’s new' });
+  await deliver('onNotificationCommand', await command.get());
+  assert.equal((await noticeState(owner)).get('unread'), 1);
+  const accountNotice = (await call(owner, 'inbox')).items.find(row => row.type === 'announcement');
+  assert.equal(accountNotice.title, 'What’s new');
+  await db.doc('users/' + owner + '/notifications/' + accountNotice.id)
+    .update({ expiresAt: Timestamp.fromMillis(Date.now() - 100) });
+  await runPrune();
+  assert.equal((await noticeState(owner)).get('unread'), 0);
+});
+
 test('reads only committed progressionV11 events and revalidates every Following page', async () => {
   const [owner, viewer] = await Promise.all([profile(), profile()]);
   await control.set({ schemaVersion: 1, mode: 'running', generation: 'progressionV11',
@@ -162,6 +221,7 @@ test('reads only committed progressionV11 events and revalidates every Following
   const legacy = db.doc('users/' + owner + '/xpEvents/legacy');
   const receipt = { schemaVersion: 2, countryCode: 'GR', cityId: '264371', pinId: pin.id };
   const data = { userId: owner, xpEarned: 25 };
+  await summary.create({ level: 1 });
   const previous = await summary.get();
   await db.batch()
     .create(base, { ...data, action: 'PIN_CREATED', referenceId: pin.id })
@@ -169,14 +229,15 @@ test('reads only committed progressionV11 events and revalidates every Following
     .create(city, { ...data, action: 'UNIQUE_CITY', referenceId: 'GR:264371', geographicReceipt: receipt })
     .create(country, { ...data, action: 'UNIQUE_COUNTRY', referenceId: 'GR', geographicReceipt: receipt })
     .create(root.collection('achievements').doc('gold_example'), { isUnlocked: true, tier: 'gold', title: 'Example badge' })
-    .create(summary, { level: 2 }).create(legacy, { ...data, action: 'PIN_CREATED', referenceId: pin.id }).commit();
+    .update(summary, { level: 2 }).create(legacy, { ...data, action: 'PIN_CREATED', referenceId: pin.id }).commit();
   assert.equal(onActivityProgressionV11Xp.__endpoint.eventTrigger.eventFilterPathPatterns.document,
     'progressionV11/{uid}/xpEvents/{eventId}');
-  const xpEvent = ref => emit(onActivityProgressionV11Xp, ref, { uid: owner, eventId: ref.id });
-  const levelEvent = { data: { before: previous, after: await summary.get() }, params: { uid: owner } };
+  const xpEvent = async ref => deliver('onActivityProgressionV11Xp', await ref.get());
+  const current = await summary.get();
+  const levelEvent = () => deliver('onActivityProgressionV11Level', current, previous);
   await Promise.all([xpEvent(base), xpEvent(achievement), xpEvent(achievement), xpEvent(city), xpEvent(country),
-    onActivityProgressionV11Level.run(levelEvent), onActivityProgressionV11Level.run(levelEvent),
-    emit(onActivityPinPublished, pin, { pinId: pin.id }), xpEvent(legacy)]);
+    levelEvent(), levelEvent(),
+    deliver('onActivityPinPublished', await pin.get()), emit(onActivityProgressionV11Xp, legacy, { uid: owner, eventId: legacy.id })]);
 
   const timeline = (await call(owner, 'mine')).items;
   assert.deepEqual(timeline.map(row => row.type).sort(), ['achievement', 'city', 'country', 'level', 'pin', 'xp']);
@@ -230,7 +291,7 @@ test('validates credentials, cursors and request fields before reading the inbox
 test('Following honors the recent 90 relationships and rechecks privacy on cursor requests', async () => {
   const [owner, viewer] = await Promise.all([profile(), profile()]);
   const pin = await createPin(owner);
-  await emit(onActivityPinPublished, pin, { pinId: pin.id });
+  await deliver('onActivityPinPublished', await pin.get());
   await prefs(owner).set({ shareActivity: true });
   const following = db.doc('users/' + viewer).collection('following');
   const old = Timestamp.fromMillis(Date.now() - 400_000);
@@ -250,13 +311,6 @@ test('Following honors the recent 90 relationships and rechecks privacy on curso
 });
 
 test('the follow entry point receives complete CloudEvents despite the legacy build default', async t => {
-  const { join } = require('node:path');
-  const sdkRoot = join(require.resolve('firebase-functions/logger'), '..', '..', '..');
-  const { DocumentEventData } = require(join(sdkRoot, 'protos/compiledFirestore')).google.events.cloud.firestore.v1;
-  const { once } = require('node:events');
-  const framework = join(require.resolve('@google-cloud/functions-framework'), '..');
-  const { getUserFunction } = require(join(framework, 'loader'));
-  const { getServer } = require(join(framework, 'server'));
   const loaded = await getUserFunction(join(__dirname, '..'), 'onNotificationFollow', 'event');
   assert.equal(loaded.signatureType, 'cloudevent');
 
