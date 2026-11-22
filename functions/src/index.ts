@@ -1,3 +1,4 @@
+import { cloudEvent } from '@google-cloud/functions-framework';
 import { countTrustedLikes, getDiscoveryBadgeMetrics, isPublishedDiscovery } from './progressionEvidence';
 import { randomUUID } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
@@ -56,6 +57,9 @@ export const onActivityPinPublished = engagement.pin;
 export const onNotificationLike = engagement.like;
 export const onNotificationComment = engagement.comment;
 export const onNotificationFollow = engagement.follow;
+// The Gen 2 build sets a legacy event default. Firebase v2 needs the complete CloudEvent.
+cloudEvent('onNotificationFollow', (event: unknown) =>
+  onNotificationFollow(event as Parameters<typeof onNotificationFollow>[0]));
 export const onActivityProgressionV11Xp = engagement.xp;
 export const onActivityProgressionV11Level = engagement.level;
 export const onNotificationCommand = engagement.system;

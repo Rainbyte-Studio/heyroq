@@ -249,10 +249,30 @@ test('Following honors the recent 90 relationships and rechecks privacy on curso
     { items: [], next: null, limited: false });
 });
 
-test('reciprocal production-shaped CloudEvents deliver once in each direction', async () => {
+test('the follow entry point receives complete CloudEvents despite the legacy build default', async t => {
   const { join } = require('node:path');
   const sdkRoot = join(require.resolve('firebase-functions/logger'), '..', '..', '..');
   const { DocumentEventData } = require(join(sdkRoot, 'protos/compiledFirestore')).google.events.cloud.firestore.v1;
+  const { once } = require('node:events');
+  const framework = join(require.resolve('@google-cloud/functions-framework'), '..');
+  const { getUserFunction } = require(join(framework, 'loader'));
+  const { getServer } = require(join(framework, 'server'));
+  const loaded = await getUserFunction(join(__dirname, '..'), 'onNotificationFollow', 'event');
+  assert.equal(loaded.signatureType, 'cloudevent');
+
+  async function start(handler, signatureType) {
+    const server = getServer(handler, { signatureType, ignoredRoutes: null });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => new Promise((resolve, reject) =>
+      server.close(error => error ? reject(error) : resolve())));
+    return `http://127.0.0.1:${server.address().port}/?__GCP_CloudEventsMode=CE_PUBSUB_BINDING`;
+  }
+
+  const outcomes = [];
+  t.mock.method(require('firebase-functions/logger'), 'info', (_message, fields) => outcomes.push(fields.reason));
+  const legacyUrl = await start(onNotificationFollow, 'event');
+  const cloudEventUrl = await start(loaded.userFunction, loaded.signatureType);
   const accounts = await Promise.all([profile(), profile()]);
   const clientTimes = ['2026-11-22T09:20:14.051Z', '2026-11-22T09:20:59.774Z'];
   for (const [index, actor] of accounts.entries()) {
@@ -267,17 +287,30 @@ test('reciprocal production-shaped CloudEvents deliver once in each direction', 
     const document = follower.path;
     const source = `//firestore.googleapis.com/projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}`;
     const time = { seconds: createTime.seconds, nanos: createTime.nanoseconds };
-    const event = {
-      id: randomUUID(), source, project: 'demo-heyroq', database: FIRESTORE_DATABASE_ID,
-      document, datacontenttype: 'application/protobuf',
-      data: Buffer.from(DocumentEventData.encode({ value: {
-        name: `projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}/documents/${document}`,
-        createTime: time, updateTime: time,
-        fields: { followerId: { stringValue: actor }, createdAt: { stringValue: createdAt } },
-      } }).finish()),
+    const payload = Buffer.from(DocumentEventData.encode({ value: {
+      name: `projects/demo-heyroq/databases/${FIRESTORE_DATABASE_ID}/documents/${document}`,
+      createTime: time, updateTime: time,
+      fields: { followerId: { stringValue: actor }, createdAt: { stringValue: createdAt } },
+    } }).finish());
+    const request = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/protobuf', 'ce-specversion': '1.0', 'ce-id': randomUUID(),
+        'ce-type': 'google.cloud.firestore.document.v1.created', 'ce-source': source,
+        'ce-subject': `documents/${document}`, 'ce-project': 'demo-heyroq',
+        'ce-database': FIRESTORE_DATABASE_ID, 'ce-document': document,
+        'ce-time': createTime.toDate().toISOString(),
+      },
+      body: payload,
     };
-    await onNotificationFollow(event);
-    await onNotificationFollow(event);
+    outcomes.length = 0;
+    assert.equal((await fetch(legacyUrl, request)).status, 204);
+    assert.equal((await noticeState(recipient)).exists, false);
+    assert.equal((await call(recipient, 'inbox')).items.length, 0);
+
+    assert.equal((await fetch(cloudEventUrl, request)).status, 204);
+    assert.equal((await fetch(cloudEventUrl, request)).status, 204);
+    assert.deepEqual(outcomes, ['missing_snapshot', 'delivered', 'duplicate_or_tombstone']);
     const inbox = await call(recipient, 'inbox');
     assert.deepEqual(inbox.items.map(({ type, actorId }) => ({ type, actorId })), [{ type: 'follow', actorId: actor }]);
     assert.equal((await noticeState(recipient)).get('unread'), 1);
