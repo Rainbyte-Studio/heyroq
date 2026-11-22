@@ -389,6 +389,9 @@ try {
   batch.set(searchPins.doc('zz-search-title'), {
     ...fixture, title: 'Coffee Stand', description: '', tags: [],
   });
+  batch.set(searchPins.doc('zz-search-category'), {
+    ...fixture, title: 'Morning Counter', category: 'Cafe', tags: [],
+  });
   batch.set(searchPins.doc('zz-search-private'), {
     ...fixture, title: 'Private coffee', tags: ['coffee'], visibility: 'private', publicAccess: false,
   });
@@ -427,6 +430,15 @@ try {
   assert.equal(await searchBox.inputValue(), '#coffee');
   await matchingSpots.getByText('Roasters Corner').waitFor();
   assert.equal(await matchingSpots.getByText('Coffee Stand').count(), 0);
+
+  // Cafe is stored as a legacy category alias and searched as canonical Food.
+  await searchBox.fill('food');
+  await searchResults.getByRole('button', { name: /Morning Counter/ }).waitFor();
+  await searchBox.fill('@explorer_maria');
+  await searchResults.getByRole('button', { name: /Μαρία Παπαδοπούλου/ }).waitFor();
+  await searchBox.fill('zzzzqxxxyyy');
+  await searchResults.getByText('No results found', { exact: true }).waitFor();
+  assert.equal(await searchResults.getByRole('status').textContent(), '0 search results');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Toggle search' }).click();
