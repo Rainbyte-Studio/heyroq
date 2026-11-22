@@ -283,3 +283,86 @@ test('reciprocal production-shaped CloudEvents deliver once in each direction', 
     assert.equal((await noticeState(recipient)).get('unread'), 1);
   }
 });
+
+test('follow diagnostics identify suppression and preserve transaction retry', async t => {
+  const logger = require('firebase-functions/logger');
+  const { createHash } = require('node:crypto');
+  const outcome = t.mock.method(logger, 'info', () => {});
+
+  async function fixture() {
+    const [actor, recipient] = await Promise.all([profile(), profile()]);
+    const follower = db.doc(`users/${recipient}/followers/${actor}`);
+    const following = db.doc(`users/${actor}/following/${recipient}`);
+    const createdAt = new Date().toISOString();
+    await db.batch().create(follower, { followerId: actor, createdAt })
+      .create(following, { targetUserId: recipient, createdAt }).commit();
+    const data = await follower.get();
+    return { actor, recipient, follower, following, event: {
+      id: randomUUID(), data, params: { uid: recipient, followerId: actor },
+    } };
+  }
+
+  function assertOutcome(event, reason) {
+    assert.deepEqual(outcome.mock.calls.at(-1).arguments, ['Follow notification outcome', {
+      reason, eventKey: createHash('sha256').update(event.id).digest('hex'),
+    }]);
+  }
+
+  async function run(event, reason) {
+    const count = outcome.mock.callCount();
+    await onNotificationFollow.run(event);
+    assert.equal(outcome.mock.callCount(), count + 1);
+    assertOutcome(event, reason);
+  }
+
+  const valid = await fixture();
+  await run({ ...valid.event, data: undefined }, 'missing_snapshot');
+  await run({ ...valid.event, data: {} }, 'missing_create_time');
+  await run({ ...valid.event, data: { createTime: { toMillis: () => NaN } } }, 'invalid_create_time');
+  await run({ ...valid.event, data: { createTime: Timestamp.fromMillis(0) } }, 'expired_event');
+  await run(valid.event, 'delivered');
+  assert.equal((await noticeState(valid.recipient)).get('unread'), 1);
+  await run(valid.event, 'duplicate_or_tombstone');
+  assert.equal((await noticeState(valid.recipient)).get('unread'), 1);
+
+  const reciprocal = await fixture();
+  await reciprocal.following.delete();
+  await run(reciprocal.event, 'reciprocal_document_missing');
+
+  const actorMissing = await fixture();
+  await db.doc(`users/${actorMissing.actor}`).delete();
+  await run(actorMissing.event, 'actor_ineligible');
+
+  const recipientLocked = await fixture();
+  await db.doc(`accountDeletionLocks/${recipientLocked.recipient}`).create({});
+  await run(recipientLocked.event, 'recipient_ineligible');
+
+  const muted = await fixture();
+  await prefs(muted.recipient).set({ follows: false });
+  await run(muted.event, 'preference_disabled');
+  await prefs(muted.recipient).set({ follows: true });
+  await run(muted.event, 'duplicate_or_tombstone');
+  assert.equal((await noticeState(muted.recipient)).exists, false);
+
+  const removed = await fixture();
+  await removed.follower.delete();
+  await run(removed.event, 'follow_document_missing');
+  await removed.follower.create({ followerId: removed.actor });
+  await run(removed.event, 'create_time_mismatch');
+
+  const invalidId = await valid.follower.parent.doc('invalid.id').create({});
+  assert.ok(invalidId.writeTime);
+  await run({ ...valid.event, data: await valid.follower.parent.doc('invalid.id').get() }, 'invalid_actor');
+
+  const failure = await fixture();
+  const transaction = t.mock.method(db, 'runTransaction', async () => { throw new Error('private firestore details'); });
+  try {
+    await assert.rejects(onNotificationFollow.run(failure.event), {
+      message: 'Follow notification transaction failed',
+    });
+    assertOutcome(failure.event, 'transaction_failure');
+  } finally {
+    transaction.mock.restore();
+  }
+  assert.equal((await noticeState(failure.recipient)).exists, false);
+});

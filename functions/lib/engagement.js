@@ -186,6 +186,8 @@ function buildEngagement(db, database, region) {
         const at = event.createTime;
         if (!at)
             return 'missing_create_time';
+        if (type === 'follow' && !Number.isFinite(at.toMillis()))
+            return 'invalid_create_time';
         if (!fresh(at))
             return 'expired_event';
         return db.runTransaction(async (tx) => {
@@ -517,12 +519,18 @@ function buildEngagement(db, database, region) {
         like: (0, firestore_2.onDocumentCreated)(trigger('pins/{pinId}/likes/{actorId}'), e => e.data && social(e.data, 'like', e.params.pinId)),
         comment: (0, firestore_2.onDocumentCreated)(trigger('pins/{pinId}/comments/{commentId}'), e => e.data && social(e.data, 'comment', e.params.pinId)),
         follow: (0, firestore_2.onDocumentCreated)(trigger('users/{uid}/followers/{followerId}'), async (event) => {
-            const reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+            const eventKey = event.id ? hash(event.id) : undefined;
+            let reason;
+            try {
+                reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+            }
+            catch {
+                (0, logger_1.info)('Follow notification outcome', { reason: 'transaction_failure', eventKey });
+                // Preserve Eventarc retries without emitting Firestore error details or document paths.
+                throw new Error('Follow notification transaction failed');
+            }
             // Log once after the transaction settles, including when Firestore retries the callback.
-            (0, logger_1.info)('Follow notification outcome', {
-                reason,
-                eventKey: event.id ? hash(event.id) : undefined,
-            });
+            (0, logger_1.info)('Follow notification outcome', { reason, eventKey });
         }),
         xp: (0, firestore_2.onDocumentCreated)(trigger('progressionV11/{uid}/xpEvents/{eventId}'), e => e.data && xpEvent(e.data, e.params.uid)),
         level: (0, firestore_2.onDocumentWritten)(trigger('progressionV11/{uid}/state/summary'), e => e.data?.after.exists && levelEvent(e.data.before, e.data.after, e.params.uid)),

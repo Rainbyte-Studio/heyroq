@@ -188,6 +188,7 @@ export function buildEngagement(db: Firestore, database: string, region: string)
   async function social(event: DocumentSnapshot, type: 'like' | 'comment' | 'follow', parentId: string) {
     const at = event.createTime;
     if (!at) return 'missing_create_time';
+    if (type === 'follow' && !Number.isFinite(at.toMillis())) return 'invalid_create_time';
     if (!fresh(at)) return 'expired_event';
     return db.runTransaction(async tx => {
       const current = await tx.get(event.ref);
@@ -486,12 +487,17 @@ export function buildEngagement(db: Firestore, database: string, region: string)
     like: onDocumentCreated(trigger('pins/{pinId}/likes/{actorId}'), e => e.data && social(e.data, 'like', e.params.pinId)),
     comment: onDocumentCreated(trigger('pins/{pinId}/comments/{commentId}'), e => e.data && social(e.data, 'comment', e.params.pinId)),
     follow: onDocumentCreated(trigger('users/{uid}/followers/{followerId}'), async event => {
-      const reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+      const eventKey = event.id ? hash(event.id) : undefined;
+      let reason;
+      try {
+        reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+      } catch {
+        info('Follow notification outcome', { reason: 'transaction_failure', eventKey });
+        // Preserve Eventarc retries without emitting Firestore error details or document paths.
+        throw new Error('Follow notification transaction failed');
+      }
       // Log once after the transaction settles, including when Firestore retries the callback.
-      info('Follow notification outcome', {
-        reason,
-        eventKey: event.id ? hash(event.id) : undefined,
-      });
+      info('Follow notification outcome', { reason, eventKey });
     }),
     xp: onDocumentCreated(trigger('progressionV11/{uid}/xpEvents/{eventId}'), e => e.data && xpEvent(e.data, e.params.uid)),
     level: onDocumentWritten(trigger('progressionV11/{uid}/state/summary'), e =>
