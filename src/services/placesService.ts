@@ -1,9 +1,7 @@
 /**
  * Google Places API & Geocoding Service for Heyroq
  *
- * Supports both Google Places API (New) and legacy Places API,
- * with AutocompleteSessionToken management, debouncing support,
- * clean human-readable label formatting, and reverse-geocoding for manual map clicks.
+ * Uses Places API (New) for autocomplete and place details.
  */
 
 export interface PlaceSuggestion {
@@ -11,7 +9,7 @@ export interface PlaceSuggestion {
   mainText: string;
   secondaryText: string;
   fullText: string;
-  rawSuggestion?: any;
+  prediction: google.maps.places.PlacePrediction;
 }
 
 export interface PlaceDetailsResult {
@@ -23,22 +21,14 @@ export interface PlaceDetailsResult {
 }
 
 export class PlacesAutocompleteSession {
-  private token: any = null;
+  private token?: google.maps.places.AutocompleteSessionToken;
 
-  getToken(placesLib?: any): any {
-    const places = placesLib || (typeof window !== 'undefined' ? (window as any).google?.maps?.places : null);
-    if (!this.token && places?.AutocompleteSessionToken) {
-      try {
-        this.token = new places.AutocompleteSessionToken();
-      } catch (err) {
-        console.warn('Failed to instantiate AutocompleteSessionToken:', err);
-      }
-    }
-    return this.token;
+  getToken(places: google.maps.PlacesLibrary) {
+    return this.token ??= new places.AutocompleteSessionToken();
   }
 
   reset() {
-    this.token = null;
+    this.token = undefined;
   }
 }
 
@@ -129,217 +119,39 @@ export function formatCleanLocationLabel(
   return displayName || predictionText || '';
 }
 
-/**
- * Fetches place suggestions for the given user input.
- * Supports both Places API (New) and legacy AutocompleteService.
- */
+/** Fetch predictions for places, businesses and geographic locations. */
 export async function fetchPlaceSuggestions(
   input: string,
-  session?: PlacesAutocompleteSession,
-  placesLib?: any
+  session: PlacesAutocompleteSession,
+  places: google.maps.PlacesLibrary,
 ): Promise<PlaceSuggestion[]> {
   const trimmed = input.trim();
-  if (trimmed.length < 2) {
-    return [];
-  }
-
-  const places = placesLib || (typeof window !== 'undefined' ? (window as any).google?.maps?.places : null);
-  if (!places) {
-    return [];
-  }
-
-  // 1. Prefer Places API (New): AutocompleteSuggestion.fetchAutocompleteSuggestions
-  if (places.AutocompleteSuggestion?.fetchAutocompleteSuggestions) {
-    try {
-      const request: any = {
-        input: trimmed,
-        // Crucial: do NOT restrict types to '(cities)' so neighborhoods, landmarks, POIs are included
-      };
-
-      const token = session?.getToken(places);
-      if (token) {
-        request.sessionToken = token;
-      }
-
-      const response = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions(request);
-      if (response && Array.isArray(response.suggestions) && response.suggestions.length > 0) {
-        return response.suggestions
-          .filter((s: any) => s.placePrediction)
-          .map((s: any) => {
-            const pred = s.placePrediction;
-            return {
-              placeId: pred.placeId,
-              mainText: pred.mainText?.text || pred.text?.text || '',
-              secondaryText: pred.secondaryText?.text || '',
-              fullText: pred.text?.text || pred.mainText?.text || '',
-              rawSuggestion: s,
-            };
-          });
-      }
-    } catch (err) {
-      console.warn('Places API (New) Autocomplete failed, falling back to classic service:', err);
-    }
-  }
-
-  // 2. Legacy fallback: google.maps.places.AutocompleteService
-  if (places.AutocompleteService) {
-    return new Promise((resolve) => {
-      try {
-        const service = new places.AutocompleteService();
-        const request: any = {
-          input: trimmed,
-        };
-
-        const token = session?.getToken(places);
-        if (token) {
-          request.sessionToken = token;
-        }
-
-        service.getPlacePredictions(request, (predictions: any, status: any) => {
-          if (status === 'OK' && Array.isArray(predictions)) {
-            resolve(
-              predictions.map((p: any) => ({
-                placeId: p.place_id,
-                mainText: p.structured_formatting?.main_text || p.description,
-                secondaryText: p.structured_formatting?.secondary_text || '',
-                fullText: p.description,
-                rawSuggestion: p,
-              }))
-            );
-          } else {
-            resolve([]);
-          }
-        });
-      } catch (err) {
-        console.warn('Legacy AutocompleteService failed:', err);
-        resolve([]);
-      }
-    });
-  }
-
-  return [];
+  if (trimmed.length < 2) return [];
+  const { suggestions } = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+    input: trimmed,
+    sessionToken: session.getToken(places),
+  });
+  return suggestions.flatMap(({ placePrediction: prediction }) => prediction ? [{
+    placeId: prediction.placeId,
+    mainText: prediction.mainText?.text || prediction.text.text,
+    secondaryText: prediction.secondaryText?.text || '',
+    fullText: prediction.text.text,
+    prediction,
+  }] : []);
 }
 
-/**
- * Fetches place details (geometry and clean name) for a selected suggestion.
- * Supports Places API (New) Place.fetchFields and legacy PlacesService.getDetails.
- */
-export async function fetchPlaceDetails(
-  suggestion: PlaceSuggestion,
-  session?: PlacesAutocompleteSession,
-  placesLib?: any
-): Promise<PlaceDetailsResult | null> {
-  const places = placesLib || (typeof window !== 'undefined' ? (window as any).google?.maps?.places : null);
-  if (!places) return null;
-
-  // 1. Try Places API (New) via placePrediction.toPlace()
-  if (suggestion.rawSuggestion?.placePrediction?.toPlace) {
-    try {
-      const place = suggestion.rawSuggestion.placePrediction.toPlace();
-      await place.fetchFields({
-        fields: ['id', 'displayName', 'formattedAddress', 'location', 'addressComponents'],
-      });
-
-      const coords = extractCoordinates(place);
-      if (coords) {
-        const cleanName = formatCleanLocationLabel(
-          place,
-          suggestion.fullText,
-          suggestion.mainText,
-          suggestion.secondaryText
-        );
-        session?.reset();
-        return {
-          placeId: place.id || suggestion.placeId,
-          locationName: cleanName,
-          latitude: Number(coords.lat.toFixed(6)),
-          longitude: Number(coords.lng.toFixed(6)),
-          formattedAddress: place.formattedAddress,
-        };
-      }
-    } catch (err) {
-      console.warn('Places API (New) toPlace().fetchFields failed, trying Place constructor:', err);
-    }
-  }
-
-  // 1b. Try new places.Place({ id: suggestion.placeId })
-  if (places.Place && suggestion.placeId) {
-    try {
-      const place = new places.Place({ id: suggestion.placeId });
-      await place.fetchFields({
-        fields: ['id', 'displayName', 'formattedAddress', 'location', 'addressComponents'],
-      });
-
-      const coords = extractCoordinates(place);
-      if (coords) {
-        const cleanName = formatCleanLocationLabel(
-          place,
-          suggestion.fullText,
-          suggestion.mainText,
-          suggestion.secondaryText
-        );
-        session?.reset();
-        return {
-          placeId: place.id || suggestion.placeId,
-          locationName: cleanName,
-          latitude: Number(coords.lat.toFixed(6)),
-          longitude: Number(coords.lng.toFixed(6)),
-          formattedAddress: place.formattedAddress,
-        };
-      }
-    } catch (err) {
-      console.warn('places.Place constructor fetchFields failed, trying legacy PlacesService:', err);
-    }
-  }
-
-  // 2. Legacy fallback: google.maps.places.PlacesService
-  if (places.PlacesService && suggestion.placeId) {
-    return new Promise((resolve) => {
-      try {
-        const dummyDiv = document.createElement('div');
-        const service = new places.PlacesService(dummyDiv);
-        const token = session?.getToken(places);
-
-        service.getDetails(
-          {
-            placeId: suggestion.placeId,
-            fields: ['name', 'formatted_address', 'geometry', 'address_components'],
-            sessionToken: token || undefined,
-          },
-          (place: any, status: any) => {
-            session?.reset();
-            if (status === 'OK' && place) {
-              const coords = extractCoordinates(place);
-              if (coords) {
-                const cleanName = formatCleanLocationLabel(
-                  place,
-                  suggestion.fullText,
-                  suggestion.mainText,
-                  suggestion.secondaryText
-                );
-                resolve({
-                  placeId: suggestion.placeId,
-                  locationName: cleanName,
-                  latitude: Number(coords.lat.toFixed(6)),
-                  longitude: Number(coords.lng.toFixed(6)),
-                  formattedAddress: place.formatted_address,
-                });
-                return;
-              }
-            }
-            resolve(null);
-          }
-        );
-      } catch (err) {
-        console.warn('Legacy PlacesService.getDetails failed:', err);
-        session?.reset();
-        resolve(null);
-      }
-    });
-  }
-
-  session?.reset();
-  return null;
+export async function fetchPlaceDetails(suggestion: PlaceSuggestion): Promise<PlaceDetailsResult | null> {
+  const place = suggestion.prediction.toPlace();
+  await place.fetchFields({ fields: ['formattedAddress', 'location'] });
+  const coords = extractCoordinates(place);
+  if (!coords) return null;
+  return {
+    placeId: suggestion.placeId,
+    locationName: suggestion.mainText,
+    formattedAddress: place.formattedAddress ?? undefined,
+    latitude: Number(coords.lat.toFixed(6)),
+    longitude: Number(coords.lng.toFixed(6)),
+  };
 }
 
 /**

@@ -42,6 +42,8 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      - run: npx playwright install --with-deps chromium webkit
+      - run: node tests/browser/drop-pin-places.mjs
       - run: node --test tests/publicProfileBlueprint.test.cjs
       - run: node --check scripts/redact-public-profile-emails.mjs
       - run: node --test tests/firestoreDeployTarget.test.cjs
