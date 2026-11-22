@@ -9,6 +9,7 @@ exports.mapXp = mapXp;
 exports.buildEngagement = buildEngagement;
 const node_crypto_1 = require("node:crypto");
 const firestore_1 = require("firebase-admin/firestore");
+const logger_1 = require("firebase-functions/logger");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const geographicProgression_1 = require("./geographicProgression");
@@ -127,7 +128,7 @@ function buildEngagement(db, database, region) {
             item ? tx.get(activityRef) : undefined,
         ]);
         if (!allowedAccount(profile, deletion))
-            return;
+            return 'recipient_ineligible';
         if (item && !previousActivity?.exists) {
             tx.create(activityRef, {
                 ...item, actorId: uid, schemaVersion: 1, at, key: sortKey(at, id),
@@ -135,17 +136,19 @@ function buildEngagement(db, database, region) {
                 expiresAt: firestore_1.Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY),
             });
         }
-        if (!notice || !noticeReads || notice.actorId === uid)
+        if (!notice || !noticeReads)
             return;
+        if (notice.actorId === uid)
+            return 'self_follow';
         const [settings, previousNotice, inboxState] = noticeReads;
         if (previousNotice.exists)
-            return;
+            return 'duplicate_or_tombstone';
         const preference = noticePreference[notice.type];
         // A suppressed event gets a tombstone, so replay after a preference change cannot deliver it.
         const expiresAt = firestore_1.Timestamp.fromMillis(at.toMillis() + HISTORY_DAYS * DAY);
         if (preference && !preferenceEnabled(settings.data(), preference)) {
             tx.create(noticeRef, { expiresAt, deleted: true });
-            return;
+            return 'preference_disabled';
         }
         const sequence = safeCount(inboxState.get('sequence')) + 1;
         const { noticeId: _noticeId, ...fields } = notice;
@@ -157,6 +160,7 @@ function buildEngagement(db, database, region) {
         });
         tx.set(stateRef, { sequence, unread: safeCount(inboxState.get('unread')) + 1,
             revision: safeCount(inboxState.get('revision')) + 1 }, { merge: true });
+        return 'delivered';
     }
     function fresh(at) {
         return at.toMillis() > Date.now() - 7 * DAY;
@@ -180,26 +184,32 @@ function buildEngagement(db, database, region) {
     }
     async function social(event, type, parentId) {
         const at = event.createTime;
-        if (!at || !fresh(at))
-            return;
-        await db.runTransaction(async (tx) => {
+        if (!at)
+            return 'missing_create_time';
+        if (type === 'follow' && !Number.isFinite(at.toMillis()))
+            return 'invalid_create_time';
+        if (!fresh(at))
+            return 'expired_event';
+        return db.runTransaction(async (tx) => {
             const current = await tx.get(event.ref);
+            if (!current.exists)
+                return 'follow_document_missing';
             if (!current.createTime?.isEqual(at))
-                return;
+                return 'create_time_mismatch';
             const actorId = type === 'comment' ? current.get('userId') : current.id;
             if (!validDocumentId(actorId))
-                return;
+                return 'invalid_actor';
             const [actor, actorLock] = await tx.getAll(user(actorId), lock(actorId));
             if (!allowedAccount(actor, actorLock))
-                return;
+                return 'actor_ineligible';
             const eventKey = type + ':' + event.ref.path + ':' + incarnation(at);
             if (type === 'follow') {
                 const following = await tx.get(user(actorId).collection('following').doc(parentId));
-                if (following.exists)
-                    await project(tx, parentId, eventKey, at, undefined, {
-                        type, actorId, noticeId: 'follow:' + event.ref.path + ':' + Math.floor(at.toMillis() / DAY),
-                    });
-                return;
+                if (!following.exists)
+                    return 'reciprocal_document_missing';
+                return project(tx, parentId, eventKey, at, undefined, {
+                    type, actorId, noticeId: 'follow:' + event.ref.path + ':' + Math.floor(at.toMillis() / DAY),
+                });
             }
             const pin = await tx.get(pins.doc(parentId));
             if (!isPublicPin(pin) || !pin.createTime || pin.createTime.valueOf() > at.valueOf())
@@ -220,6 +230,7 @@ function buildEngagement(db, database, region) {
                 } : { commentId: current.id, commentCreatedAt: at }),
                 ...(parent?.createTime ? { parentCommentId: parent.id, parentCommentCreatedAt: parent.createTime } : {}),
             });
+            return undefined;
         });
     }
     async function xpEvent(event, uid) {
@@ -507,7 +518,20 @@ function buildEngagement(db, database, region) {
         pin: (0, firestore_2.onDocumentCreated)(trigger('pins/{pinId}'), e => e.data && pinEvent(e.data)),
         like: (0, firestore_2.onDocumentCreated)(trigger('pins/{pinId}/likes/{actorId}'), e => e.data && social(e.data, 'like', e.params.pinId)),
         comment: (0, firestore_2.onDocumentCreated)(trigger('pins/{pinId}/comments/{commentId}'), e => e.data && social(e.data, 'comment', e.params.pinId)),
-        follow: (0, firestore_2.onDocumentCreated)(trigger('users/{uid}/followers/{followerId}'), e => e.data && social(e.data, 'follow', e.params.uid)),
+        follow: (0, firestore_2.onDocumentCreated)(trigger('users/{uid}/followers/{followerId}'), async (event) => {
+            const eventKey = event.id ? hash(event.id) : undefined;
+            let reason;
+            try {
+                reason = event.data ? await social(event.data, 'follow', event.params.uid) : 'missing_snapshot';
+            }
+            catch {
+                (0, logger_1.info)('Follow notification outcome', { reason: 'transaction_failure', eventKey });
+                // Preserve Eventarc retries without emitting Firestore error details or document paths.
+                throw new Error('Follow notification transaction failed');
+            }
+            // Log once after the transaction settles, including when Firestore retries the callback.
+            (0, logger_1.info)('Follow notification outcome', { reason, eventKey });
+        }),
         xp: (0, firestore_2.onDocumentCreated)(trigger('progressionV11/{uid}/xpEvents/{eventId}'), e => e.data && xpEvent(e.data, e.params.uid)),
         level: (0, firestore_2.onDocumentWritten)(trigger('progressionV11/{uid}/state/summary'), e => e.data?.after.exists && levelEvent(e.data.before, e.data.after, e.params.uid)),
         system: (0, firestore_2.onDocumentCreated)(trigger('users/{uid}/notificationCommands/{id}'), e => e.data && systemEvent(e.data, e.params.uid)),
