@@ -6,6 +6,8 @@ import { createPin, newPinPublishAttempt } from '../../services/pinService';
 import { MAX_PIN_IMAGES } from '../../services/storageService';
 import { resolveCustomAvatarUrl } from '../../utils/avatarUtils';
 import type { GeographySelection } from './GeographyPicker';
+import { LocationAutocompleteInput } from './LocationAutocompleteInput';
+import type { PlaceDetailsResult } from '../../services/placesService';
 import { CloseButton } from '../Common/CloseButton';
 import {
   MapPin,
@@ -71,6 +73,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const [description, setDescription] = useState(initialDraft?.description || '');
   const [category, setCategory] = useState<PinCategory>(initialDraft?.category || 'Hidden Gems');
   const [locationName, setLocationName] = useState(initialDraft?.locationName ?? '');
+  const [placeAddress, setPlaceAddress] = useState<string>();
+  const [pendingPlace, setPendingPlace] = useState<PlaceDetailsResult | null>(null);
+  const hasPosition = useRef(Boolean(selectedLocation));
   const [geographySelection, setGeographySelection] = useState<GeographySelection>(
     initialDraft?.geographySelection ?? { countryCode: '', cityId: '' },
   );
@@ -93,6 +98,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   // Sync selectedLocation if updated from map click
   useEffect(() => {
     if (selectedLocation) {
+      hasPosition.current = true;
       setCustomLat(selectedLocation.lat);
       setCustomLng(selectedLocation.lng);
     }
@@ -113,6 +119,24 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       if (initialDraft.customLng !== undefined && !selectedLocation) setCustomLng(initialDraft.customLng);
     }
   }, [initialDraft]);
+
+  function applyPlace(place: PlaceDetailsResult, movePin: boolean) {
+    setPendingPlace(null);
+    setLocationName(place.locationName);
+    setPlaceAddress(movePin ? place.formattedAddress : undefined);
+    if (movePin) {
+      const { latitude: lat, longitude: lng } = place;
+      hasPosition.current = true;
+      setCustomLat(lat);
+      setCustomLng(lng);
+      onLocationSelect?.({ lat, lng });
+    }
+  }
+
+  function clearPlaceDetails() {
+    setPendingPlace(null);
+    setPlaceAddress(undefined);
+  }
 
   const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
     if ('key' in e && e.key !== 'Enter' && e.key !== ',') return;
@@ -223,7 +247,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   // Keyboard navigation & Escape key dismiss
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isPickingLocation) return;
+      if (isPickingLocation || e.defaultPrevented) return;
       if (e.key === 'Escape') {
         if (showDiscardConfirm) {
           setShowDiscardConfirm(false);
@@ -376,6 +400,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       e.preventDefault();
                       e.stopPropagation();
                       if (submitInFlight.current) return;
+                      clearPlaceDetails();
                       onActivateMapPick({
                         title,
                         description,
@@ -396,20 +421,37 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                  <div className="relative">
-                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <div className="col-span-2 min-w-0">
+                    <label htmlFor="pin-location-name" className="text-[11px] font-semibold text-slate-500 dark:text-white/50">
                       Location name
-                    </span>
+                    </label>
                     <div className="mt-1">
-                      <input
-                        type="text"
+                      <LocationAutocompleteInput
+                        id="pin-location-name"
                         value={locationName}
-                        onChange={event => setLocationName(event.target.value)}
-                        placeholder="e.g. Old harbor"
-                        aria-label="Location name"
-                        className="liquid-glass-input w-full px-3 py-2 rounded-xl"
+                        disabled={isSubmitting}
+                        onChange={name => {
+                          clearPlaceDetails();
+                          setLocationName(name);
+                        }}
+                        onLocationSelect={place => {
+                          if (hasPosition.current) setPendingPlace(place);
+                          else applyPlace(place, true);
+                        }}
                       />
+                      {placeAddress && <p className="mt-1 text-[var(--heyroq-text-muted)]">{placeAddress} · Google Maps</p>}
+                      {pendingPlace && (
+                        <div className="mt-2 space-y-2" role="group" aria-label="Choose pin position">
+                          <p role="status">{pendingPlace.locationName}{pendingPlace.formattedAddress ? ' · ' + pendingPlace.formattedAddress : ''} · Google Maps</p>
+                          <button type="button" className="block min-h-11 underline" onClick={() => applyPlace(pendingPlace, true)}>
+                            Move pin to this place
+                          </button>
+                          <button type="button" className="block min-h-11 underline" onClick={() => applyPlace(pendingPlace, false)}>
+                            Keep pin position and use name
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -421,6 +463,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       step="any"
                       value={customLat}
                       onChange={(e) => {
+                        hasPosition.current = true;
+                        clearPlaceDetails();
                         const val = parseFloat(e.target.value) || 0;
                         setCustomLat(val);
                         onLocationSelect?.({ lat: val, lng: customLng });
@@ -437,6 +481,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       step="any"
                       value={customLng}
                       onChange={(e) => {
+                        hasPosition.current = true;
+                        clearPlaceDetails();
                         const val = parseFloat(e.target.value) || 0;
                         setCustomLng(val);
                         onLocationSelect?.({ lat: customLat, lng: val });
@@ -496,6 +542,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                 <Suspense fallback={<p role="status" className="text-xs">Loading city catalog…</p>}>
                   <GeographyPicker selection={geographySelection} onChange={setGeographySelection} disabled={isSubmitting}
                     onCenter={(lat, lng) => {
+                      hasPosition.current = true;
+                      clearPlaceDetails();
                       setCustomLat(lat);
                       setCustomLng(lng);
                       onLocationSelect?.({ lat, lng });

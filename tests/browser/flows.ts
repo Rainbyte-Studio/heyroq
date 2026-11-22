@@ -8,6 +8,7 @@ import { auth, db, storage } from '../../src/lib/firebase';
 import '../../src/index.css';
 import App from '../../src/App';
 import { AuthProvider } from '../../src/context/AuthContext';
+import { MapsProvider } from '../../src/components/Map/MapsProvider';
 import { CreatePinModal } from '../../src/components/Pin/CreatePinModal';
 import { executeDeleteUserAccount } from '../../src/services/accountSecurityService';
 import { createPin, deletePin, fetchPinById, newPinPublishAttempt, subscribeToViewportPins } from '../../src/services/pinService';
@@ -30,17 +31,18 @@ Object.assign(window, {
     },
     fixtureGeohash: () => computeGeohash(37, 23),
     signIn: (email: string, password: string) => signInWithEmailAndPassword(auth, email, password).then(() => undefined),
-    mountCreatePin() {
+    mountCreatePin(selectedLocation: { lat: number; lng: number } | null = null) {
       const host = document.createElement('div');
       document.body.append(host);
       const root = createRoot(host);
       root.render(createElement(AuthProvider, {
-        children: createElement(CreatePinModal, {
+        children: createElement(MapsProvider, { children: createElement(CreatePinModal, {
           onClose: () => { root.unmount(); host.remove(); },
-          selectedLocation: null,
+          selectedLocation,
           onActivateMapPick: () => {},
           onPinCreated: () => {},
-        }),
+          onLocationSelect: ({ lat, lng }) => { host.dataset.pinPosition = [lat, lng].join(","); },
+        }) }),
       }));
     },
     mountSearchApp() {
