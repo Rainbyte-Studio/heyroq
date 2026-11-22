@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   ChevronDown,
@@ -11,7 +12,8 @@ import {
 import { CloseButton } from '../Common/CloseButton';
 import { LocationAutocompleteInput } from './LocationAutocompleteInput';
 import { identifyPinLocation, type PinLocation } from '../../services/pinLocation';
-import { ensureFocusModalityTracking } from '../../utils/focusModality';
+import { ensureFocusModalityTracking, getFocusModality } from '../../utils/focusModality';
+import { useModalViewportLock } from '../../utils/modalViewportLock';
 
 interface Props {
   onCancel: () => void;
@@ -29,7 +31,9 @@ const optionCardActive =
   'bg-[var(--brand-primary)]/[0.07] border-[var(--brand-primary)]/45 shadow-[var(--heyroq-shadow-sm)]';
 
 export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Props) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLElement>(null);
+  const searchPanelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const request = useRef(0);
   const [searching, setSearching] = useState(false);
@@ -37,22 +41,77 @@ export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Pro
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  // Lock background scroll & track live visualViewport so iOS Safari keyboard
+  // focus never shifts the application header or leaves permanent scroll drift.
+  const viewportRect = useModalViewportLock(true);
+
+  useLayoutEffect(() => {
     ensureFocusModalityTracking();
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    const dialog = dialogRef.current;
-    dialog?.showModal();
+    dialogRef.current?.focus({ preventScroll: true });
+
     return () => {
       request.current++;
-      dialog?.close();
-      const prev = previousFocusRef.current;
-      if (prev && prev !== document.body && prev.isConnected) {
-        prev.focus({ preventScroll: true });
+      if (
+        typeof document !== 'undefined' &&
+        dialogRef.current?.contains(document.activeElement) &&
+        document.activeElement instanceof HTMLElement
+      ) {
+        document.activeElement.blur();
+      }
+      if (getFocusModality() === 'keyboard') {
+        const prev = previousFocusRef.current;
+        if (prev && prev !== document.body && prev.isConnected) {
+          prev.focus({ preventScroll: true });
+        }
       }
     };
   }, []);
+
+  // Bubble-phase Escape on document fires after portal autocomplete onKeyDown
+  // and before App.tsx's window-level Escape listener.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  function trapFocus(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const controls = [
+      ...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, input, select, textarea, a[href], [tabindex="0"]',
+      ),
+    ].filter(element => !element.matches(':disabled') && element.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (
+      !controls.includes(document.activeElement as HTMLElement) ||
+      (event.shiftKey ? document.activeElement === first : document.activeElement === last)
+    ) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  }
+
+  function keepSearchVisibleInsideModal() {
+    const container = bodyRef.current;
+    const target = searchPanelRef.current;
+    if (!container || !target) return;
+    // Scroll only inside the modal's internal scroll container, never window.
+    const nextScrollTop = Math.max(0, target.offsetTop - 8);
+    if (Math.abs(container.scrollTop - nextScrollTop) > 4) {
+      container.scrollTop = nextScrollTop;
+    }
+  }
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -82,22 +141,43 @@ export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Pro
     );
   }
 
-  return (
-    <dialog
-      ref={dialogRef}
-      id="drop-pin-location-dialog"
-      aria-labelledby="drop-pin-location-title"
-      aria-describedby="drop-pin-location-subtitle"
-      onCancel={event => {
-        event.preventDefault();
-        onCancel();
-      }}
+  if (typeof document === 'undefined') return null;
+
+  const viewportStyle: React.CSSProperties | undefined =
+    viewportRect.width > 0 && viewportRect.height > 0
+      ? {
+          top: `${viewportRect.top}px`,
+          left: `${viewportRect.left}px`,
+          width: `${viewportRect.width}px`,
+          height: `${viewportRect.height}px`,
+        }
+      : undefined;
+
+  const content = (
+    <div
+      id="drop-pin-location-backdrop"
+      style={viewportStyle}
       onClick={event => {
         if (event.target === event.currentTarget) onCancel();
       }}
-      className="m-auto w-[calc(100%-1.5rem)] max-w-[420px] max-h-[90dvh] overflow-hidden rounded-[26px] border border-[var(--glass-border-strong)] bg-transparent p-0 text-[var(--heyroq-text-primary)] shadow-[var(--heyroq-shadow-modal)] backdrop:bg-[var(--heyroq-backdrop-scrim)] backdrop:backdrop-blur-xs animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none"
+      className={`liquid-glass-backdrop fixed inset-0 z-[60] flex justify-center overflow-hidden px-3 ${
+        viewportRect.keyboardOpen
+          ? 'items-start pt-2 pb-2'
+          : 'items-center pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4'
+      } animate-in fade-in duration-150 motion-reduce:animate-none`}
     >
-      <div className="relative flex max-h-[90dvh] flex-col overflow-hidden rounded-[inherit]">
+      <div
+        ref={dialogRef}
+        id="drop-pin-location-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drop-pin-location-title"
+        aria-describedby="drop-pin-location-subtitle"
+        tabIndex={-1}
+        onKeyDown={trapFocus}
+        onClick={event => event.stopPropagation()}
+        className="relative flex w-full max-w-[420px] max-h-full flex-col overflow-hidden rounded-[26px] border border-[var(--glass-border-strong)] text-[var(--heyroq-text-primary)] shadow-[var(--heyroq-shadow-modal)] focus:outline-none animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none"
+      >
         {/* Sibling glass surface layer matching Heyroq AppWindow */}
         <div
           aria-hidden="true"
@@ -128,10 +208,13 @@ export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Pro
           />
         </header>
 
-        {/* Body */}
-        <section className="relative z-[1] flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-2.5">
+        {/* Internal scroll body */}
+        <section
+          ref={bodyRef}
+          className="relative z-[1] flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y px-5 py-4 space-y-2.5"
+        >
           {/* Option 1: Search for a Place */}
-          <div className="space-y-2">
+          <div ref={searchPanelRef} className="space-y-2">
             <button
               type="button"
               className={`${optionCardBase} ${searching ? optionCardActive : optionCardIdle}`}
@@ -178,6 +261,7 @@ export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Pro
                   autoFocus
                   value={query}
                   onChange={setQuery}
+                  onInputFocus={keepSearchVisibleInsideModal}
                   onLocationSelect={place =>
                     onContinue({
                       lat: place.latitude,
@@ -306,6 +390,8 @@ export function DropPinLocationDialog({ onCancel, onPickOnMap, onContinue }: Pro
           </button>
         </footer>
       </div>
-    </dialog>
+    </div>
   );
+
+  return createPortal(content, document.body);
 }

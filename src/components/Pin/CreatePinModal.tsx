@@ -10,6 +10,7 @@ import type { GeographySelection } from './GeographyPicker';
 import { LocationAutocompleteInput } from './LocationAutocompleteInput';
 import type { PlaceDetailsResult } from '../../services/placesService';
 import { CloseButton } from '../Common/CloseButton';
+import { useModalViewportLock } from '../../utils/modalViewportLock';
 import {
   MapPin,
   UploadCloud,
@@ -302,14 +303,29 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     }
   }
 
+  const viewportRect = useModalViewportLock(!isPickingLocation);
+
   if (isPickingLocation) {
     return null;
   }
 
+  const viewportStyle: React.CSSProperties | undefined =
+    viewportRect.width > 0 && viewportRect.height > 0
+      ? {
+          top: `${viewportRect.top}px`,
+          left: `${viewportRect.left}px`,
+          width: `${viewportRect.width}px`,
+          height: `${viewportRect.height}px`,
+        }
+      : undefined;
+
   return (
     <div
+      style={viewportStyle}
       onClick={handleAttemptClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 liquid-glass-backdrop animate-in fade-in"
+      className={`fixed inset-0 z-50 flex justify-center overflow-hidden p-3 sm:p-4 liquid-glass-backdrop animate-in fade-in ${
+        viewportRect.keyboardOpen ? 'items-start pt-2 pb-2' : 'items-center'
+      }`}
     >
       <div
         id="create-pin-modal"
@@ -320,7 +336,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         ref={modalRef}
         onKeyDown={trapFocus}
         onClick={(e) => e.stopPropagation()}
-        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative"
+        className="liquid-glass-modal rounded-[28px] sm:rounded-[32px] max-w-2xl lg:max-w-3xl w-full max-h-full sm:max-h-[90vh] overflow-hidden flex flex-col text-[var(--heyroq-text-primary)] relative"
       >
         {/* Discard Confirmation Overlay */}
         {showDiscardConfirm && (

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { APILoadingStatus, useMapsLibrary } from '@vis.gl/react-google-maps';
 import { Loader2, MapPin, Search } from 'lucide-react';
 import { useHeyroqMapsStatus } from '../Map/MapsProvider';
@@ -18,10 +18,11 @@ interface LocationAutocompleteInputProps {
   disabled?: boolean;
   ariaLabel?: string;
   autoFocus?: boolean;
+  onInputFocus?: () => void;
 }
 
 export function LocationAutocompleteInput({
-  id, value, onChange, onLocationSelect, disabled = false, ariaLabel, autoFocus,
+  id, value, onChange, onLocationSelect, disabled = false, ariaLabel, autoFocus, onInputFocus,
 }: LocationAutocompleteInputProps) {
   const places = useMapsLibrary('places');
   const mapsStatus = useHeyroqMapsStatus();
@@ -35,6 +36,7 @@ export function LocationAutocompleteInput({
   const session = useRef(new PlacesAutocompleteSession());
   const generation = useRef(0);
   const mounted = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<(HTMLLIElement | null)[]>([]);
   const open = !disabled && query.trim().length >= 2 && query === value;
   const expanded = open && !unavailable && suggestions.length > 0;
@@ -47,6 +49,13 @@ export function LocationAutocompleteInput({
       generation.current++;
     };
   }, []);
+
+  // Use synchronous preventScroll focus instead of raw HTML autoFocus so iOS
+  // Safari opens the keyboard on tap without scrolling the background layout.
+  useLayoutEffect(() => {
+    if (!autoFocus || disabled) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [autoFocus, disabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -119,11 +128,11 @@ export function LocationAutocompleteInput({
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--heyroq-text-muted)]"
         />
         <input
+          ref={inputRef}
           id={id}
           type="text"
           role="combobox"
           aria-label={ariaLabel}
-          autoFocus={autoFocus}
           aria-autocomplete="list"
           aria-expanded={expanded}
           aria-controls={expanded ? listId : undefined}
@@ -133,6 +142,7 @@ export function LocationAutocompleteInput({
           readOnly={selecting}
           placeholder="Search for a place or enter a name"
           autoComplete="off"
+          onFocus={() => onInputFocus?.()}
           onChange={event => {
             closeSuggestions();
             onChange(event.target.value);
@@ -142,6 +152,7 @@ export function LocationAutocompleteInput({
           onKeyDown={event => {
             if (event.nativeEvent.isComposing) return;
             if (event.key === 'Escape' && open) {
+              event.preventDefault();
               event.stopPropagation();
               closeSuggestions();
             } else if (expanded && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -155,7 +166,7 @@ export function LocationAutocompleteInput({
               if (expanded && activeIndex >= 0) void select(suggestions[activeIndex]);
             }
           }}
-          className="liquid-glass-input w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-9 py-2 rounded-xl text-base sm:text-sm text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] heyroq-focus-ring"
+          className="liquid-glass-input w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-9 py-2 rounded-xl text-base [@media(hover:hover)_and_(pointer:fine)]:text-sm text-[var(--heyroq-text-primary)] placeholder:text-[var(--heyroq-text-muted)] heyroq-focus-ring"
         />
         {isBusy && (
           <Loader2
