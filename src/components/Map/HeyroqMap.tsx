@@ -50,6 +50,7 @@ interface HeyroqMapProps {
   onDropPin?: () => void;
   showPinMarkers?: boolean;
   onTogglePinMarkers?: () => void;
+  mobileSheetOffsetPx?: number;
 }
 
 /**
@@ -270,6 +271,7 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   onDropPin,
   showPinMarkers = true,
   onTogglePinMarkers,
+  mobileSheetOffsetPx = 0,
 }) => {
   const { resolvedTheme } = useTheme();
   const effectivePins = showPinMarkers ? pins : [];
@@ -414,16 +416,25 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
   // UTILITY CONTROLS: [ My Location ] [ Map Layers ]
   // ACTIONS:          [ Hide / Show ] [ Spots (if drawer closed) ] [ Mobile Add Pin (+) ]
   const hasMobileSelectionSheet = !isDesktop && Boolean(mapCandidate);
+  const useDynamicMobileSheetOffset =
+    !isDesktop && !hasMobileSelectionSheet && mobileSheetOffsetPx > 0;
 
   const renderHeyroqControls = () => (
     <div
       id="heyroq-bottom-right-controls"
-      className={`absolute right-3.5 sm:right-5 z-20 flex flex-col items-end gap-2 pointer-events-auto select-none transition-all duration-200 ${
-        hasMobileSelectionSheet
-          ? 'bottom-[calc(11.25rem+env(safe-area-inset-bottom,0px))]'
-          : isDrawerOpen
-            ? 'bottom-6 sm:bottom-7'
-            : 'bottom-[calc(1.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
+      style={
+        useDynamicMobileSheetOffset
+          ? { bottom: `calc(${mobileSheetOffsetPx}px + env(safe-area-inset-bottom, 0px))` }
+          : undefined
+      }
+      className={`absolute right-3.5 sm:right-5 z-20 flex flex-col items-end gap-2 pointer-events-auto select-none transition-[bottom,opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+        useDynamicMobileSheetOffset
+          ? ''
+          : hasMobileSelectionSheet
+            ? 'bottom-[calc(11.25rem+env(safe-area-inset-bottom,0px))]'
+            : isDrawerOpen
+              ? 'bottom-6 sm:bottom-7'
+              : 'bottom-[calc(1.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-8'
       }`}
     >
       {/* Location Feedback Notice */}
@@ -876,7 +887,16 @@ const HeyroqMapContent: React.FC<HeyroqMapProps> = ({
 
       {renderHeyroqControls()}
 
-      <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2">
+      <div
+        style={
+          useDynamicMobileSheetOffset
+            ? { bottom: `calc(${mobileSheetOffsetPx}px + env(safe-area-inset-bottom, 0px))` }
+            : undefined
+        }
+        className={`absolute left-6 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out motion-reduce:transition-none ${
+          useDynamicMobileSheetOffset ? '' : 'bottom-6'
+        }`}
+      >
         <button
           type="button"
           onClick={(e) => {

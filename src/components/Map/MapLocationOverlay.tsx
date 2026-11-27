@@ -475,14 +475,8 @@ export const MapLocationOverlay: React.FC<MapLocationOverlayProps> = ({
     <section
       id="map-location-selection"
       aria-label="Map location selection"
-      className="liquid-glass-floating absolute inset-x-0 bottom-0 z-30 rounded-t-[24px] border-x-0 border-b-0 px-4 pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] text-[var(--heyroq-text-primary)] animate-in fade-in slide-in-from-bottom-4 duration-200"
+      className="liquid-glass-floating absolute inset-x-0 bottom-0 z-30 rounded-t-[24px] border-x-0 border-b-0 px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] text-[var(--heyroq-text-primary)] animate-in fade-in slide-in-from-bottom-4 duration-200"
     >
-      {/* Subtle bottom-sheet grab handle */}
-      <div
-        aria-hidden="true"
-        className="mx-auto mb-2 h-1 w-9 rounded-full bg-[var(--heyroq-border-strong)]"
-      />
-
       <div className="flex items-start gap-3">
         <div
           aria-hidden="true"

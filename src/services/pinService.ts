@@ -176,7 +176,7 @@ export async function fetchPinsByDiscovery(
 export function subscribeToDiscoveryPins(
   type: 'recent' | 'popular' | 'trending' | 'all',
   category: PinCategory | null | undefined,
-  onUpdate: (pins: Pin[]) => void,
+  onUpdate: (pins: Pin[], meta?: { fromCache?: boolean }) => void,
   onError?: (err: any) => void,
   limitCount = 50
 ): () => void {
@@ -203,7 +203,7 @@ export function subscribeToDiscoveryPins(
       { includeMetadataChanges: true },
       (snap) => {
         if (snap.metadata.fromCache) {
-          onUpdate([]);
+          onUpdate([], { fromCache: true });
           return;
         }
         let serverPins: Pin[] = snap.docs.map((d) => {
@@ -230,10 +230,10 @@ export function subscribeToDiscoveryPins(
         cachedPinsSnapshot = serverPins;
         seedSessionPins(serverPins);
 
-        onUpdate(serverPins.slice(0, limitCount));
+        onUpdate(serverPins.slice(0, limitCount), { fromCache: false });
       },
       (err) => {
-        onUpdate([]);
+        onUpdate([], { fromCache: false });
         console.warn('Firestore discovery pins onSnapshot notice:', err);
         if (onError) onError(err);
       }

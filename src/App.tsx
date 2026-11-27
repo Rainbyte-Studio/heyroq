@@ -59,6 +59,14 @@ import {
   hydratePinCommentCounts,
 } from './services/pinService';
 import { sortPins } from './utils/sortUtils';
+import {
+  INITIAL_NEARBY_SHEET_STATE,
+  applyInitialNearbyQueryResult,
+  applyUserSheetSnap,
+  computeNearbySheetHeights,
+  computeMobileControlsOffset,
+  type NearbySheetSnap,
+} from './utils/nearbySheetState';
 import { ListFilter, Map as MapIcon, Plus, Compass } from 'lucide-react';
 
 const AdminModal = lazy(() => import('./components/Admin/AdminModal').then(module => ({ default: module.AdminModal })));
@@ -372,10 +380,40 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
 
   // Discovery connection and error recovery state
   const [isDiscoveryError, setIsDiscoveryError] = useState(false);
+  const [hasInitialNearbyLoaded, setHasInitialNearbyLoaded] = useState(false);
+  const [nearbySheetState, setNearbySheetState] = useState(INITIAL_NEARBY_SHEET_STATE);
+  const [mainWorkspaceHeight, setMainWorkspaceHeight] = useState<number>(560);
   const [discoveryRetryCount, setDiscoveryRetryCount] = useState(0);
   const handleRetryDiscovery = useCallback(() => {
     setIsDiscoveryError(false);
     setDiscoveryRetryCount((c) => c + 1);
+  }, []);
+
+  const handleNearbySheetSnapChange = useCallback((nextSnap: NearbySheetSnap) => {
+    setNearbySheetState((prev) => applyUserSheetSnap(prev, nextSnap));
+  }, []);
+
+  // Measure the live map workspace height so mobile bottom-sheet snap heights adapt cleanly
+  // to orientation changes, iOS Safari dynamic toolbars, and safe areas.
+  useEffect(() => {
+    const el = mainContentRef.current;
+    if (!el || typeof window === 'undefined') return;
+
+    const updateHeight = () => {
+      const next = Math.round(el.getBoundingClientRect().height);
+      if (next > 0) {
+        setMainWorkspaceHeight((prev) => (prev === next ? prev : next));
+      }
+    };
+
+    updateHeight();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(updateHeight);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
   }, []);
 
   // Viewport tracking ref to eliminate redundant queries for unchanged bounds
@@ -525,8 +563,11 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
     const unsubscribe = subscribeToDiscoveryPins(
       'all',
       selectedCategory,
-      (discovered) => {
+      (discovered, meta) => {
         setIsDiscoveryError(false);
+        if (!meta?.fromCache) {
+          setHasInitialNearbyLoaded(true);
+        }
         const next = new Set(discovered.map(pin => pin.id));
         const previous = discoveryIds.current;
         discoveryIds.current = next;
@@ -538,6 +579,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
       (err) => {
         console.warn('Discovery subscription notice:', err);
         setIsDiscoveryError(true);
+        setHasInitialNearbyLoaded(true);
       }
     );
 
@@ -575,6 +617,9 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
 
       stopViewport.current?.();
       stopViewport.current = subscribeToViewportPins(bounds, viewportPins => {
+        if (viewportPins.length > 0) {
+          setHasInitialNearbyLoaded(true);
+        }
         const previous = viewportIds.current;
         viewportIds.current = new Set(viewportPins.map(pin => pin.id));
         setPins(pins => {
@@ -598,6 +643,35 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
     setDetailPinId(null);
     setDetailPinFallback(null);
   }, [user?.uid]);
+
+  // One-time automatic initial mobile bottom-sheet positioning when the first Nearby Spots query settles.
+  // Respects user interaction and never auto-repositions after initialization.
+  useEffect(() => {
+    if (isDesktop || !hasInitialNearbyLoaded) return;
+    setNearbySheetState((prev) =>
+      applyInitialNearbyQueryResult(prev, {
+        isLoading: false,
+        isError: isDiscoveryError && displayedPins.length === 0,
+        spotCount: displayedPins.length,
+      }),
+    );
+  }, [isDesktop, hasInitialNearbyLoaded, isDiscoveryError, displayedPins.length]);
+
+  const nearbySheetSnapHeights = useMemo(
+    () => computeNearbySheetHeights(mainWorkspaceHeight),
+    [mainWorkspaceHeight],
+  );
+
+  const mobileSheetOffsetPx = useMemo(
+    () =>
+      computeMobileControlsOffset({
+        sheetVisible: !isDesktop && shouldRenderNearbySpots,
+        snap: nearbySheetState.snap,
+        snapHeights: nearbySheetSnapHeights,
+        containerHeightPx: mainWorkspaceHeight,
+      }),
+    [isDesktop, shouldRenderNearbySpots, nearbySheetState.snap, nearbySheetSnapHeights, mainWorkspaceHeight],
+  );
 
   // Real-time authoritative sync for selectedPin (only active when PinDetailModal is not open)
   const activeFocusPinId = detailPinId || selectedPinId;
@@ -881,6 +955,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
             onTogglePinMarkers={handleTogglePinMarkers}
             onCancelCreateLocation={cancelMapPick}
             onDropPin={openDropPin}
+            mobileSheetOffsetPx={mobileSheetOffsetPx}
           />
 
           {/* Floating Pin Preview Card on Map - Desktop only (bypassed on mobile below 768px, and dismissed when markers hidden) */}
@@ -903,7 +978,7 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
           )}
         </div>
 
-        {/* Discovery Feed Side Drawer */}
+        {/* Discovery Feed Side Drawer (Desktop) / Draggable Bottom Sheet (Mobile) */}
         <PinFeedList
           pins={displayedPins}
           selectedPin={selectedPin}
@@ -935,6 +1010,10 @@ function HeyroqMainApp({ activeRoute }: { activeRoute: AppRoute }) {
             (isSearchActive ? completedSearch?.query === searchQuery && completedSearch.ids === null : isDiscoveryError)
           }
           onRetry={handleRetryDiscovery}
+          sheetSnap={nearbySheetState.snap}
+          onSheetSnapChange={handleNearbySheetSnapChange}
+          containerHeight={mainWorkspaceHeight}
+          isInitialLoading={!hasInitialNearbyLoaded}
         />
       </main>
 
